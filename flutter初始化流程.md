@@ -1,0 +1,408 @@
+[TOC]
+# 绑定根Widget,Element,RenderObject
+```dart
+/// app入口
+void main() => runApp(MyApp());
+
+void runApp(Widget app) {
+  WidgetsFlutterBinding.ensureInitialized()
+    ..attachRootWidget(app)
+    ..scheduleWarmUpFrame();
+}
+   
+/// 略过 ensureInitialized()
+... 
+
+/// WidgetsFlutterBinding.attachRootWidget
+/// _renderViewElement 即为 element树的根节点    
+void attachRootWidget(Widget rootWidget) {
+    _renderViewElement = RenderObjectToWidgetAdapter<RenderBox>(
+        container: renderView,
+        debugShortDescription: '[root]',
+        child: rootWidget,/// 作为 RenderObjectToWidgetAdapter.child
+    ).attachToRenderTree(buildOwner, renderViewElement);
+} 
+
+/// RenderObjectToWidgetAdapter.attachToRenderTree
+/// BuildOwner owner 在WidgetsBinding里实例化：
+
+/// WidgetsBinding
+mixin WidgetsBinding on BindingBase, SchedulerBinding, GestureBinding, RendererBinding, SemanticsBinding {
+	...
+    BuildOwner get buildOwner => _buildOwner;
+    final BuildOwner _buildOwner = BuildOwner();
+    ...
+}
+
+///  RenderObjectToWidgetAdapter.attachToRenderTree
+RenderObjectToWidgetElement<T> attachToRenderTree(BuildOwner owner, [RenderObjectToWidgetElement<T> element ]) {
+    if (element == null) {
+        ...
+        owner.buildScope(element, () {
+            element.mount(null, null);
+        });
+    } else {
+       ...
+    }
+    return element;
+}
+
+
+/// BuildOwner.buildScope
+void buildScope(Element context, [ VoidCallback callback ]) {
+    ...
+    try {
+        _scheduledFlushDirtyElements = true;
+        if (callback != null) {
+            ...
+            try {
+                callback();
+                /// 调用传入的 callback
+            } finally {
+              ...
+            }
+        }
+    } finally {
+      ...
+    }
+}
+
+/// RenderObjectToWidgetElement.mount
+void mount(Element parent, dynamic newSlot) {
+    assert(parent == null);
+    super.mount(parent, newSlot);
+    _rebuild();
+}
+
+/// 多次super.mount后调用到Element.mount
+void mount(Element parent, dynamic newSlot) {
+    ...
+    _parent = parent; /// null
+    _slot = newSlot;  /// null 
+    _depth = _parent != null ? _parent.depth + 1 : 1;  /// 1
+    _active = true;
+    if (parent != null) 
+        _owner = parent.owner;
+    if (widget.key is GlobalKey) {
+        final GlobalKey key = widget.key;
+        key._register(this);
+    }
+    _updateInheritance();/// 见后文
+    assert(() { _debugLifecycleState = _ElementLifecycle.active; return true; }());
+}
+
+/// 然后是RenderObjectElement.mount
+void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    _renderObject = widget.createRenderObject(this);
+    /// 此时的_renderObject 即 _renderview
+    assert(() { _debugUpdateRenderObjectOwner(); return true; }());
+    assert(_slot == newSlot);
+    attachRenderObject(newSlot);
+    _dirty = false;
+}
+
+/// RenderObjectToWidgetElement._rebuild
+void _rebuild() {
+    try {
+        _child = updateChild(_child, widget.child, _rootChildSlot);
+        /// 此时_child 为null
+        /// widget 是RenderObjectToWidgetAdapter
+        /// widget.child就是runApp()里传入的widget
+        /// _rootChildSlot 为 static const Object _rootChildSlot = Object();
+        /// _child 被修改为 updateChild 返回的子element
+        assert(_child != null);
+    } 
+    ...
+}
+
+/// Element.updateChild
+Element updateChild(Element child, Widget newWidget, dynamic newSlot) {
+    if (newWidget == null) {
+        if (child != null)
+            deactivateChild(child);
+        return null;
+    }
+    if (child != null) {
+        if (child.widget == newWidget) {
+            if (child.slot != newSlot)
+                updateSlotForChild(child, newSlot);
+            return child;
+        }
+        if (Widget.canUpdate(child.widget, newWidget)) {
+            if (child.slot != newSlot)
+                updateSlotForChild(child, newSlot);
+            child.update(newWidget);
+            assert(child.widget == newWidget);
+            assert(() {
+                child.owner._debugElementWasRebuilt(child);
+                return true;
+            }());
+            return child;
+        }
+        deactivateChild(child);
+        assert(child._parent == null);
+    }
+    /// 由于child == null && newWidget != null,调用inflateWidget，返回新建的子element
+    return inflateWidget(newWidget, newSlot);
+}
+
+/// Element.infalateWidget
+Element inflateWidget(Widget newWidget, dynamic newSlot) {
+    assert(newWidget != null);
+    final Key key = newWidget.key;
+    if (key is GlobalKey) {
+        final Element newChild = _retakeInactiveElement(key, newWidget);
+        if (newChild != null) {
+            assert(newChild._parent == null);
+            assert(() { _debugCheckForCycles(newChild); return true; }());
+            newChild._activateWithParent(this, newSlot);
+            final Element updatedChild = updateChild(newChild, newWidget, newSlot);
+            assert(newChild == updatedChild);
+            return updatedChild;
+        }
+    }
+    final Element newChild = newWidget.createElement();
+    /// runApp()传入的widget的createElement()在这里被调用
+    assert(() { _debugCheckForCycles(newChild); return true; }());
+    newChild.mount(this, newSlot);
+    /// 调用子element的mount,建立子element
+    assert(newChild._debugLifecycleState == _ElementLifecycle.active);
+    return newChild;
+}
+
+
+/// 至此，根节点的绑定完成
+```
+
+
+
+# 调用顺序
+
+- 父element先调用其引用的widget的.build方法（即 widgetd 的 build(BuildContext context）。这里的 context 即element本身)，得到子widget
+- 然后父element再调用子widget的createElement 方法（一般返回的是 XXXElement(this),即调用 XXXElement的构造器)，得到子element
+- 建立父子element的关联
+- 子element重复以上步骤
+
+
+
+
+
+# 以StatelessElement 为例
+
+```dart
+/// ComponentElement.mount
+void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    ...
+}
+
+/// 先super.mount调用element.mount建立父子element的关联
+void mount(Element parent, dynamic newSlot) {
+    ...
+    _parent = parent;
+    _slot = newSlot;
+    _depth = _parent != null ? _parent.depth + 1 : 1;
+    _active = true;
+    if (parent != null) // Only assign ownership if the parent is non-null
+        _owner = parent.owner;
+    if (widget.key is GlobalKey) {
+        final GlobalKey key = widget.key;
+        key._register(this);
+    }
+    _updateInheritance();
+    assert(() { _debugLifecycleState = _ElementLifecycle.active; return true; }());
+}
+
+/// ComponentElement.mount
+void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    ...
+    _firstBuild();
+    ...
+}
+
+
+/// 然后是ComponentElement.firstBuild
+void _firstBuild() {
+    rebuild();
+}
+
+/// ComponetElement.rebuild
+void rebuild() {
+  	...
+    performRebuild();
+    ...
+}
+
+/// ComponentElement.performRebuild
+void performRebuild() {
+    ...
+    Widget built;
+    try {
+        built = build();
+        ...
+    }
+    ...
+}
+
+/// 调用在StatelessWidget中重载的 build 方法：
+class StatelessElement extends ComponentElement {
+  
+  StatelessElement(StatelessWidget widget) : super(widget);
+
+  @override
+  StatelessWidget get widget => super.widget;
+
+  @override
+  Widget build() => widget.build(this);
+  /// 调用widget.build
+  
+  ...  
+}
+
+/// ComponentElement.performRebuild
+void performRebuild() {
+    ...
+    try {
+       _child = updateChild(_child, built, slot);
+       assert(_child != null);
+    } 
+    ...
+}
+
+
+/// Element.updateChild
+Element updateChild(Element child, Widget newWidget, dynamic newSlot) {
+    if (newWidget == null) {
+        if (child != null)
+            deactivateChild(child);
+        return null;
+    }
+    if (child != null) {
+        if (child.widget == newWidget) {
+            if (child.slot != newSlot)
+                updateSlotForChild(child, newSlot);
+            return child;
+        }
+        if (Widget.canUpdate(child.widget, newWidget)) {
+            if (child.slot != newSlot)
+                updateSlotForChild(child, newSlot);
+            child.update(newWidget);
+            assert(child.widget == newWidget);
+            assert(() {
+                child.owner._debugElementWasRebuilt(child);
+                return true;
+            }());
+            return child;
+        }
+        deactivateChild(child);
+        assert(child._parent == null);
+    }
+    /// 由于child == null && newWidget != null,调用inflateWidget，返回新建的子element
+    return inflateWidget(newWidget, newSlot);
+}
+
+/// Element.infalateWidget
+Element inflateWidget(Widget newWidget, dynamic newSlot) {
+    assert(newWidget != null);
+    final Key key = newWidget.key;
+    if (key is GlobalKey) {
+        final Element newChild = _retakeInactiveElement(key, newWidget);
+        if (newChild != null) {
+            assert(newChild._parent == null);
+            assert(() { _debugCheckForCycles(newChild); return true; }());
+            newChild._activateWithParent(this, newSlot);
+            final Element updatedChild = updateChild(newChild, newWidget, newSlot);
+            assert(newChild == updatedChild);
+            return updatedChild;
+        }
+    }
+    final Element newChild = newWidget.createElement();
+    /// runApp()传入的widget的createElement()在这里被调用
+    assert(() { _debugCheckForCycles(newChild); return true; }());
+    newChild.mount(this, newSlot);
+    /// 调用子element的mount,建立子element
+    assert(newChild._debugLifecycleState == _ElementLifecycle.active);
+    return newChild;
+}
+
+///又回到了element.updateChild方法，继续构建子element
+```
+
+
+
+# 以StatelessElement 为例
+
+```dart
+/// 在这个方法以前，流程同StatelessWidget
+/// ComponentElement.performRebuild
+void performRebuild() {
+    ...
+    Widget built;
+    try {
+        built = build();
+        ...
+    }
+    ...
+}
+
+/// StatefulWidget.build
+/// 需要注意的是，在父element的绑定阶段，调用widget.createElement
+/// 即StatefulWidget.createElement(this),自动调用widget.createState()，从而产生state
+
+/// StatefulElement的构造器
+StatefulElement(StatefulWidget widget)
+    : _state = widget.createState(),
+	  super(widget) 
+{
+    _state._element = this;
+    _state._widget = widget;
+   /// State 持有对widget和element的引用
+}
+
+/// StatefulWidget.build
+@override
+Widget build() => state.build(this);
+
+/// ComponentElement.performRebuild
+void performRebuild() {
+    ...
+    try {
+       _child = updateChild(_child, built, slot);
+       assert(_child != null);
+    } 
+    ...
+}
+
+///又回到了element.updateChild方法，继续构建子element
+```
+
+```dart
+/// 直到    
+Element updateChild(Element child, Widget newWidget, dynamic newSlot) {
+    
+    if (newWidget == null) {
+        if (child != null)
+            deactivateChild(child);
+        return null;
+    }
+    /// 当到达叶子节点时，返回null结束递归
+    ...
+}  
+```
+
+
+
+# 遗传映射表
+
+```dart
+void _updateInheritance() {
+    assert(_active);
+    _inheritedWidgets = _parent?._inheritedWidgets;
+}
+
+/// 其中
+Map<Type, InheritedElement> _inheritedWidgets;
+```
+
