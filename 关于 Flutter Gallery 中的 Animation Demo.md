@@ -103,30 +103,9 @@ class _StatusBarPaddingSliver extends SingleChildRenderObjectWidget {
 ## 板块布局
 
 ```dart
-// Arrange the section titles, indicators, and cards. The cards are only included when
-// the layout is transitioning between vertical and horizontal. Once the layout is
-// horizontal the cards are laid out by a PageView.
-//
-// The layout of the section cards, titles, and indicators is defined by the
-// two 0.0-1.0 "t" parameters, both of which are based on the layout's height:
-// - tColumnToRow
-//   0.0 when height is maxHeight and the layout is a column
-//   1.0 when the height is midHeight and the layout is a row
-// - tCollapsed
-//   0.0 when height is midHeight and the layout is a row
-//   1.0 when height is minHeight and the layout is a (still) row
-//
-// minHeight < midHeight < maxHeight
-//
-// The general approach here is to compute the column layout and row size
-// and position of each element and then interpolate between them using
-// tColumnToRow. Once tColumnToRow reaches 1.0, the layout changes are
-// defined by tCollapsed. As tCollapsed increases the titles spread out
-// until only one title is visible and the indicators cluster together
-// until they're all visible.
 
 // 安排板块标题，指示器，卡片。只有在布局从垂直变化到水平的时候，卡片被加入。
-// 一旦布局变成水平，卡片将用PageView展示（卡片指带有详情的部分）
+// 一旦布局变成水平，卡片将用PageView展示
 //
 // 卡片，标题和指示器的布局被两个 t 基于布局高度的参数定义：
 // - tColumnToRow
@@ -153,80 +132,136 @@ class _AllSectionsLayout extends MultiChildLayoutDelegate {
     this.selectedIndex,
   });
 
+  // 排列  
   final Alignment translation;
   final double tColumnToRow;
   final double tCollapsed;
+  // 卡片数量  
   final int cardCount;
+  // 当前选中卡片  
   final double selectedIndex;
 
+  // 矩形插值  
   Rect _interpolateRect(Rect begin, Rect end) {
     return Rect.lerp(begin, end, tColumnToRow);
   }
 
+  // 偏移量插值 
   Offset _interpolatePoint(Offset begin, Offset end) {
     return Offset.lerp(begin, end, tColumnToRow);
   }
 
+  // 通过指定的大小来布局  
+  // 未重载getSize，使用默认的最大约束当作大小
+  // Size getSize(BoxConstraints constraints) => constraints.biggest;  
   @override
   void performLayout(Size size) {
-    //final double columnCardX = size.width / 5.0;
+    // 列状态下，卡片的X距离  
     final double columnCardX = size.width / 4.0;
+    // 列状态下，卡片宽度  
     final double columnCardWidth = size.width - columnCardX;
+    // 列状态下，卡片高度  
     final double columnCardHeight = size.height / cardCount;
+    // 行状态下，卡片宽度  
     final double rowCardWidth = size.width;
+    // 根据排列和大小来返回一个点距离原点的偏移
+    // Offset alongSize(Size other) {
+    //  final double centerX = other.width / 2.0;
+    //  final double centerY = other.height / 2.0;
+    //  return Offset(centerX + x * centerX, centerY + y * centerY);
+    // }
     final Offset offset = translation.alongSize(size);
+    // 列状态下，卡片的Y距离
     double columnCardY = 0.0;
+    // 行状态下，卡片的X距离
+    // 即 -（选中卡片 * 卡片宽度）
     double rowCardX = -(selectedIndex * rowCardWidth);
 
-    // When tCollapsed > 0 the titles spread apart
+    // 当  tCollapsed > 0 标题分开
+    // 列状态时，标题的X距离
     final double columnTitleX = size.width / 10.0;
+    // 行状态时，标题的宽度
+    // 当tCollapsed增加时，这个长度是增加的
     final double rowTitleWidth = size.width * ((1 + tCollapsed) / 2.25);
-    double rowTitleX = (size.width - rowTitleWidth) / 2.0 - selectedIndex * rowTitleWidth;
+    // 行状态时，标题的X距离
+    double rowTitleX = 
+    	(size.width - rowTitleWidth) / 2.0 - selectedIndex *
+        rowTitleWidth;
 
-    // When tCollapsed > 0, the indicators move closer together
-    //final double rowIndicatorWidth = 48.0 + (1.0 - tCollapsed) * (rowTitleWidth - 48.0);
-    const double paddedSectionIndicatorWidth = kSectionIndicatorWidth + 8.0;
-    final double rowIndicatorWidth = paddedSectionIndicatorWidth +
-      (1.0 - tCollapsed) * (rowTitleWidth - paddedSectionIndicatorWidth);
+    // 当 tCollapsed > 0, 指示器靠近在一起
+    // 计算包括padding的指示器宽度，等于原宽度 + 8.0
+    const double paddedSectionIndicatorWidth = 
+    	kSectionIndicatorWidth + 8.0;
+    
+    // 行状态时，指示器的宽度
+    final double rowIndicatorWidth = 
+    	paddedSectionIndicatorWidth + (1.0 - tCollapsed) * 
+    	(rowTitleWidth - paddedSectionIndicatorWidth);
+    	
     double rowIndicatorX = (size.width - rowIndicatorWidth) / 2.0 - selectedIndex * rowIndicatorWidth;
-
-    // Compute the size and origin of each card, title, and indicator for the maxHeight
-    // "column" layout, and the midHeight "row" layout. The actual layout is just the
-    // interpolated value between the column and row layouts for t.
+    
+    // 计算当最大高度的列布局，中间高度的行布局时，
+    // 每一张卡片，标题和指示器的大小和和原点。
+    // 其余情况则为插值计算
+    
     for (int index = 0; index < cardCount; index++) {
 
-      // Layout the card for index.
-      final Rect columnCardRect = Rect.fromLTWH(columnCardX, columnCardY, columnCardWidth, columnCardHeight);
-      final Rect rowCardRect = Rect.fromLTWH(rowCardX, 0.0, rowCardWidth, size.height);
-      final Rect cardRect = _interpolateRect(columnCardRect, rowCardRect).shift(offset);
+      // 布局当前index的卡片
+      // 列状态时的卡片矩形
+      final Rect columnCardRect = Rect.fromLTWH(
+      	columnCardX, columnCardY, columnCardWidth, columnCardHeight);
+      // 行状态时的卡片矩形	
+      final Rect rowCardRect = Rect.fromLTWH(
+      	rowCardX, 0.0, rowCardWidth, size.height);
+      	
+      // 通过 tColumnToRow 来算出 行列 矩形的插值，并将移动Offset的偏移	
+      final Rect cardRect = _interpolateRect(
+      	columnCardRect, rowCardRect).shift(offset);
+      	
       final String cardId = 'card$index';
+      
+      // 如果有对应的孩子，则接着请求孩子布局
       if (hasChild(cardId)) {
+      	// 将刚才算出的卡片矩形的大小作为严格约束传入
         layoutChild(cardId, BoxConstraints.tight(cardRect.size));
+        // 将工程算出的卡片矩形的偏移作为孩子位置
         positionChild(cardId, cardRect.topLeft);
       }
 
-      // Layout the title for index.
-      final Size titleSize = layoutChild('title$index', BoxConstraints.loose(cardRect.size));
-      final double columnTitleY = columnCardRect.centerLeft.dy - titleSize.height / 2.0;
-      final double rowTitleY = rowCardRect.centerLeft.dy - titleSize.height / 2.0;
-      final double centeredRowTitleX = rowTitleX + (rowTitleWidth - titleSize.width) / 2.0;
-      final Offset columnTitleOrigin = Offset(columnTitleX, columnTitleY);
-      final Offset rowTitleOrigin = Offset(centeredRowTitleX, rowTitleY);
-      final Offset titleOrigin = _interpolatePoint(columnTitleOrigin, rowTitleOrigin);
+      // 布局当前index的标题
+      // 将刚才算出的卡片矩形的大小作为宽松约束传入，得到标题的大小
+      // BoxConstraints.loose(Size size)
+      // :  minWidth = 0.0,
+      //    maxWidth = size.width,
+      //    minHeight = 0.0,
+      //    maxHeight = size.height;
+      final Size titleSize = layoutChild(
+        'title$index', BoxConstraints.loose(cardRect.size));
+      // 列状态标题的Y距离  
+      final double columnTitleY = 
+      	columnCardRect.centerLeft.dy - titleSize.height / 2.0;
+      // 行状态标题的X距离	
+      final double rowTitleY = 
+      	rowCardRect.centerLeft.dy - titleSize.height / 2.0;
+      // 行状态标题的X距离（加上了卡片标题的宽度）	
+      final double centeredRowTitleX = 
+      	rowTitleX + (rowTitleWidth - titleSize.width) / 2.0;
+      // 计算出列状态标题的远点	
+      final Offset columnTitleOrigin = 
+      	Offset(columnTitleX, columnTitleY);
+      // 计算出行状态标题的原点	
+      final Offset rowTitleOrigin = 
+      	Offset(centeredRowTitleX, rowTitleY);
+      	
+      // 根据插值来计算 tColumnToRow 时标题的原点	
+      final Offset titleOrigin = 
+      	_interpolatePoint(columnTitleOrigin, rowTitleOrigin);
+      // 放置标题在指定位置
       positionChild('title$index', titleOrigin + offset);
 
-      // Layout the selection indicator for index.
-      final Size indicatorSize = layoutChild('indicator$index', BoxConstraints.loose(cardRect.size));
-      final double columnIndicatorX = cardRect.centerRight.dx - indicatorSize.width - 16.0;
-      final double columnIndicatorY = cardRect.bottomRight.dy - indicatorSize.height - 16.0;
-      final Offset columnIndicatorOrigin = Offset(columnIndicatorX, columnIndicatorY);
-      final Rect titleRect = Rect.fromPoints(titleOrigin, titleSize.bottomRight(titleOrigin));
-      final double centeredRowIndicatorX = rowIndicatorX + (rowIndicatorWidth - indicatorSize.width) / 2.0;
-      final double rowIndicatorY = titleRect.bottomCenter.dy + 16.0;
-      final Offset rowIndicatorOrigin = Offset(centeredRowIndicatorX, rowIndicatorY);
-      final Offset indicatorOrigin = _interpolatePoint(columnIndicatorOrigin, rowIndicatorOrigin);
-      positionChild('indicator$index', indicatorOrigin + offset);
-
+	 // 指示器类似，略过
+     ...
+     // 加上对应的指数，来计算下一个卡片
       columnCardY += columnCardHeight;
       rowCardX += rowCardWidth;
       rowTitleX += rowTitleWidth;
@@ -234,6 +269,7 @@ class _AllSectionsLayout extends MultiChildLayoutDelegate {
     }
   }
 
+  // 是否应该重新布局
   @override
   bool shouldRelayout(_AllSectionsLayout oldDelegate) {
     return tColumnToRow != oldDelegate.tColumnToRow
@@ -241,5 +277,402 @@ class _AllSectionsLayout extends MultiChildLayoutDelegate {
       || selectedIndex != oldDelegate.selectedIndex;
   }
 }
+
+
+class _AllSectionsView extends AnimatedWidget {
+  _AllSectionsView({
+    Key key,
+    this.sectionIndex,
+    @required this.sections,
+    @required this.selectedIndex,
+    this.minHeight,
+    this.midHeight,
+    this.maxHeight,
+    this.sectionCards = const <Widget>[],
+  }) : assert(sections != null),
+       assert(sectionCards != null),
+       assert(sectionCards.length == sections.length),
+       assert(sectionIndex >= 0 && sectionIndex < sections.length),
+       assert(selectedIndex != null),
+       assert(selectedIndex.value >= 0.0 && selectedIndex.value < sections.length.toDouble()),
+       // 将selctedIndex设置为listenable
+       super(key: key, listenable: selectedIndex);
+
+  final int sectionIndex;
+  // section 配置
+  final List<Section> sections;
+  // 当这个值发生变化时，调用build方法
+  final ValueNotifier<double> selectedIndex;
+  // 最小高度
+  final double minHeight;
+  // 中间高度
+  final double midHeight;
+  // 最大高度
+  final double maxHeight;
+  final List<Widget> sectionCards;
+
+  // 计算选中的卡片index和指定卡片index的差值，限定在（0.0到1.0）
+  double _selectedIndexDelta(int index) {
+    return (index.toDouble() - selectedIndex.value).abs().clamp(0.0, 1.0);
+  }
+
+  Widget _build(BuildContext context, BoxConstraints constraints) {
+    final Size size = constraints.biggest;
+    // 使用约束的最大值作为大小
+    // 布局的进度时从列变成行
+    final double tColumnToRow =
+      1.0 - ((size.height - midHeight) / (maxHeight - midHeight)).
+      clamp(0.0, 1.0);
+    final double tCollapsed =
+      1.0 - ((size.height - minHeight) /
+             (midHeight - minHeight)).clamp(0.0, 1.0);
+
+    // 计算指定 index 的指示器的透明度
+    double _indicatorOpacity(int index) {
+      return 1.0 - _selectedIndexDelta(index) * 0.5;
+    }
+	// 计算指定 index 的标题的透明度
+    double _titleOpacity(int index) {
+      return 1.0 - _selectedIndexDelta(index) * tColumnToRow * 0.5;
+    }
+	// 计算指定 index 标题的尺寸
+    double _titleScale(int index) {
+      return 1.0 - _selectedIndexDelta(index) * tColumnToRow * 0.15;
+    }
+
+
+    final List<Widget> children = List<Widget>.from(sectionCards);
+
+	// 向 Children 中加入标题实体
+    for (int index = 0; index < sections.length; index++) {
+      final Section section = sections[index];
+      children.add(LayoutId(
+        id: 'title$index',
+        child: SectionTitle(
+          section: section,
+          scale: _titleScale(index),
+          opacity: _titleOpacity(index),
+        ),
+      ));
+    }
+    
+    // 向 Children 中加入指示器实体
+    for (int index = 0; index < sections.length; index++) {
+      children.add(LayoutId(
+        id: 'indicator$index',
+        child: SectionIndicator(
+          opacity: _indicatorOpacity(index),
+        ),
+      ));
+    }
+	
+	// 利用上边定义的_AllSectionsLayout类完成布局
+    return CustomMultiChildLayout(
+      delegate: _AllSectionsLayout(
+        translation: Alignment((selectedIndex.value - sectionIndex) * 2.0 - 1.0, -1.0),
+        tColumnToRow: tColumnToRow,
+        tCollapsed: tCollapsed,
+        cardCount: sections.length,
+        selectedIndex: selectedIndex.value,
+      ),
+      children: children,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+  	// 使用LayoutBuilder 是为了获取约束，进而转化为大小来完成布局
+    return LayoutBuilder(builder: _build);
+  }
+}
 ```
 
+##  定义一个新的SCrollPhysics(不懂，略过)
+```dart
+class _SnappingScrollPhysics extends ClampingScrollPhysics {
+  const _SnappingScrollPhysics({
+    ScrollPhysics parent,
+    @required this.midScrollOffset,
+  }) : assert(midScrollOffset != null),
+       super(parent: parent);
+
+  final double midScrollOffset;
+
+  @override
+  _SnappingScrollPhysics applyTo(ScrollPhysics ancestor) {
+    return _SnappingScrollPhysics(parent: buildParent(ancestor), midScrollOffset: midScrollOffset);
+  }
+
+  Simulation _toMidScrollOffsetSimulation(double offset, double dragVelocity) {
+    final double velocity = math.max(dragVelocity, minFlingVelocity);
+    return ScrollSpringSimulation(spring, offset, midScrollOffset, velocity, tolerance: tolerance);
+  }
+
+  Simulation _toZeroScrollOffsetSimulation(double offset, double dragVelocity) {
+    final double velocity = math.max(dragVelocity, minFlingVelocity);
+    return ScrollSpringSimulation(spring, offset, 0.0, velocity, tolerance: tolerance);
+  }
+
+  @override
+  Simulation createBallisticSimulation(ScrollMetrics position, double dragVelocity) {
+    final Simulation simulation = super.createBallisticSimulation(position, dragVelocity);
+    final double offset = position.pixels;
+
+    if (simulation != null) {
+    
+      // The drag ended with sufficient velocity to 
+      // trigger creating a simulation.
+      
+      // If the simulation is headed up towards midScrollOffset 
+      // but will not reach it,then snap it there. 
+      
+      // Similarly if the simulation is headed down past midScrollOffset 	   
+      // but will not reach zero, then snap it to zero.
+      
+      // 当拖拽以足够的速度结束是，会触发创建一个模拟。
+      // 如果模拟是朝着midScrollOffset进行，但是没有达到它
+      // 那么就会慢慢达到（坍缩到？）它（指midScrollOffset）
+      // 类似地，达到0.0也会有这样的效果
+      // 整个效果类似于Pageview的达到固定页面而不是停留在中间的效果
+      final double simulationEnd = simulation.x(double.infinity);
+      if (simulationEnd >= midScrollOffset)
+        return simulation;
+      if (dragVelocity > 0.0)
+        return _toMidScrollOffsetSimulation(offset, dragVelocity);
+      if (dragVelocity < 0.0)
+        return _toZeroScrollOffsetSimulation(offset, dragVelocity);
+    } else {
+      // The user ended the drag with little or no velocity. If they
+      // didn't leave the offset above midScrollOffset, then
+      // snap to midScrollOffset if they're more than halfway there,
+      // otherwise snap to zero.
+      
+      // 简言之：当拖拽结束时的速度较小且没有达到 midScrollOffset 的一半，
+      // 则回到原点，否则向目标位置移动
+      
+      final double snapThreshold = midScrollOffset / 2.0;
+      if (offset >= snapThreshold && offset < midScrollOffset)
+        return _toMidScrollOffsetSimulation(offset, dragVelocity);
+      if (offset > 0.0 && offset < snapThreshold)
+        return _toZeroScrollOffsetSimulation(offset, dragVelocity);
+    }
+    return simulation;
+  }
+}
+```
+
+## Widget && State（200行的State了解一下？）
+```dart
+class AnimationDemoHome extends StatefulWidget {
+  const AnimationDemoHome({ Key key }) : super(key: key);
+
+  static const String routeName = '/animation';
+
+  @override
+  _AnimationDemoHomeState createState() => _AnimationDemoHomeState();
+}
+
+class _AnimationDemoHomeState extends State<AnimationDemoHome> {
+  final ScrollController _scrollController = ScrollController();
+  final PageController _headingPageController = PageController();
+  final PageController _detailsPageController = PageController();
+  ScrollPhysics _headingScrollPhysics = const NeverScrollableScrollPhysics();
+  ValueNotifier<double> selectedIndex = ValueNotifier<double>(0.0);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _kAppBackgroundColor,
+      body: Builder(
+        // Insert an element so that _buildBody can find the PrimaryScrollController.
+        builder: _buildBody,
+      ),
+    );
+  }
+
+  void _handleBackButton(double midScrollOffset) {
+    if (_scrollController.offset >= midScrollOffset)
+      _scrollController.animateTo(0.0, curve: _kScrollCurve, duration: _kScrollDuration);
+    else
+      Navigator.maybePop(context);
+  }
+
+  // Only enable paging for the heading when the user has scrolled to midScrollOffset.
+  // Paging is enabled/disabled by setting the heading's PageView scroll physics.
+  bool _handleScrollNotification(ScrollNotification notification, double midScrollOffset) {
+    if (notification.depth == 0 && notification is ScrollUpdateNotification) {
+      final ScrollPhysics physics = _scrollController.position.pixels >= midScrollOffset
+       ? const PageScrollPhysics()
+       : const NeverScrollableScrollPhysics();
+      if (physics != _headingScrollPhysics) {
+        setState(() {
+          _headingScrollPhysics = physics;
+        });
+      }
+    }
+    return false;
+  }
+
+  void _maybeScroll(double midScrollOffset, int pageIndex, double xOffset) {
+    if (_scrollController.offset < midScrollOffset) {
+      // Scroll the overall list to the point where only one section card shows.
+      // At the same time scroll the PageViews to the page at pageIndex.
+      _headingPageController.animateToPage(pageIndex, curve: _kScrollCurve, duration: _kScrollDuration);
+      _scrollController.animateTo(midScrollOffset, curve: _kScrollCurve, duration: _kScrollDuration);
+    } else {
+      // One one section card is showing: scroll one page forward or back.
+      final double centerX = _headingPageController.position.viewportDimension / 2.0;
+      final int newPageIndex = xOffset > centerX ? pageIndex + 1 : pageIndex - 1;
+      _headingPageController.animateToPage(newPageIndex, curve: _kScrollCurve, duration: _kScrollDuration);
+    }
+  }
+
+  bool _handlePageNotification(ScrollNotification notification, PageController leader, PageController follower) {
+    if (notification.depth == 0 && notification is ScrollUpdateNotification) {
+      selectedIndex.value = leader.page;
+      if (follower.page != leader.page)
+        follower.position.jumpToWithoutSettling(leader.position.pixels); // ignore: deprecated_member_use
+    }
+    return false;
+  }
+
+  Iterable<Widget> _detailItemsFor(Section section) {
+    final Iterable<Widget> detailItems = section.details.map<Widget>((SectionDetail detail) {
+      return SectionDetailView(detail: detail);
+    });
+    return ListTile.divideTiles(context: context, tiles: detailItems);
+  }
+
+  Iterable<Widget> _allHeadingItems(double maxHeight, double midScrollOffset) {
+    final List<Widget> sectionCards = <Widget>[];
+    for (int index = 0; index < allSections.length; index++) {
+      sectionCards.add(LayoutId(
+        id: 'card$index',
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          child: SectionCard(section: allSections[index]),
+          onTapUp: (TapUpDetails details) {
+            final double xOffset = details.globalPosition.dx;
+            setState(() {
+              _maybeScroll(midScrollOffset, index, xOffset);
+            });
+          },
+        ),
+      ));
+    }
+
+    final List<Widget> headings = <Widget>[];
+    for (int index = 0; index < allSections.length; index++) {
+      headings.add(Container(
+          color: _kAppBackgroundColor,
+          child: ClipRect(
+            child: _AllSectionsView(
+              sectionIndex: index,
+              sections: allSections,
+              selectedIndex: selectedIndex,
+              minHeight: _kAppBarMinHeight,
+              midHeight: _kAppBarMidHeight,
+              maxHeight: maxHeight,
+              sectionCards: sectionCards,
+            ),
+          ),
+        )
+      );
+    }
+    return headings;
+  }
+
+  Widget _buildBody(BuildContext context) {
+    final MediaQueryData mediaQueryData = MediaQuery.of(context);
+    final double statusBarHeight = mediaQueryData.padding.top;
+    final double screenHeight = mediaQueryData.size.height;
+    final double appBarMaxHeight = screenHeight - statusBarHeight;
+
+    // The scroll offset that reveals the appBarMidHeight appbar.
+    final double appBarMidScrollOffset = statusBarHeight + appBarMaxHeight - _kAppBarMidHeight;
+
+    return SizedBox.expand(
+      child: Stack(
+        children: <Widget>[
+          NotificationListener<ScrollNotification>(
+            onNotification: (ScrollNotification notification) {
+              return _handleScrollNotification(notification, appBarMidScrollOffset);
+            },
+            child: CustomScrollView(
+              controller: _scrollController,
+              physics: _SnappingScrollPhysics(midScrollOffset: appBarMidScrollOffset),
+              slivers: <Widget>[
+                // Start out below the status bar, gradually move to the top of the screen.
+                _StatusBarPaddingSliver(
+                  maxHeight: statusBarHeight,
+                  scrollFactor: 7.0,
+                ),
+                // Section Headings
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _SliverAppBarDelegate(
+                    minHeight: _kAppBarMinHeight,
+                    maxHeight: appBarMaxHeight,
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: (ScrollNotification notification) {
+                        return _handlePageNotification(notification, _headingPageController, _detailsPageController);
+                      },
+                      child: PageView(
+                        physics: _headingScrollPhysics,
+                        controller: _headingPageController,
+                        children: _allHeadingItems(appBarMaxHeight, appBarMidScrollOffset),
+                      ),
+                    ),
+                  ),
+                ),
+                // Details
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 610.0,
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: (ScrollNotification notification) {
+                        return _handlePageNotification(notification, _detailsPageController, _headingPageController);
+                      },
+                      child: PageView(
+                        controller: _detailsPageController,
+                        children: allSections.map<Widget>((Section section) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: _detailItemsFor(section).toList(),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: statusBarHeight,
+            left: 0.0,
+            child: IconTheme(
+              data: const IconThemeData(color: Colors.white),
+              child: SafeArea(
+                top: false,
+                bottom: false,
+                child: IconButton(
+                  icon: const BackButtonIcon(),
+                  tooltip: 'Back',
+                  onPressed: () {
+                    _handleBackButton(appBarMidScrollOffset);
+                  },
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+```
+
+# 后话
+
+菜鸡想魔(zuo)改(si)一下代码由纵向列表变成横向列表？<del>不晓得能</del>不能实现。
