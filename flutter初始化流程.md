@@ -378,19 +378,15 @@ void performRebuild() {
 ///又回到了element.updateChild方法，继续构建子element
 ```
 
-```dart
-/// 直到    
-Element updateChild(Element child, Widget newWidget, dynamic newSlot) {
-    
-    if (newWidget == null) {
-        if (child != null)
-            deactivateChild(child);
-        return null;
-    }
-    /// 当到达叶子节点时，返回null结束递归
-    ...
-}  
+
+
+# 以InheritedElement为例
+
+```da
+
 ```
+
+
 
 
 
