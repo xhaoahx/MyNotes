@@ -476,6 +476,7 @@ class _AnimationDemoHomeState extends State<AnimationDemoHome> {
   final ScrollController _scrollController = ScrollController();
   final PageController _headingPageController = PageController();
   final PageController _detailsPageController = PageController();
+  // 不处于行状态时SliverPersistentHeading 的PagView不允许滑动  
   ScrollPhysics _headingScrollPhysics = const NeverScrollableScrollPhysics();
   ValueNotifier<double> selectedIndex = ValueNotifier<double>(0.0);
 
@@ -490,6 +491,7 @@ class _AnimationDemoHomeState extends State<AnimationDemoHome> {
     );
   }
 
+  // 处理返回事件。若处于行状态，则动画到列状态    
   void _handleBackButton(double midScrollOffset) {
     if (_scrollController.offset >= midScrollOffset)
       _scrollController.animateTo(0.0, curve: _kScrollCurve, duration: _kScrollDuration);
@@ -497,9 +499,9 @@ class _AnimationDemoHomeState extends State<AnimationDemoHome> {
       Navigator.maybePop(context);
   }
 
-  // Only enable paging for the heading when the user has scrolled to midScrollOffset.
-  // Paging is enabled/disabled by setting the heading's PageView scroll physics.
-  bool _handleScrollNotification(ScrollNotification notification, double midScrollOffset) {
+  // 当且仅当滑动到midScrollOffset时启用 SliverPersistentHeading 的PagView滑动  
+  // 通过设置  _headingScrollPhysics = physics 来解决
+  bool _handleScrollNotification(ScrollNotification notification, double midScrollOffset)   {
     if (notification.depth == 0 && notification is ScrollUpdateNotification) {
       final ScrollPhysics physics = _scrollController.position.pixels >= midScrollOffset
        ? const PageScrollPhysics()
@@ -527,6 +529,7 @@ class _AnimationDemoHomeState extends State<AnimationDemoHome> {
     }
   }
 
+  // 当PageView 滑动时，通知 selectedIndex 
   bool _handlePageNotification(ScrollNotification notification, PageController leader, PageController follower) {
     if (notification.depth == 0 && notification is ScrollUpdateNotification) {
       selectedIndex.value = leader.page;
@@ -543,6 +546,7 @@ class _AnimationDemoHomeState extends State<AnimationDemoHome> {
     return ListTile.divideTiles(context: context, tiles: detailItems);
   }
 
+  // 构建Header 
   Iterable<Widget> _allHeadingItems(double maxHeight, double midScrollOffset) {
     final List<Widget> sectionCards = <Widget>[];
     for (int index = 0; index < allSections.length; index++) {
@@ -648,6 +652,7 @@ class _AnimationDemoHomeState extends State<AnimationDemoHome> {
               ],
             ),
           ),
+          // 返回图标  
           Positioned(
             top: statusBarHeight,
             left: 0.0,
