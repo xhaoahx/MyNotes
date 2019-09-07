@@ -378,7 +378,7 @@ Element inflateWidget(Widget newWidget, dynamic newSlot) {
 
 
 
-# 以StatelessElement 为例
+# 以StatefulElement 为例
 
 ```dart
 /// 在这个方法以前，流程同StatelessWidget
@@ -423,6 +423,187 @@ void performRebuild() {
 
 ///又回到了element.updateChild方法，继续构建子element
 ```
+
+
+
+# 以SingleChildRenderObjectWidget为例
+
+```dart
+/// mount
+@override
+void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    _child = updateChild(_child, widget.child, null);
+}
+
+/// RenderObejcetElement.mount
+@override
+void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    ...
+}
+
+/// Element.mount
+void mount(Element parent, dynamic newSlot) {
+    ...
+}
+
+/// 回到RenderObejcetElement.mount
+void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    /// 调用了widget的createRenderObject创建了renderObject
+    _renderObject = widget.createRenderObject(this);
+    assert(() { _debugUpdateRenderObjectOwner(); return true; }());
+    assert(_slot == newSlot);
+    attachRenderObject(newSlot);
+    _dirty = false;
+}
+
+/// 然后是
+void attachRenderObject(dynamic newSlot) {
+    assert(_ancestorRenderObjectElement == null);
+    _slot = newSlot;
+    _ancestorRenderObjectElement = _findAncestorRenderObjectElement();
+    _ancestorRenderObjectElement?.insertChildRenderObject(renderObject, newSlot);
+    final ParentDataElement<RenderObjectWidget> parentDataElement = _findAncestorParentDataElement();
+    if (parentDataElement != null)
+        _updateParentData(parentDataElement.widget);
+}
+
+/// 找到最近的renderObject祖先返回
+RenderObjectElement _findAncestorRenderObjectElement() {
+    Element ancestor = _parent;
+    while (ancestor != null && ancestor is! RenderObjectElement)
+        ancestor = ancestor._parent;
+    return ancestor;
+}
+
+/// 然后调用：（其中renderObject是刚才找到返回的先祖renderObject)
+/// _ancestorRenderObjectElement?.insertChildRenderObject(renderObject, newSlot);
+insertChildRenderObject(RenderObject child, dynamic slot) {
+    final RenderObjectWithChildMixin<RenderObject> renderObject = this.renderObject;
+    assert(slot == null);
+    assert(renderObject.debugValidateChild(child));
+    /// 建立联系（把祖先的后代设为自己）
+    renderObject.child = child;
+    assert(renderObject == this.renderObject);
+}
+
+/// 然后是递归建立
+_child = updateChild(_child, widget.child, null);
+
+
+
+
+/// 关于 RenderObjectWithChildMixin
+/// Generic mixin for render objects with one child.
+///
+/// Provides a child model for a render object subclass that has a unique child.
+mixin RenderObjectWithChildMixin<ChildType extends RenderObject> on RenderObject {
+    ...
+
+    ChildType _child;
+    ChildType get child => _child;
+    set child(ChildType value) {
+        /// 移除已有的孩子  
+        if (_child != null)
+            dropChild(_child);
+        _child = value;
+        /// 更新孩子，标记需要 
+        /// markNeedsLayout();
+        /// markNeedsCompositingBitsUpdate();
+        /// markNeedsSemanticsUpdate();  
+        if (_child != null)
+            adoptChild(_child);
+    }
+
+    @override
+    void attach(PipelineOwner owner) {
+        super.attach(owner);
+        if (_child != null)
+            _child.attach(owner);
+    }
+
+    @override
+    void detach() {
+        super.detach();
+        if (_child != null)
+            _child.detach();
+    }
+
+    @override
+    void redepthChildren() {
+        if (_child != null)
+            redepthChild(_child);
+    }
+
+    @override
+    void visitChildren(RenderObjectVisitor visitor) {
+        if (_child != null)
+            visitor(_child);
+    }
+
+    ...  
+}
+```
+
+
+
+# 以MultiChildRenderObjectWidget为例
+
+```dart
+/// mount
+void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    ...
+}
+
+/// 同singlechildRenderObjectWidget
+@override
+void mount(Element parent, dynamic newSlot) {...}
+void mount(Element parent, dynamic newSlot) {...}
+
+/// 回到mount
+void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    _children = List<Element>(widget.children.length);
+    Element previousChild;
+    for (int i = 0; i < _children.length; i += 1) {
+        final Element newChild = inflateWidget(widget.children[i], previousChild);
+        /// 用返回的element更新已存在的element
+        _children[i] = newChild;
+        previousChild = newChild;
+    }
+}
+
+
+Element inflateWidget(Widget newWidget, dynamic newSlot) {
+    assert(newWidget != null);
+    final Key key = newWidget.key;
+    if (key is GlobalKey) {
+        final Element newChild = _retakeInactiveElement(key, newWidget);
+        if (newChild != null) {
+            assert(newChild._parent == null);
+            assert(() { _debugCheckForCycles(newChild); return true; }());
+            newChild._activateWithParent(this, newSlot);
+            final Element updatedChild = updateChild(newChild, newWidget, newSlot);
+            assert(newChild == updatedChild);
+            return updatedChild;
+        }
+    }
+    final Element newChild = newWidget.createElement();
+    assert(() { _debugCheckForCycles(newChild); return true; }());
+    /// 调用children的mount方法
+    newChild.mount(this, newSlot);
+    assert(newChild._debugLifecycleState == _ElementLifecycle.active);
+    /// 用返回的element更新已存在的element
+    return newChild;
+}
+
+```
+
+
+
 
 
 
