@@ -234,7 +234,7 @@ abstract class RenderShiftedBox extends RenderBox with RenderObjectWithChildMixi
 
 
 
-### -------------------------(分割)--------------------------
+### --------------------------(分割)---------------------------
 
 
 
@@ -498,9 +498,119 @@ abstract class MultiChildLayoutDelegate {
 }
 ```
 
+## MultiChildRenderObjectWidget
+
+```dart
+/// 抽象类MultiChildRenderObjectWidget
+/// 并没有实现creatRenderObject方法
+abstract class MultiChildRenderObjectWidget extends RenderObjectWidget {
+  MultiChildRenderObjectWidget({ Key key, this.children = const <Widget>[] })
+   : super(key: key);
+    
+  final List<Widget> children;
+
+  @override
+  MultiChildRenderObjectElement createElement() => MultiChildRenderObjectElement(this);
+}
+```
 
 
-接下来放几个mixin
+
+## MultiChildRenderObjectElement 
+
+```dart
+class MultiChildRenderObjectElement extends RenderObjectElement {
+  MultiChildRenderObjectElement(MultiChildRenderObjectWidget widget)
+    : super(widget);
+
+  @override
+  MultiChildRenderObjectWidget get widget => super.widget;
+
+   /// 这个element的当前children
+   /** Iterable.where方法描述如下
+   * Returns a new lazy [Iterable] with all elements that satisfy the
+   * predicate [test].
+   */
+    
+  /// 返回 _children中不在_forgottenChildren中的元素  
+  @protected
+  @visibleForTesting
+  Iterable<Element> get children => _children.where((Element child) => !_forgottenChildren.contains(child));
+
+  List<Element> _children;
+  // 用于减小时间复杂度
+  final Set<Element> _forgottenChildren = HashSet<Element>();
+
+  @override
+  void insertChildRenderObject(RenderObject child, Element slot) {
+    final ContainerRenderObjectMixin
+        <RenderObject, ContainerParentDataMixin<RenderObject>> 
+        renderObject = this.renderObject;
+    assert(renderObject.debugValidateChild(child));
+    renderObject.insert(child, after: slot?.renderObject);
+    assert(renderObject == this.renderObject);
+  }
+
+  @override
+  void moveChildRenderObject(RenderObject child, dynamic slot) {
+    final ContainerRenderObjectMixin<RenderObject, ContainerParentDataMixin<RenderObject>> renderObject = this.renderObject;
+    assert(child.parent == renderObject);
+    renderObject.move(child, after: slot?.renderObject);
+    assert(renderObject == this.renderObject);
+  }
+
+  @override
+  void removeChildRenderObject(RenderObject child) {
+    final ContainerRenderObjectMixin<RenderObject, ContainerParentDataMixin<RenderObject>> renderObject = this.renderObject;
+    assert(child.parent == renderObject);
+    renderObject.remove(child);
+    assert(renderObject == this.renderObject);
+  }
+
+  @override
+  void visitChildren(ElementVisitor visitor) {
+    for (Element child in _children) {
+      if (!_forgottenChildren.contains(child))
+        visitor(child);
+    }
+  }
+
+  @override
+  void forgetChild(Element child) {
+    assert(_children.contains(child));
+    assert(!_forgottenChildren.contains(child));
+    _forgottenChildren.add(child);
+  }
+
+  @override
+  void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    _children = List<Element>(widget.children.length);
+    Element previousChild;
+    /// 对于child中的每一个Widget，调用inflateWidget（Widget newWidget, dynamic newSlot）
+    /// 把生成的 newChild 作为slots，调用 inflateWidget（）
+    for (int i = 0; i < _children.length; i += 1) {
+      final Element newChild = inflateWidget(widget.children[i], previousChild);
+      _children[i] = newChild;
+      previousChild = newChild;
+    }
+  }
+
+  @override
+  void update(MultiChildRenderObjectWidget newWidget) {
+    super.update(newWidget);
+    assert(widget == newWidget);
+    _children = updateChildren(_children, widget.children, forgottenChildren: _forgottenChildren);
+    _forgottenChildren.clear();
+  }
+}
+```
+
+
+
+### ------------- 最后放几个mixin(分割) ---------------
+
+
 
 ## ContainerParentDataMixin
 
@@ -854,114 +964,4 @@ mixin RenderBoxContainerDefaultsMixin
 
 
 综上，几个mixin提供了链表的管理方法，默认的绘制方法，默认的点击测试，默认的计算baseline方法，供使用它们的类调用。
-
-
-
-## MultiChildRenderObjectWidget
-
-```dart
-/// 抽象类MultiChildRenderObjectWidget
-/// 并没有实现creatRenderObject方法
-abstract class MultiChildRenderObjectWidget extends RenderObjectWidget {
-  MultiChildRenderObjectWidget({ Key key, this.children = const <Widget>[] })
-   : super(key: key);
-    
-  final List<Widget> children;
-
-  @override
-  MultiChildRenderObjectElement createElement() => MultiChildRenderObjectElement(this);
-}
-```
-
-
-
-## MultiChildRenderObjectElement 
-
-```dart
-class MultiChildRenderObjectElement extends RenderObjectElement {
-  MultiChildRenderObjectElement(MultiChildRenderObjectWidget widget)
-    : super(widget);
-
-  @override
-  MultiChildRenderObjectWidget get widget => super.widget;
-
-   /// 这个element的当前children
-   /** Iterable.where方法描述如下
-   * Returns a new lazy [Iterable] with all elements that satisfy the
-   * predicate [test].
-   */
-    
-  /// 返回 _children中不在_forgottenChildren中的元素  
-  @protected
-  @visibleForTesting
-  Iterable<Element> get children => _children.where((Element child) => !_forgottenChildren.contains(child));
-
-  List<Element> _children;
-  // 用于减小时间复杂度
-  final Set<Element> _forgottenChildren = HashSet<Element>();
-
-  @override
-  void insertChildRenderObject(RenderObject child, Element slot) {
-    final ContainerRenderObjectMixin
-        <RenderObject, ContainerParentDataMixin<RenderObject>> 
-        renderObject = this.renderObject;
-    assert(renderObject.debugValidateChild(child));
-    renderObject.insert(child, after: slot?.renderObject);
-    assert(renderObject == this.renderObject);
-  }
-
-  @override
-  void moveChildRenderObject(RenderObject child, dynamic slot) {
-    final ContainerRenderObjectMixin<RenderObject, ContainerParentDataMixin<RenderObject>> renderObject = this.renderObject;
-    assert(child.parent == renderObject);
-    renderObject.move(child, after: slot?.renderObject);
-    assert(renderObject == this.renderObject);
-  }
-
-  @override
-  void removeChildRenderObject(RenderObject child) {
-    final ContainerRenderObjectMixin<RenderObject, ContainerParentDataMixin<RenderObject>> renderObject = this.renderObject;
-    assert(child.parent == renderObject);
-    renderObject.remove(child);
-    assert(renderObject == this.renderObject);
-  }
-
-  @override
-  void visitChildren(ElementVisitor visitor) {
-    for (Element child in _children) {
-      if (!_forgottenChildren.contains(child))
-        visitor(child);
-    }
-  }
-
-  @override
-  void forgetChild(Element child) {
-    assert(_children.contains(child));
-    assert(!_forgottenChildren.contains(child));
-    _forgottenChildren.add(child);
-  }
-
-  @override
-  void mount(Element parent, dynamic newSlot) {
-    super.mount(parent, newSlot);
-    _children = List<Element>(widget.children.length);
-    Element previousChild;
-    /// 对于child中的每一个Widget，调用inflateWidget（Widget newWidget, dynamic newSlot）
-    /// 把生成的 newChild 作为slots，调用 inflateWidget（）
-    for (int i = 0; i < _children.length; i += 1) {
-      final Element newChild = inflateWidget(widget.children[i], previousChild);
-      _children[i] = newChild;
-      previousChild = newChild;
-    }
-  }
-
-  @override
-  void update(MultiChildRenderObjectWidget newWidget) {
-    super.update(newWidget);
-    assert(widget == newWidget);
-    _children = updateChildren(_children, widget.children, forgottenChildren: _forgottenChildren);
-    _forgottenChildren.clear();
-  }
-}
-```
 
