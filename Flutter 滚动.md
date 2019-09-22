@@ -1251,3 +1251,135 @@ class ScrollableState
 }
 ```
 
+
+
+## ScrollView
+
+```dart
+abstract class ScrollView extends StatelessWidget {
+  const ScrollView({
+    Key key,
+    this.scrollDirection = Axis.vertical,
+    this.reverse = false,
+    this.controller,
+    bool primary,
+    ScrollPhysics physics,
+    this.shrinkWrap = false,
+    this.center,
+    this.anchor = 0.0,
+    this.cacheExtent,
+    this.semanticChildCount,
+    this.dragStartBehavior = DragStartBehavior.start,
+  }) : primary = primary ?? 
+       		controller == null && identical(scrollDirection, Axis.vertical),
+       physics = physics ?? 
+            (  primary == true || 
+               (  primary == null && 
+                  controller == null && 
+                  identical(scrollDirection, Axis.vertical)
+               )
+            ) ? 
+            const AlwaysScrollableScrollPhysics() : 
+            null,
+       super(key: key);
+
+  
+  final Axis scrollDirection;
+
+  /// 是否反转
+  final bool reverse;
+
+  final ScrollController controller;
+
+  /// Whether this is the primary scroll view associated with the parent
+  /// [PrimaryScrollController].
+  ///
+  /// When this is true, the scroll view is scrollable even if it does not have
+  /// sufficient content to actually scroll. Otherwise, by default the user can
+  /// only scroll the view if it has sufficient content. See [physics].
+  ///
+  /// On iOS, this also identifies the scroll view that will scroll to top in
+  /// response to a tap in the status bar.
+  ///
+  /// Defaults to true when [scrollDirection] is [Axis.vertical] and
+  /// [controller] is null.
+  final bool primary;
+
+  final ScrollPhysics physics;
+
+  /// 设为 false 的话，那么这个 scrollView 会试图拓展到最大主轴长度
+  final bool shrinkWrap;
+
+  final Key center;
+
+  /// 滚动零点的相对位置
+  final double anchor;
+
+  /// 缓存的滚动区域大小（超出此区域的widget将会dispose）
+  final double cacheExtent;
+
+  final DragStartBehavior dragStartBehavior;
+    
+  @protected
+  AxisDirection getDirection(BuildContext context) {
+    return getAxisDirectionFromAxisReverseAndDirectionality(
+        context, 
+        scrollDirection, 
+        reverse
+    );
+  }
+
+  /// 建造视窗内的widget
+  @protected
+  List<Widget> buildSlivers(BuildContext context);
+
+  /// 建造视窗
+  @protected
+  Widget buildViewport(
+    BuildContext context,
+    ViewportOffset offset,
+    AxisDirection axisDirection,
+    List<Widget> slivers,
+  ) {
+    if (shrinkWrap) {
+      return ShrinkWrappingViewport(
+        axisDirection: axisDirection,
+        offset: offset,
+        slivers: slivers,
+      );
+    }
+    return Viewport(
+      axisDirection: axisDirection,
+      offset: offset,
+      slivers: slivers,
+      cacheExtent: cacheExtent,
+      center: center,
+      anchor: anchor,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Widget> slivers = buildSlivers(context);
+    final AxisDirection axisDirection = getDirection(context);
+
+    final ScrollController scrollController = primary
+      ? PrimaryScrollController.of(context)
+      : controller;
+    final Scrollable scrollable = Scrollable(
+      dragStartBehavior: dragStartBehavior,
+      axisDirection: axisDirection,
+      controller: scrollController,
+      physics: physics,
+      semanticChildCount: semanticChildCount,
+      viewportBuilder: (BuildContext context, ViewportOffset offset) {
+        return buildViewport(context, offset, axisDirection, slivers);
+      },
+    );
+    return primary && scrollController != null
+      ? PrimaryScrollController.none(child: scrollable)
+      : scrollable;
+  }
+}
+```
+

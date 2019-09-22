@@ -1253,6 +1253,42 @@ class ScrollableState
 
 
 
+## PrimaryScrollContorller
+
+```dart
+class PrimaryScrollController extends InheritedWidget {
+  const PrimaryScrollController({
+    Key key,
+    @required this.controller,
+    @required Widget child,
+  }) : assert(controller != null),
+       super(key: key, child: child);
+    
+  /// contorller 为空的实例  
+  const PrimaryScrollController.none({
+    Key key,
+    @required Widget child,
+  }) : controller = null,
+       super(key: key, child: child);
+
+  /// 与子树关联的 [ScrollController]
+  final ScrollController controller;
+
+  /// 返回最近的 PrimaryScrollController 的 [ScrollController] 
+  static ScrollController of(BuildContext context) {
+    final PrimaryScrollController result = 
+        context.inheritFromWidgetOfExactType(PrimaryScrollController);
+    return result?.controller;
+  }
+
+  @override
+  bool updateShouldNotify(PrimaryScrollController oldWidget) => 
+      controller != oldWidget.controller;
+}
+```
+
+
+
 ## ScrollView
 
 ```dart
@@ -1270,7 +1306,9 @@ abstract class ScrollView extends StatelessWidget {
     this.cacheExtent,
     this.semanticChildCount,
     this.dragStartBehavior = DragStartBehavior.start,
-  }) : primary = primary ?? 
+  }) : 
+       /// 如果控制器为null，并且方向是垂直方向，那么采用primaryController
+       primary = primary ?? 
        		controller == null && identical(scrollDirection, Axis.vertical),
        physics = physics ?? 
             (  primary == true || 
@@ -1291,18 +1329,6 @@ abstract class ScrollView extends StatelessWidget {
 
   final ScrollController controller;
 
-  /// Whether this is the primary scroll view associated with the parent
-  /// [PrimaryScrollController].
-  ///
-  /// When this is true, the scroll view is scrollable even if it does not have
-  /// sufficient content to actually scroll. Otherwise, by default the user can
-  /// only scroll the view if it has sufficient content. See [physics].
-  ///
-  /// On iOS, this also identifies the scroll view that will scroll to top in
-  /// response to a tap in the status bar.
-  ///
-  /// Defaults to true when [scrollDirection] is [Axis.vertical] and
-  /// [controller] is null.
   final bool primary;
 
   final ScrollPhysics physics;
@@ -1379,6 +1405,650 @@ abstract class ScrollView extends StatelessWidget {
     return primary && scrollController != null
       ? PrimaryScrollController.none(child: scrollable)
       : scrollable;
+  }
+}
+```
+
+
+
+## Viewport
+
+```dart
+class Viewport extends MultiChildRenderObjectWidget {
+  /// Creates a widget that is bigger on the inside.
+  ///
+  /// The viewport listens to the [offset], which means you do not need to
+  /// rebuild this widget when the [offset] changes.
+  ///
+  /// The [offset] argument must not be null.
+  Viewport({
+    Key key,
+    this.axisDirection = AxisDirection.down,
+    this.crossAxisDirection,
+    this.anchor = 0.0,
+    @required this.offset,
+    this.center,
+    this.cacheExtent,
+    List<Widget> slivers = const <Widget>[],
+  }) : super(key: key, children: slivers);
+
+  final AxisDirection axisDirection;
+
+  final AxisDirection crossAxisDirection;
+
+  final double anchor;
+
+  /// 类似于 pixels	
+  final ViewportOffset offset;
+
+  final Key center;
+
+  final double cacheExtent;
+
+  /// Given a [BuildContext] and an [AxisDirection], determine the correct cross
+  /// axis direction.
+  ///
+  /// This depends on the [Directionality] if the `axisDirection` is vertical;
+  /// otherwise, the default cross axis direction is downwards.
+  static AxisDirection getDefaultCrossAxisDirection(
+      BuildContext context, 
+      AxisDirection axisDirection) 
+  {
+    switch (axisDirection) {
+      case AxisDirection.up:
+        return textDirectionToAxisDirection(Directionality.of(context));
+      case AxisDirection.right:
+        return AxisDirection.down;
+      case AxisDirection.down:
+        return textDirectionToAxisDirection(Directionality.of(context));
+      case AxisDirection.left:
+        return AxisDirection.down;
+    }
+    return null;
+  }
+
+  @override
+  RenderViewport createRenderObject(BuildContext context) {
+    return RenderViewport(
+      axisDirection: axisDirection,
+      crossAxisDirection: crossAxisDirection ?? 
+        Viewport.getDefaultCrossAxisDirection(context, axisDirection),
+      anchor: anchor,
+      offset: offset,
+      cacheExtent: cacheExtent,
+    );
+  }
+
+  @override
+  void updateRenderObject(BuildContext context, RenderViewport renderObject) {
+    renderObject
+      ..axisDirection = axisDirection
+      ..crossAxisDirection = 
+        crossAxisDirection ?? 
+        Viewport.getDefaultCrossAxisDirection(context, axisDirection)
+      ..anchor = anchor
+      ..offset = offset
+      ..cacheExtent = cacheExtent;
+  }
+
+  @override
+  _ViewportElement createElement() => _ViewportElement(this);
+
+}
+```
+
+
+
+## _ViewportElement
+
+```dart
+class _ViewportElement extends MultiChildRenderObjectElement {
+  _ViewportElement(Viewport widget) : super(widget);
+
+  @override
+  Viewport get widget => super.widget;
+
+  @override
+  RenderViewport get renderObject => super.renderObject;
+
+  @override
+  void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    _updateCenter();
+  }
+
+  @override
+  void update(MultiChildRenderObjectWidget newWidget) {
+    super.update(newWidget);
+    _updateCenter();
+  }
+
+  void _updateCenter() {
+    if (widget.center != null) {
+      renderObject.center = children.singleWhere(
+        (Element element) => element.widget.key == widget.center
+      ).renderObject;
+    } else if (children.isNotEmpty) {
+      renderObject.center = children.first.renderObject;
+    } else {
+      renderObject.center = null;
+    }
+  }
+}
+```
+
+
+
+## RenderViewport
+
+```dart
+/// A render object that is bigger on the inside.
+///
+/// [RenderViewport] is the visual workhorse of the scrolling machinery. It
+/// displays a subset of its children according to its own dimensions and the
+/// given [offset]. As the offset varies, different children are visible through
+/// the viewport.
+///
+/// [RenderViewport] hosts a bidirectional list of slivers, anchored on a
+/// [center] sliver, which is placed at the zero scroll offset. The center
+/// widget is displayed in the viewport according to the [anchor] property.
+///
+/// Slivers that are earlier in the child list than [center] are displayed in
+/// reverse order in the reverse [axisDirection] starting from the [center]. For
+/// example, if the [axisDirection] is [AxisDirection.down], the first sliver
+/// before [center] is placed above the [center]. The slivers that are later in
+/// the child list than [center] are placed in order in the [axisDirection]. For
+/// example, in the preceding scenario, the first sliver after [center] is
+/// placed below the [center].
+///
+/// [RenderViewport] cannot contain [RenderBox] children directly. Instead, use
+/// a [RenderSliverList], [RenderSliverFixedExtentList], [RenderSliverGrid], or
+/// a [RenderSliverToBoxAdapter], for example.
+///
+/// See also:
+///
+///  * [RenderSliver], which explains more about the Sliver protocol.
+///  * [RenderBox], which explains more about the Box protocol.
+///  * [RenderSliverToBoxAdapter], which allows a [RenderBox] object to be
+///    placed inside a [RenderSliver] (the opposite of this class).
+///  * [RenderShrinkWrappingViewport], a variant of [RenderViewport] that
+///    shrink-wraps its contents along the main axis.
+class RenderViewport extends RenderViewportBase<SliverPhysicalContainerParentData> {
+  /// Creates a viewport for [RenderSliver] objects.
+  ///
+  /// If the [center] is not specified, then the first child in the `children`
+  /// list, if any, is used.
+  ///
+  /// The [offset] must be specified. For testing purposes, consider passing a
+  /// [new ViewportOffset.zero] or [new ViewportOffset.fixed].
+  RenderViewport({
+    AxisDirection axisDirection = AxisDirection.down,
+    @required AxisDirection crossAxisDirection,
+    @required ViewportOffset offset,
+    double anchor = 0.0,
+    List<RenderSliver> children,
+    RenderSliver center,
+    double cacheExtent,
+  }) : assert(anchor != null),
+       assert(anchor >= 0.0 && anchor <= 1.0),
+       _anchor = anchor,
+       _center = center,
+       super(axisDirection: axisDirection, crossAxisDirection: crossAxisDirection, offset: offset, cacheExtent: cacheExtent) {
+    addAll(children);
+    if (center == null && firstChild != null)
+      _center = firstChild;
+  }
+
+  /// If a [RenderAbstractViewport] overrides
+  /// [RenderObject.describeSemanticsConfiguration] to add the [SemanticsTag]
+  /// [useTwoPaneSemantics] to its [SemanticsConfiguration], two semantics nodes
+  /// will be used to represent the viewport with its associated scrolling
+  /// actions in the semantics tree.
+  ///
+  /// Two semantics nodes (an inner and an outer node) are necessary to exclude
+  /// certain child nodes (via the [excludeFromScrolling] tag) from the
+  /// scrollable area for semantic purposes: The [SemanticsNode]s of children
+  /// that should be excluded from scrolling will be attached to the outer node.
+  /// The semantic scrolling actions and the [SemanticsNode]s of scrollable
+  /// children will be attached to the inner node, which itself is a child of
+  /// the outer node.
+  static const SemanticsTag useTwoPaneSemantics = SemanticsTag('RenderViewport.twoPane');
+
+  /// When a top-level [SemanticsNode] below a [RenderAbstractViewport] is
+  /// tagged with [excludeFromScrolling] it will not be part of the scrolling
+  /// area for semantic purposes.
+  ///
+  /// This behavior is only active if the [RenderAbstractViewport]
+  /// tagged its [SemanticsConfiguration] with [useTwoPaneSemantics].
+  /// Otherwise, the [excludeFromScrolling] tag is ignored.
+  ///
+  /// As an example, a [RenderSliver] that stays on the screen within a
+  /// [Scrollable] even though the user has scrolled past it (e.g. a pinned app
+  /// bar) can tag its [SemanticsNode] with [excludeFromScrolling] to indicate
+  /// that it should no longer be considered for semantic actions related to
+  /// scrolling.
+  static const SemanticsTag excludeFromScrolling = SemanticsTag('RenderViewport.excludeFromScrolling');
+
+  @override
+  void setupParentData(RenderObject child) {
+    if (child.parentData is! SliverPhysicalContainerParentData)
+      child.parentData = SliverPhysicalContainerParentData();
+  }
+
+  /// The relative position of the zero scroll offset.
+  ///
+  /// For example, if [anchor] is 0.5 and the [axisDirection] is
+  /// [AxisDirection.down] or [AxisDirection.up], then the zero scroll offset is
+  /// vertically centered within the viewport. If the [anchor] is 1.0, and the
+  /// [axisDirection] is [AxisDirection.right], then the zero scroll offset is
+  /// on the left edge of the viewport.
+  double get anchor => _anchor;
+  double _anchor;
+  set anchor(double value) {
+    assert(value != null);
+    assert(value >= 0.0 && value <= 1.0);
+    if (value == _anchor)
+      return;
+    _anchor = value;
+    markNeedsLayout();
+  }
+
+  /// The first child in the [GrowthDirection.forward] growth direction.
+  ///
+  /// This child that will be at the position defined by [anchor] when the
+  /// [offset.pixels] is `0`.
+  ///
+  /// Children after [center] will be placed in the [axisDirection] relative to
+  /// the [center]. Children before [center] will be placed in the opposite of
+  /// the [axisDirection] relative to the [center].
+  ///
+  /// The [center] must be a child of the viewport.
+  RenderSliver get center => _center;
+  RenderSliver _center;
+  set center(RenderSliver value) {
+    if (value == _center)
+      return;
+    _center = value;
+    markNeedsLayout();
+  }
+
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  void performResize() {
+    assert(() {
+      if (!constraints.hasBoundedHeight || !constraints.hasBoundedWidth) {
+        switch (axis) {
+          case Axis.vertical:
+            if (!constraints.hasBoundedHeight) {
+              throw FlutterError(
+                'Vertical viewport was given unbounded height.\n'
+                'Viewports expand in the scrolling direction to fill their container. '
+                'In this case, a vertical viewport was given an unlimited amount of '
+                'vertical space in which to expand. This situation typically happens '
+                'when a scrollable widget is nested inside another scrollable widget.\n'
+                'If this widget is always nested in a scrollable widget there '
+                'is no need to use a viewport because there will always be enough '
+                'vertical space for the children. In this case, consider using a '
+                'Column instead. Otherwise, consider using the "shrinkWrap" property '
+                '(or a ShrinkWrappingViewport) to size the height of the viewport '
+                'to the sum of the heights of its children.'
+              );
+            }
+            if (!constraints.hasBoundedWidth) {
+              throw FlutterError(
+                'Vertical viewport was given unbounded width.\n'
+                'Viewports expand in the cross axis to fill their container and '
+                'constrain their children to match their extent in the cross axis. '
+                'In this case, a vertical viewport was given an unlimited amount of '
+                'horizontal space in which to expand.'
+              );
+            }
+            break;
+          case Axis.horizontal:
+            if (!constraints.hasBoundedWidth) {
+              throw FlutterError(
+                'Horizontal viewport was given unbounded width.\n'
+                'Viewports expand in the scrolling direction to fill their container.'
+                'In this case, a horizontal viewport was given an unlimited amount of '
+                'horizontal space in which to expand. This situation typically happens '
+                'when a scrollable widget is nested inside another scrollable widget.\n'
+                'If this widget is always nested in a scrollable widget there '
+                'is no need to use a viewport because there will always be enough '
+                'horizontal space for the children. In this case, consider using a '
+                'Row instead. Otherwise, consider using the "shrinkWrap" property '
+                '(or a ShrinkWrappingViewport) to size the width of the viewport '
+                'to the sum of the widths of its children.'
+              );
+            }
+            if (!constraints.hasBoundedHeight) {
+              throw FlutterError(
+                'Horizontal viewport was given unbounded height.\n'
+                'Viewports expand in the cross axis to fill their container and '
+                'constrain their children to match their extent in the cross axis. '
+                'In this case, a horizontal viewport was given an unlimited amount of '
+                'vertical space in which to expand.'
+              );
+            }
+            break;
+        }
+      }
+      return true;
+    }());
+    size = constraints.biggest;
+    // We ignore the return value of applyViewportDimension below because we are
+    // going to go through performLayout next regardless.
+    switch (axis) {
+      case Axis.vertical:
+        offset.applyViewportDimension(size.height);
+        break;
+      case Axis.horizontal:
+        offset.applyViewportDimension(size.width);
+        break;
+    }
+  }
+
+  static const int _maxLayoutCycles = 10;
+
+  // Out-of-band data computed during layout.
+  double _minScrollExtent;
+  double _maxScrollExtent;
+  bool _hasVisualOverflow = false;
+
+  @override
+  void performLayout() {
+    if (center == null) {
+      assert(firstChild == null);
+      _minScrollExtent = 0.0;
+      _maxScrollExtent = 0.0;
+      _hasVisualOverflow = false;
+      offset.applyContentDimensions(0.0, 0.0);
+      return;
+    }
+    assert(center.parent == this);
+
+    double mainAxisExtent;
+    double crossAxisExtent;
+    switch (axis) {
+      case Axis.vertical:
+        mainAxisExtent = size.height;
+        crossAxisExtent = size.width;
+        break;
+      case Axis.horizontal:
+        mainAxisExtent = size.width;
+        crossAxisExtent = size.height;
+        break;
+    }
+
+    final double centerOffsetAdjustment = center.centerOffsetAdjustment;
+
+    double correction;
+    int count = 0;
+    do {
+      assert(offset.pixels != null);
+      correction = _attemptLayout(mainAxisExtent, crossAxisExtent, offset.pixels + centerOffsetAdjustment);
+      if (correction != 0.0) {
+        offset.correctBy(correction);
+      } else {
+        if (offset.applyContentDimensions(
+              math.min(0.0, _minScrollExtent + mainAxisExtent * anchor),
+              math.max(0.0, _maxScrollExtent - mainAxisExtent * (1.0 - anchor)),
+           ))
+          break;
+      }
+      count += 1;
+    } while (count < _maxLayoutCycles);
+    assert(() {
+      if (count >= _maxLayoutCycles) {
+        assert(count != 1);
+        throw FlutterError(
+          'A RenderViewport exceeded its maximum number of layout cycles.\n'
+          'RenderViewport render objects, during layout, can retry if either their '
+          'slivers or their ViewportOffset decide that the offset should be corrected '
+          'to take into account information collected during that layout.\n'
+          'In the case of this RenderViewport object, however, this happened $count '
+          'times and still there was no consensus on the scroll offset. This usually '
+          'indicates a bug. Specifically, it means that one of the following three '
+          'problems is being experienced by the RenderViewport object:\n'
+          ' * One of the RenderSliver children or the ViewportOffset have a bug such'
+          ' that they always think that they need to correct the offset regardless.\n'
+          ' * Some combination of the RenderSliver children and the ViewportOffset'
+          ' have a bad interaction such that one applies a correction then another'
+          ' applies a reverse correction, leading to an infinite loop of corrections.\n'
+          ' * There is a pathological case that would eventually resolve, but it is'
+          ' so complicated that it cannot be resolved in any reasonable number of'
+          ' layout passes.'
+        );
+      }
+      return true;
+    }());
+  }
+
+  double _attemptLayout(double mainAxisExtent, double crossAxisExtent, double correctedOffset) {
+    assert(!mainAxisExtent.isNaN);
+    assert(mainAxisExtent >= 0.0);
+    assert(crossAxisExtent.isFinite);
+    assert(crossAxisExtent >= 0.0);
+    assert(correctedOffset.isFinite);
+    _minScrollExtent = 0.0;
+    _maxScrollExtent = 0.0;
+    _hasVisualOverflow = false;
+
+    // centerOffset is the offset from the leading edge of the RenderViewport
+    // to the zero scroll offset (the line between the forward slivers and the
+    // reverse slivers).
+    final double centerOffset = mainAxisExtent * anchor - correctedOffset;
+    final double reverseDirectionRemainingPaintExtent = centerOffset.clamp(0.0, mainAxisExtent);
+    final double forwardDirectionRemainingPaintExtent = (mainAxisExtent - centerOffset).clamp(0.0, mainAxisExtent);
+
+    final double fullCacheExtent = mainAxisExtent + 2 * cacheExtent;
+    final double centerCacheOffset = centerOffset + cacheExtent;
+    final double reverseDirectionRemainingCacheExtent = centerCacheOffset.clamp(0.0, fullCacheExtent);
+    final double forwardDirectionRemainingCacheExtent = (fullCacheExtent - centerCacheOffset).clamp(0.0, fullCacheExtent);
+
+    final RenderSliver leadingNegativeChild = childBefore(center);
+
+    if (leadingNegativeChild != null) {
+      // negative scroll offsets
+      final double result = layoutChildSequence(
+        child: leadingNegativeChild,
+        scrollOffset: math.max(mainAxisExtent, centerOffset) - mainAxisExtent,
+        overlap: 0.0,
+        layoutOffset: forwardDirectionRemainingPaintExtent,
+        remainingPaintExtent: reverseDirectionRemainingPaintExtent,
+        mainAxisExtent: mainAxisExtent,
+        crossAxisExtent: crossAxisExtent,
+        growthDirection: GrowthDirection.reverse,
+        advance: childBefore,
+        remainingCacheExtent: reverseDirectionRemainingCacheExtent,
+        cacheOrigin: (mainAxisExtent - centerOffset).clamp(-cacheExtent, 0.0),
+      );
+      if (result != 0.0)
+        return -result;
+    }
+
+    // positive scroll offsets
+    return layoutChildSequence(
+      child: center,
+      scrollOffset: math.max(0.0, -centerOffset),
+      overlap: leadingNegativeChild == null ? math.min(0.0, -centerOffset) : 0.0,
+      layoutOffset: centerOffset >= mainAxisExtent ? centerOffset: reverseDirectionRemainingPaintExtent,
+      remainingPaintExtent: forwardDirectionRemainingPaintExtent,
+      mainAxisExtent: mainAxisExtent,
+      crossAxisExtent: crossAxisExtent,
+      growthDirection: GrowthDirection.forward,
+      advance: childAfter,
+      remainingCacheExtent: forwardDirectionRemainingCacheExtent,
+      cacheOrigin: centerOffset.clamp(-cacheExtent, 0.0),
+    );
+  }
+
+  @override
+  bool get hasVisualOverflow => _hasVisualOverflow;
+
+  @override
+  void updateOutOfBandData(GrowthDirection growthDirection, SliverGeometry childLayoutGeometry) {
+    switch (growthDirection) {
+      case GrowthDirection.forward:
+        _maxScrollExtent += childLayoutGeometry.scrollExtent;
+        break;
+      case GrowthDirection.reverse:
+        _minScrollExtent -= childLayoutGeometry.scrollExtent;
+        break;
+    }
+    if (childLayoutGeometry.hasVisualOverflow)
+      _hasVisualOverflow = true;
+  }
+
+  @override
+  void updateChildLayoutOffset(RenderSliver child, double layoutOffset, GrowthDirection growthDirection) {
+    final SliverPhysicalParentData childParentData = child.parentData;
+    childParentData.paintOffset = computeAbsolutePaintOffset(child, layoutOffset, growthDirection);
+  }
+
+  @override
+  Offset paintOffsetOf(RenderSliver child) {
+    final SliverPhysicalParentData childParentData = child.parentData;
+    return childParentData.paintOffset;
+  }
+
+  @override
+  double scrollOffsetOf(RenderSliver child, double scrollOffsetWithinChild) {
+    assert(child.parent == this);
+    final GrowthDirection growthDirection = child.constraints.growthDirection;
+    assert(growthDirection != null);
+    switch (growthDirection) {
+      case GrowthDirection.forward:
+        double scrollOffsetToChild = 0.0;
+        RenderSliver current = center;
+        while (current != child) {
+          scrollOffsetToChild += current.geometry.scrollExtent;
+          current = childAfter(current);
+        }
+        return scrollOffsetToChild + scrollOffsetWithinChild;
+      case GrowthDirection.reverse:
+        double scrollOffsetToChild = 0.0;
+        RenderSliver current = childBefore(center);
+        while (current != child) {
+          scrollOffsetToChild -= current.geometry.scrollExtent;
+          current = childBefore(current);
+        }
+        return scrollOffsetToChild - scrollOffsetWithinChild;
+    }
+    return null;
+  }
+
+  @override
+  double maxScrollObstructionExtentBefore(RenderSliver child) {
+    assert(child.parent == this);
+    final GrowthDirection growthDirection = child.constraints.growthDirection;
+    assert(growthDirection != null);
+    switch (growthDirection) {
+      case GrowthDirection.forward:
+        double pinnedExtent = 0.0;
+        RenderSliver current = center;
+        while (current != child) {
+          pinnedExtent += current.geometry.maxScrollObstructionExtent;
+          current = childAfter(current);
+        }
+        return pinnedExtent;
+      case GrowthDirection.reverse:
+        double pinnedExtent = 0.0;
+        RenderSliver current = childBefore(center);
+        while (current != child) {
+          pinnedExtent += current.geometry.maxScrollObstructionExtent;
+          current = childBefore(current);
+        }
+        return pinnedExtent;
+    }
+    return null;
+  }
+
+  @override
+  void applyPaintTransform(RenderObject child, Matrix4 transform) {
+    assert(child != null);
+    final SliverPhysicalParentData childParentData = child.parentData;
+    childParentData.applyPaintTransform(transform);
+  }
+
+  @override
+  double computeChildMainAxisPosition(RenderSliver child, double parentMainAxisPosition) {
+    assert(child != null);
+    assert(child.constraints != null);
+    final SliverPhysicalParentData childParentData = child.parentData;
+    switch (applyGrowthDirectionToAxisDirection(child.constraints.axisDirection, child.constraints.growthDirection)) {
+      case AxisDirection.down:
+        return parentMainAxisPosition - childParentData.paintOffset.dy;
+      case AxisDirection.right:
+        return parentMainAxisPosition - childParentData.paintOffset.dx;
+      case AxisDirection.up:
+        return child.geometry.paintExtent - (parentMainAxisPosition - childParentData.paintOffset.dy);
+      case AxisDirection.left:
+        return child.geometry.paintExtent - (parentMainAxisPosition - childParentData.paintOffset.dx);
+    }
+    return 0.0;
+  }
+
+  @override
+  int get indexOfFirstChild {
+    assert(center != null);
+    assert(center.parent == this);
+    assert(firstChild != null);
+    int count = 0;
+    RenderSliver child = center;
+    while (child != firstChild) {
+      count -= 1;
+      child = childBefore(child);
+    }
+    return count;
+  }
+
+  @override
+  String labelForChild(int index) {
+    if (index == 0)
+      return 'center child';
+    return 'child $index';
+  }
+
+  @override
+  Iterable<RenderSliver> get childrenInPaintOrder sync* {
+    if (firstChild == null)
+      return;
+    RenderSliver child = firstChild;
+    while (child != center) {
+      yield child;
+      child = childAfter(child);
+    }
+    child = lastChild;
+    while (true) {
+      yield child;
+      if (child == center)
+        return;
+      child = childBefore(child);
+    }
+  }
+
+  @override
+  Iterable<RenderSliver> get childrenInHitTestOrder sync* {
+    if (firstChild == null)
+      return;
+    RenderSliver child = center;
+    while (child != null) {
+      yield child;
+      child = childAfter(child);
+    }
+    child = childBefore(center);
+    while (child != null) {
+      yield child;
+      child = childBefore(child);
+    }
+  }
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DoubleProperty('anchor', anchor));
   }
 }
 ```
