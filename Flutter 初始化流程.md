@@ -381,7 +381,34 @@ Element inflateWidget(Widget newWidget, dynamic newSlot) {
 # 以StatefulElement 为例
 
 ```dart
-/// 在这个方法以前，流程同StatelessWidget
+/// 在_firstBuild方法以前，流程同StatelessWidget
+/// 由于 StatefulElement 重载了 _firstBuild，所以先调用
+void _firstBuild() {
+    try {
+        /// 注意这里实际上调到用state.initState()
+        /// 后面进行了return不能是future的检查
+        final dynamic debugCheckForReturnedFuture = _state.initState() as dynamic;
+    } finally {
+        ...
+    }
+    _state.didChangeDependencies();
+    super._firstBuild();
+}
+
+/// 然后是 ComponentElement.firstBuild
+void _firstBuild() {
+    rebuild();
+}
+
+ void rebuild() {
+    /// 如果是 非active 或者 非dirty，不重建 
+    if (!_active || !_dirty)
+      return;
+    Element debugPreviousBuildTarget;
+    performRebuild();
+  }
+
+
 /// ComponentElement.performRebuild
 void performRebuild() {
     ...
@@ -416,7 +443,6 @@ void performRebuild() {
     ...
     try {
        _child = updateChild(_child, built, slot);
-       assert(_child != null);
     } 
     ...
 }

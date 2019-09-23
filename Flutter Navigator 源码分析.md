@@ -465,6 +465,7 @@ class NavigatorState
   /// navigator 用于视觉呈现的 覆盖层
   OverlayState get overlay => _overlayKey.currentState;
 
+  /// 当前覆盖层（当前页面）  
   OverlayEntry get _currentOverlayEntry {
     for (Route<dynamic> route in _history.reversed) {
       if (route.overlayEntries.isNotEmpty)
@@ -473,10 +474,11 @@ class NavigatorState
     return null;
   }
 
-  bool _debugLocked = false; // used to prevent re-entrant calls to push, pop, and friends
-
+  bool _debugLocked = false;
+      
   Route<T> _routeNamed<T>(String name, {
-      @required Object arguments, bool allowNull = false })
+      @required Object arguments, 
+      bool allowNull = false })
   {
     final RouteSettings settings = RouteSettings(
       name: name,
@@ -508,7 +510,7 @@ class NavigatorState
         _routeNamed<T>(routeName, arguments: arguments), result: result);
   }
 
-  /// 
+  /// 退出一个然后加入一个命名路由
   Future<T> popAndPushNamed<T extends Object, TO extends Object>(
     String routeName, {
     TO result,
@@ -518,23 +520,7 @@ class NavigatorState
     return pushNamed<T>(routeName, arguments: arguments);
   }
 
-  /// Push the route with the given name onto the navigator, and then remove all
-  /// the previous routes until the `predicate` returns true.
-  ///
-  /// {@macro flutter.widgets.navigator.pushNamedAndRemoveUntil}
-  ///
-  /// {@macro flutter.widgets.navigator.pushNamed.arguments}
-  ///
-  /// {@tool sample}
-  ///
-  /// Typical usage is as follows:
-  ///
-  /// ```dart
-  /// void _handleOpenCalendar() {
-  ///   navigator.pushNamedAndRemoveUntil('/calendar', ModalRoute.withName('/'));
-  /// }
-  /// ```
-  /// {@end-tool}
+  /// 推入一个路由并且移除一些路由
   @optionalTypeArgs
   Future<T> pushNamedAndRemoveUntil<T extends Object>(
     String newRouteName,
@@ -545,6 +531,24 @@ class NavigatorState
   }
 
   /// 在栈顶推入指定的路由
+  /// 调用顺序：
+  /// route.install(_currentOverlayEntry) 
+  /// 			|
+  /// _history.add(route); 
+  ///			|
+  /// route.didPush(); 
+  ///			|
+  /// route.didChangeNext(null);
+  /// 			|(oldRoute 为先前的一个路由)
+  /// oldRoute.didChangeNext(route);
+  /// 			|
+  /// route.didChangePrevious(oldRoute); 
+  ///			|
+  /// for (NavigatorObserver observer in widget.observers) 
+  ///      observer.didPush(route, oldRoute);
+  /// 			|
+  /// _afterNavigation(route);
+    
   @optionalTypeArgs
   Future<T> push<T extends Object>(Route<T> route) {
     final Route<dynamic> oldRoute = _history.isNotEmpty ? _history.last : null;
@@ -705,12 +709,21 @@ class NavigatorState
     return false;
   }
 
-
+  /// 移除栈顶的路由
+  /// 调用顺序：
+  /// route.didPop(result ?? route.currentResult)
+  /// 			|
+  /// _history.removeLast();
+  ///			|
+  /// _poppedRoutes.add(route);
+  ///			|
+  /// observer.didPop(route, _history.last);
+  /// 			|
+  /// _afterNavigation<dynamic>(route);
+    
   bool pop<T extends Object>([ T result ]) {
    
     final Route<dynamic> route = _history.last;
-    
-    bool debugPredictedWouldPop;
     
     if (route.didPop(result ?? route.currentResult)) {
      
@@ -727,7 +740,6 @@ class NavigatorState
         RouteNotificationMessages.maybeNotifyRouteChange(
             _routePoppedMethod, route, _history.last);
       } else {
-        assert(() { _debugLocked = false; return true; }());
         return false;
       }
     } else {
@@ -743,11 +755,14 @@ class NavigatorState
       pop();
   }
 
-
+  /// 移除一个路由
+    
   void removeRoute(Route<dynamic> route) {
     final int index = _history.indexOf(route);
+    /// 这个路由必须存在于 _history 列表中
     assert(index != -1);
-    final Route<dynamic> previousRoute = index > 0 ? _history[index - 1] : null;
+    final Route<dynamic> previousRoute = 
+        index > 0 ? _history[index - 1] : null;
     final Route<dynamic> nextRoute = 
         (index + 1 < _history.length) ? _history[index + 1] : null;
     _history.removeAt(index);
@@ -775,24 +790,14 @@ class NavigatorState
     targetRoute.dispose();
   }
 
-  /// Complete the lifecycle for a route that has been popped off the navigator.
-  ///
-  /// When the navigator pops a route, the navigator retains a reference to the
-  /// route in order to call [Route.dispose] if the navigator itself is removed
-  /// from the tree. When the route is finished with any exit animation, the
-  /// route should call this function to complete its lifecycle (e.g., to
-  /// receive a call to [Route.dispose]).
-  ///
-  /// The given `route` must have already received a call to [Route.didPop].
-  /// This function may be called directly from [Route.didPop] if [Route.didPop]
-  /// will return true.
+  /// 终结一个路由
+  /// 在 pop 时，将其加入 _poppedRoutes，日后可以恢复，
+  /// finalizeRoute 会完全销毁 route，不可恢复  
   void finalizeRoute(Route<dynamic> route) {
     _poppedRoutes.remove(route);
     route.dispose();
   }
 
-  /// Whether a route is currently being manipulated by the user, e.g.
-  /// as during an iOS back gesture.
   bool get userGestureInProgress => _userGesturesInProgress > 0;
   int _userGesturesInProgress = 0;
 
@@ -831,16 +836,16 @@ class NavigatorState
   }
 
   void _cancelActivePointers() {
-    // TODO(abarth): This mechanism is far from perfect. See https://github.com/flutter/flutter/issues/4770
     if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.idle) {
       // If we're between frames (SchedulerPhase.idle) then absorb any
       // subsequent pointers from this frame. The absorbing flag will be
       // reset in the next frame, see build().
-      final RenderAbsorbPointer absorber = _overlayKey.currentContext?.ancestorRenderObjectOfType(const TypeMatcher<RenderAbsorbPointer>());
+      final RenderAbsorbPointer absorber = 
+         _overlayKey.currentContext?.ancestorRenderObjectOfType(
+         const TypeMatcher<RenderAbsorbPointer>()
+      );
       setState(() {
         absorber?.absorbing = true;
-        // We do this in setState so that we'll reset the absorbing value back
-        // to false on the next frame.
       });
     }
     _activePointers.toList().forEach(WidgetsBinding.instance.cancelPointer);
@@ -865,6 +870,728 @@ class NavigatorState
       ),
     );
   }
+}
+```
+
+
+
+### -------------------------- 分割线 ------------------------------
+
+
+
+### OverlayRoute
+
+```dart
+abstract class OverlayRoute<T> extends Route<T> {
+  OverlayRoute({
+    RouteSettings settings,
+  }) : super(settings: settings);
+
+  Iterable<OverlayEntry> createOverlayEntries();
+
+  @override
+  List<OverlayEntry> get overlayEntries => _overlayEntries;
+  final List<OverlayEntry> _overlayEntries = <OverlayEntry>[];
+
+  @override
+  void install(OverlayEntry insertionPoint) {
+    assert(_overlayEntries.isEmpty);
+    _overlayEntries.addAll(createOverlayEntries());
+    navigator.overlay?.insertAll(_overlayEntries, above: insertionPoint);
+    super.install(insertionPoint);
+  }
+
+  /// 控制了 [didPop] 是否要调用 [NavigatorState.finalizeRoute].
+  ///
+  /// 如果为 true ，那么调用 [didPop] 时会移除覆盖层
+  /// 子类可以重载这个这个值。但是必须要调用 [finishedWhenPopped]
+  @protected
+  bool get finishedWhenPopped => true;
+
+  @override
+  bool didPop(T result) {
+    final bool returnValue = super.didPop(result);
+    if (finishedWhenPopped)
+      navigator.finalizeRoute(this);
+    return returnValue;
+  }
+
+  @override
+  void dispose() {
+    for (OverlayEntry entry in _overlayEntries)
+      entry.remove();
+    _overlayEntries.clear();
+    super.dispose();
+  }
+}
+```
+
+
+
+### TransitionRoute
+
+```dart
+abstract class TransitionRoute<T> extends OverlayRoute<T> {
+  /// 当 Pop 或 Push 时，有动画效果过渡
+  TransitionRoute({
+    RouteSettings settings,
+  }) : super(settings: settings);
+
+  /// 在 push 或 pop 各完成一次
+  Future<T> get completed => _transitionCompleter.future;
+  final Completer<T> _transitionCompleter = Completer<T>();
+
+  Duration get transitionDuration;
+
+  /// 如果设置为 true ，那么当 Transition 完成时，这个 route 之前的 rout e就不会被建造，以节省资源
+  bool get opaque;
+
+  @override
+  bool get finishedWhenPopped => _controller.status == AnimationStatus.dismissed;
+
+  Animation<double> get animation => _animation;
+  Animation<double> _animation;
+
+  @protected
+  AnimationController get controller => _controller;
+  AnimationController _controller;
+
+  Animation<double> get secondaryAnimation => _secondaryAnimation;
+  final ProxyAnimation _secondaryAnimation = ProxyAnimation(kAlwaysDismissedAnimation);
+
+  AnimationController createAnimationController() {
+    final Duration duration = transitionDuration;
+    return AnimationController(
+      duration: duration,
+      debugLabel: debugLabel,
+      /// 注意：
+      /// navigator mixin 了一个 TickerProvider  
+      vsync: navigator,
+    );
+  }
+
+  Animation<double> createAnimation() {
+    /// Animation<double> get view => this; 
+    /// 将 _controller 自身向外暴露  
+    return _controller.view;
+  }
+
+  T _result;
+
+  /// 但动画状态改变时，触发回调  
+  void _handleStatusChanged(AnimationStatus status) {
+    switch (status) {
+      case AnimationStatus.completed:
+        if (overlayEntries.isNotEmpty)
+          overlayEntries.first.opaque = opaque;
+        break;
+      case AnimationStatus.forward:
+      case AnimationStatus.reverse:
+        if (overlayEntries.isNotEmpty)
+          overlayEntries.first.opaque = false;
+        break;
+      case AnimationStatus.dismissed:
+        if (!isActive) {
+          navigator.finalizeRoute(this);
+        }
+        break;
+    }
+    changedInternalState();
+  }
+
+  @override
+  void install(OverlayEntry insertionPoint) {
+    _controller = createAnimationController();
+    _animation = createAnimation();
+    super.install(insertionPoint);
+  }
+
+  @override
+  TickerFuture didPush() {
+    _animation.addStatusListener(_handleStatusChanged);
+    return _controller.forward();
+  }
+
+  @override
+  void didReplace(Route<dynamic> oldRoute) {
+    if (oldRoute is TransitionRoute)
+      _controller.value = oldRoute._controller.value;
+    _animation.addStatusListener(_handleStatusChanged);
+    super.didReplace(oldRoute);
+  }
+
+  @override
+  bool didPop(T result) {
+    _result = result;
+    _controller.reverse();
+    return super.didPop(result);
+  }
+
+  @override
+  void didPopNext(Route<dynamic> nextRoute) {
+    _updateSecondaryAnimation(nextRoute);
+    super.didPopNext(nextRoute);
+  }
+
+  @override
+  void didChangeNext(Route<dynamic> nextRoute) {
+    _updateSecondaryAnimation(nextRoute);
+    super.didChangeNext(nextRoute);
+  }
+
+  void _updateSecondaryAnimation(Route<dynamic> nextRoute) {
+    if (nextRoute is TransitionRoute<dynamic> 
+        && canTransitionTo(nextRoute) 
+        && nextRoute.canTransitionFrom(this)) 
+    {
+      final Animation<double> current = _secondaryAnimation.parent;
+      if (current != null) {
+        if (current is TrainHoppingAnimation) {
+          TrainHoppingAnimation newAnimation;
+          newAnimation = TrainHoppingAnimation(
+            current.currentTrain,
+            nextRoute._animation,
+            onSwitchedTrain: () {
+              assert(_secondaryAnimation.parent == newAnimation);
+              assert(newAnimation.currentTrain == nextRoute._animation);
+              _secondaryAnimation.parent = newAnimation.currentTrain;
+              newAnimation.dispose();
+            },
+          );
+          _secondaryAnimation.parent = newAnimation;
+          current.dispose();
+        } else {
+          _secondaryAnimation.parent = TrainHoppingAnimation(
+              current, nextRoute._animation);
+        }
+      } else {
+        _secondaryAnimation.parent = nextRoute._animation;
+      }
+    } else {
+      _secondaryAnimation.parent = kAlwaysDismissedAnimation;
+    }
+  }
+    
+  bool canTransitionTo(TransitionRoute<dynamic> nextRoute) => true;
+
+  bool canTransitionFrom(TransitionRoute<dynamic> previousRoute) => true;
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    _transitionCompleter.complete(_result);
+    super.dispose();
+  }
+
+}
+```
+
+
+
+### LocalHistoryRoute
+
+```dart
+mixin LocalHistoryRoute<T> on Route<T> {
+  List<LocalHistoryEntry> _localHistory;
+
+  /// The following example is an app with 2 pages: `HomePage` and `SecondPage`.
+  /// The `HomePage` can navigate to the `SecondPage`.
+  ///
+  /// The `SecondPage` uses a [LocalHistoryEntry] to implement local navigation
+  /// within that page. Pressing 'show rectangle' displays a red rectangle and
+  /// adds a local history entry. At that point, pressing the '< back' button
+  /// pops the latest route, which is the local history entry, and the red
+  /// rectangle disappears. Pressing the '< back' button a second time
+  /// once again pops the latest route, which is the `SecondPage`, itself.
+  /// Therefore, the second press navigates back to the `HomePage`.
+  ///
+  /// ```dart
+  ///
+  /// class _HomePageState extends State<HomePage> {
+  ///   @override
+  ///   Widget build(BuildContext context) {
+  ///     return Scaffold(
+  ///       body: Center(
+  ///         child: Column(
+  ///           mainAxisSize: MainAxisSize.min,
+  ///           children: <Widget>[
+  ///             Text('HomePage'),
+  ///             // Press this button to open the SecondPage.
+  ///             RaisedButton(
+  ///               child: Text('Second Page >'),
+  ///               onPressed: () {
+  ///                 Navigator.pushNamed(context, '/second_page');
+  ///               },
+  ///             ),
+  ///           ],
+  ///         ),
+  ///       ),
+  ///     );
+  ///   }
+  /// }
+  ///
+  /// class SecondPage extends StatefulWidget {
+  ///   @override
+  ///   _SecondPageState createState() => _SecondPageState();
+  /// }
+  ///
+  /// class _SecondPageState extends State<SecondPage> {
+  ///
+  ///   bool _showRectangle = false;
+  ///
+  ///   void _navigateLocallyToShowRectangle() async {
+  ///     // This local history entry essentially represents the display of the red
+  ///     // rectangle. When this local history entry is removed, we hide the red
+  ///     // rectangle.
+  ///     setState(() => _showRectangle = true);
+  ///     ModalRoute.of(context).addLocalHistoryEntry(
+  ///         LocalHistoryEntry(
+  ///             onRemove: () {
+  ///               // Hide the red rectangle.
+  ///               setState(() => _showRectangle = false);
+  ///             }
+  ///         )
+  ///     );
+  ///   }
+  ///
+  ///   @override
+  ///   Widget build(BuildContext context) {
+  ///     final localNavContent = _showRectangle
+  ///       ? Container(
+  ///           width: 100.0,
+  ///           height: 100.0,
+  ///           color: Colors.red,
+  ///         )
+  ///       : RaisedButton(
+  ///           child: Text('Show Rectangle'),
+  ///           onPressed: _navigateLocallyToShowRectangle,
+  ///         );
+  ///
+  ///     return Scaffold(
+  ///       body: Center(
+  ///         child: Column(
+  ///           mainAxisAlignment: MainAxisAlignment.center,
+  ///           children: <Widget>[
+  ///             localNavContent,
+  ///             RaisedButton(
+  ///               child: Text('< Back'),
+  ///               onPressed: () {
+  ///                 // Pop a route. If this is pressed while the red rectangle is
+  ///                 // visible then it will will pop our local history entry, which
+  ///                 // will hide the red rectangle. Otherwise, the SecondPage will
+  ///                 // navigate back to the HomePage.
+  ///                 Navigator.of(context).pop();
+  ///               },
+  ///             ),
+  ///           ],
+  ///         ),
+  ///       ),
+  ///     );
+  ///   }
+  /// }
+  /// ```
+
+  void addLocalHistoryEntry(LocalHistoryEntry entry) {
+    entry._owner = this;
+    _localHistory ??= <LocalHistoryEntry>[];
+    final bool wasEmpty = _localHistory.isEmpty;
+    _localHistory.add(entry);
+    if (wasEmpty)
+      changedInternalState();
+  }
+
+  /// 同步地移除一个当前 route 的 历史 route
+  void removeLocalHistoryEntry(LocalHistoryEntry entry) {
+    _localHistory.remove(entry);
+    entry._owner = null;
+    entry._notifyRemoved();
+    if (_localHistory.isEmpty)
+      changedInternalState();
+  }
+
+  @override
+  Future<RoutePopDisposition> willPop() async {
+    if (willHandlePopInternally)
+      return RoutePopDisposition.pop;
+    return await super.willPop();
+  }
+
+  @override
+  bool didPop(T result) {
+    if (_localHistory != null && _localHistory.isNotEmpty) {
+      final LocalHistoryEntry entry = _localHistory.removeLast();
+      assert(entry._owner == this);
+      entry._owner = null;
+      entry._notifyRemoved();
+      if (_localHistory.isEmpty)
+        changedInternalState();
+      return false;
+    }
+    return super.didPop(result);
+  }
+
+  @override
+  bool get willHandlePopInternally {
+    return _localHistory != null && _localHistory.isNotEmpty;
+  }
+}
+```
+
+
+
+### ModelRoute 
+
+```dart
+/// 一个可以在执行动画时阻碍与先前路由交互的 Route
+abstract class ModalRoute<T> 
+    extends TransitionRoute<T> 
+    with LocalHistoryRoute<T> 
+{
+  ModalRoute({
+    RouteSettings settings,
+  }) : super(settings: settings);
+
+  @optionalTypeArgs
+  static ModalRoute<T> of<T extends Object>(BuildContext context) {
+    final _ModalScopeStatus widget = 
+        context.inheritFromWidgetOfExactType(_ModalScopeStatus);
+    return widget?.route;
+  }
+
+  /// Schedule a call to [buildTransitions].
+  ///
+  /// Whenever you need to change internal state for a [ModalRoute] object, make
+  /// the change in a function that you pass to [setState], as in:
+  ///
+  /// ```dart
+  /// setState(() { myState = newValue });
+  /// ```
+  ///
+  /// If you just change the state directly without calling [setState], then the
+  /// route will not be scheduled for rebuilding, meaning that its rendering
+  /// will not be updated.
+  @protected
+  void setState(VoidCallback fn) {
+    if (_scopeKey.currentState != null) {
+      _scopeKey.currentState._routeSetState(fn);
+    } else {
+      // The route isn't currently visible, so we don't have to call its setState
+      // method, but we do still need to call the fn callback, otherwise the state
+      // in the route won't be updated!
+      fn();
+    }
+  }
+
+  /// Returns a predicate that's true if the route has the specified name and if
+  /// popping the route will not yield the same route, i.e. if the route's
+  /// [willHandlePopInternally] property is false.
+  ///
+  /// This function is typically used with [Navigator.popUntil()].
+  static RoutePredicate withName(String name) {
+    return (Route<dynamic> route) {
+      return !route.willHandlePopInternally
+          && route is ModalRoute
+          && route.settings.name == name;
+    };
+  }
+
+  Widget buildPage(
+      BuildContext context, 
+      Animation<double> animation,
+      Animation<double> secondaryAnimation
+  );
+
+
+  Widget buildTransitions(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    return child;
+  }
+
+  @override
+  void install(OverlayEntry insertionPoint) {
+    super.install(insertionPoint);
+    _animationProxy = ProxyAnimation(super.animation);
+    _secondaryAnimationProxy = ProxyAnimation(super.secondaryAnimation);
+  }
+
+  @override
+  TickerFuture didPush() {
+    if (_scopeKey.currentState != null) {
+      navigator.focusScopeNode.setFirstFocus(_scopeKey.currentState.focusScopeNode);
+    }
+    return super.didPush();
+  }
+
+  /// 是否点击背景 pop 当前路由
+  /// 例如：弹出 dialog 时，点击背景 pop dialog  
+  bool get barrierDismissible;
+
+  bool get semanticsDismissible => true;
+
+  /// 背景版颜色  
+  Color get barrierColor;
+
+  String get barrierLabel;
+
+  /// 当 inactive 时是否要保存状态
+  bool get maintainState;
+
+  bool get offstage => _offstage;
+  bool _offstage = false;
+  set offstage(bool value) {
+    if (_offstage == value)
+      return;
+    setState(() {
+      _offstage = value;
+    });
+    _animationProxy.parent = 
+        _offstage ? kAlwaysCompleteAnimation : super.animation;
+    _secondaryAnimationProxy.parent = 
+        _offstage ? kAlwaysDismissedAnimation : super.secondaryAnimation;
+  }
+
+  BuildContext get subtreeContext => _subtreeKey.currentContext;
+
+  @override
+  Animation<double> get animation => _animationProxy;
+  ProxyAnimation _animationProxy;
+
+  @override
+  Animation<double> get secondaryAnimation => _secondaryAnimationProxy;
+  ProxyAnimation _secondaryAnimationProxy;
+
+  final List<WillPopCallback> _willPopCallbacks = <WillPopCallback>[];
+
+  @override
+  Future<RoutePopDisposition> willPop() async {
+    final _ModalScopeState<T> scope = _scopeKey.currentState;
+    for (WillPopCallback callback in List<WillPopCallback>.from(_willPopCallbacks)) {
+      if (!await callback())
+        return RoutePopDisposition.doNotPop;
+    }
+    return await super.willPop();
+  }
+
+  void addScopedWillPopCallback(WillPopCallback callback) {
+    _willPopCallbacks.add(callback);
+  }
+
+  void removeScopedWillPopCallback(WillPopCallback callback) {
+    _willPopCallbacks.remove(callback);
+  }
+
+  @protected
+  bool get hasScopedWillPopCallback {
+    return _willPopCallbacks.isNotEmpty;
+  }
+
+  @override
+  void didChangePrevious(Route<dynamic> previousRoute) {
+    super.didChangePrevious(previousRoute);
+    changedInternalState();
+  }
+
+  @override
+  void changedInternalState() {
+    super.changedInternalState();
+    _modalBarrier.markNeedsBuild();
+  }
+
+  @override
+  void changedExternalState() {
+    super.changedExternalState();
+    if (_scopeKey.currentState != null)
+      _scopeKey.currentState._forceRebuildPage();
+  }
+
+  bool get canPop => !isFirst || willHandlePopInternally;
+
+  // Internals
+
+  final GlobalKey<_ModalScopeState<T>> _scopeKey = GlobalKey<_ModalScopeState<T>>();
+  final GlobalKey _subtreeKey = GlobalKey();
+  final PageStorageBucket _storageBucket = PageStorageBucket();
+
+  static final Animatable<double> _easeCurveTween = CurveTween(curve: Curves.ease);
+
+  // one of the builders
+  OverlayEntry _modalBarrier;
+  Widget _buildModalBarrier(BuildContext context) {
+    Widget barrier;
+    if (barrierColor != null && !offstage) { // changedInternalState is called if these update
+      final Animation<Color> color = animation.drive(
+        ColorTween(
+          begin: _kTransparent,
+          end: barrierColor, // changedInternalState is called if this updates
+        ).chain(_easeCurveTween),
+      );
+      barrier = AnimatedModalBarrier(
+        color: color,
+        dismissible: barrierDismissible, // changedInternalState is called if this updates
+        semanticsLabel: barrierLabel, // changedInternalState is called if this updates
+        barrierSemanticsDismissible: semanticsDismissible,
+      );
+    } else {
+      barrier = ModalBarrier(
+        dismissible: barrierDismissible, // changedInternalState is called if this updates
+        semanticsLabel: barrierLabel, // changedInternalState is called if this updates
+        barrierSemanticsDismissible: semanticsDismissible,
+      );
+    }
+    return IgnorePointer(
+      ignoring: animation.status == AnimationStatus.reverse || // changedInternalState is called when this updates
+                animation.status == AnimationStatus.dismissed, // dismissed is possible when doing a manual pop gesture
+      child: barrier,
+    );
+  }
+
+  // We cache the part of the modal scope that doesn't change from frame to
+  // frame so that we minimize the amount of building that happens.
+  Widget _modalScopeCache;
+
+  // one of the builders
+  Widget _buildModalScope(BuildContext context) {
+    return _modalScopeCache ??= _ModalScope<T>(
+      key: _scopeKey,
+      route: this,
+      // _ModalScope calls buildTransitions() and buildChild(), defined above
+    );
+  }
+
+  @override
+  Iterable<OverlayEntry> createOverlayEntries() sync* {
+    yield _modalBarrier = OverlayEntry(builder: _buildModalBarrier);
+    yield OverlayEntry(builder: _buildModalScope, maintainState: maintainState);
+  }
+
+}
+
+```
+
+
+
+### PageRoute
+
+```dart
+/// 替换整个屏幕的 Route
+abstract class PageRoute<T> extends ModalRoute<T> {
+  PageRoute({
+    RouteSettings settings,
+    this.fullscreenDialog = false,
+  }) : super(settings: settings);
+
+  /// 是否是一个全屏对话框
+  /// 在 android 上，返回按钮会变成一个关闭按钮
+  /// 在 ios 上，会取消手势控制  
+  final bool fullscreenDialog;
+
+  @override
+  bool get opaque => true;
+
+  @override
+  bool get barrierDismissible => false;
+
+  @override
+  bool canTransitionTo(TransitionRoute<dynamic> nextRoute) 
+      => nextRoute is PageRoute;
+
+  @override
+  bool canTransitionFrom(TransitionRoute<dynamic> previousRoute) 
+      => previousRoute is PageRoute;
+
+  @override
+  AnimationController createAnimationController() {
+    final AnimationController controller = super.createAnimationController();
+    /// 如果是第一个页面，设置立刻完成，以提升加载速度  
+    if (settings.isInitialRoute)
+      controller.value = 1.0;
+    return controller;
+  }
+}
+```
+
+
+
+### MaterialPageRoute
+
+```dart
+/// 平台自适应的 page 切换效果
+class MaterialPageRoute<T> extends PageRoute<T> {
+
+  MaterialPageRoute({
+    @required this.builder,
+    RouteSettings settings,
+    this.maintainState = true,
+    bool fullscreenDialog = false,
+  }) : assert(builder != null),
+       assert(maintainState != null),
+       assert(fullscreenDialog != null),
+       assert(opaque),
+       super(settings: settings, fullscreenDialog: fullscreenDialog);
+
+  final WidgetBuilder builder;
+
+  @override
+  final bool maintainState;
+
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 300);
+
+  @override
+  Color get barrierColor => null;
+
+  @override
+  String get barrierLabel => null;
+
+  @override
+  bool canTransitionFrom(TransitionRoute<dynamic> previousRoute) {
+    return previousRoute is MaterialPageRoute || previousRoute is CupertinoPageRoute;
+  }
+
+  @override
+  bool canTransitionTo(TransitionRoute<dynamic> nextRoute) {
+    // Don't perform outgoing animation if the next route is a fullscreen dialog.
+    return (nextRoute is MaterialPageRoute && !nextRoute.fullscreenDialog)
+        || (nextRoute is CupertinoPageRoute && !nextRoute.fullscreenDialog);
+  }
+
+  @override
+  Widget buildPage(
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+  ) {
+    final Widget result = builder(context);
+    return Semantics(
+      scopesRoute: true,
+      explicitChildNodes: true,
+      child: result,
+    );
+  }
+
+  @override
+  Widget buildTransitions(
+      BuildContext context, 
+      Animation<double> animation,
+      Animation<double> secondaryAnimation, 
+      Widget child) 
+  {
+    final PageTransitionsTheme theme = Theme.of(context).pageTransitionsTheme;
+    return theme.buildTransitions<T>(
+        this, 
+        context, 
+        animation, 
+        secondaryAnimation, 
+        child
+    );
+  }
+
+  @override
+  String get debugLabel => '${super.debugLabel}(${settings.name})';
 }
 ```
 
