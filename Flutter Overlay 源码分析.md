@@ -1,4 +1,4 @@
-# Flutter Overlay 源码分析
+Flutter Overlay 源码分析
 
 
 
@@ -7,13 +7,14 @@
 ## OverlayEntry
 
 ```dart
-/// 覆盖层
+/// 覆盖层实体
+/// 持有builder（用于构建子树）
 class OverlayEntry {
-  /// 创建一个覆盖层
+  /// 创建一个覆盖层实体
   ///
   /// 若要插入一层 [Overlay], 首先通过 [Overlay.of] 来获取到 overlay，然后调用
   /// [OverlayState.insert]
-  /// 若要移除一层 [Overlay], 在 overlay 自身调用 [remove]
+  /// 若要移除一层 [Overlay], 调用 [remove]
   /// 
   OverlayEntry({
     @required this.builder,
@@ -41,14 +42,13 @@ class OverlayEntry {
     _overlay._didChangeEntryOpacity();
   }
 
+  /// 是否保持状态  
   bool get maintainState => _maintainState;
   bool _maintainState;
   set maintainState(bool value) {
-    assert(_maintainState != null);
     if (_maintainState == value)
       return;
     _maintainState = value;
-    assert(_overlay != null);
     _overlay._didChangeEntryOpacity();
   }
 
@@ -151,6 +151,7 @@ class OverlayState extends State<Overlay> with TickerProviderStateMixin {
     insertAll(widget.initialEntries);
   }
 
+  // 返回指定插入位置的index  
   int _insertionIndex(OverlayEntry below, OverlayEntry above) {
     if (below != null)
       return _entries.indexOf(below);
@@ -159,7 +160,8 @@ class OverlayState extends State<Overlay> with TickerProviderStateMixin {
     return _entries.length;
   }
 
-  /// 插入一个覆盖层
+  /// 以下方法在插入一个   
+  /// 插入一个覆盖层 OverlayEntry 会将其_overlay设为自身，
   void insert(OverlayEntry entry, { OverlayEntry below, OverlayEntry above }) {
     entry._overlay = this;
     setState(() {
@@ -224,16 +226,25 @@ class OverlayState extends State<Overlay> with TickerProviderStateMixin {
     for (int i = _entries.length - 1; i >= 0; i -= 1) {
       final OverlayEntry entry = _entries[i];
       if (onstage) {
+        /// 这里的 _OverlayEntry 是 StatfulWidget，OverlayEntry只是一个实体类 
         onstageChildren.add(_OverlayEntry(entry));
+        /// 如果有一个entry为opaque（不透明），那么它之后的entry不可见  
         if (entry.opaque)
           onstage = false;
+        /// 如果一个不可见的entry之后的entry需要保持状态，
+        /// 那么把它加入 offstageChildren 中  
       } else if (entry.maintainState) {
         offstageChildren.add(TickerMode(enabled: false, child: _OverlayEntry(entry)));
       }
     }
+      
+    /// 注意：
+    /// 如果一个entry是不可见并且无需保存状态，那么setState之后他不会加入onstageChildren 或 
+    /// offstageChildren 中，于是被从子树中移除    
     return _Theatre(
       onstage: Stack(
         fit: StackFit.expand,
+        /// 这里反转了 onstageChildren ，排在后面的元素会放在到前面 
         children: onstageChildren.reversed.toList(growable: false),
       ),
       offstage: offstageChildren,
@@ -266,7 +277,13 @@ class _Theatre extends RenderObjectWidget {
   @override
   _RenderTheatre createRenderObject(BuildContext context) => _RenderTheatre();
 }
+```
 
+
+
+## _TheatreElement
+
+```dart
 class _TheatreElement extends RenderObjectElement {
   _TheatreElement(_Theatre widget)
     : super(widget);
@@ -277,12 +294,15 @@ class _TheatreElement extends RenderObjectElement {
   @override
   _RenderTheatre get renderObject => super.renderObject;
 
+  /// _onstage是一个单一的elment（stack）  
   Element _onstage;
   static final Object _onstageSlot = Object();
 
+  /// _offstage是一组element（需要维持状态而不渲染）  
   List<Element> _offstage;
   final Set<Element> _forgottenOffstageChildren = HashSet<Element>();
 
+  /// 插入一个childRenderObject  
   @override
   void insertChildRenderObject(RenderBox child, dynamic slot) {
     if (slot == _onstageSlot) {
@@ -292,6 +312,7 @@ class _TheatreElement extends RenderObjectElement {
     }
   }
 
+  /// 移动一个childRenderObject    
   @override
   void moveChildRenderObject(RenderBox child, dynamic slot) {
     if (slot == _onstageSlot) {
@@ -307,6 +328,7 @@ class _TheatreElement extends RenderObjectElement {
     }
   }
 
+  /// 移除一个childRenderObject    
   @override
   void removeChildRenderObject(RenderBox child) {
     if (renderObject.child == child) {
@@ -327,18 +349,10 @@ class _TheatreElement extends RenderObjectElement {
   }
 
   @override
-  void debugVisitOnstageChildren(ElementVisitor visitor) {
-    if (_onstage != null)
-      visitor(_onstage);
-  }
-
-  @override
   bool forgetChild(Element child) {
     if (child == _onstage) {
       _onstage = null;
     } else {
-      assert(_offstage.contains(child));
-      assert(!_forgottenOffstageChildren.contains(child));
       _forgottenOffstageChildren.add(child);
     }
     return true;
@@ -346,7 +360,8 @@ class _TheatreElement extends RenderObjectElement {
 
   @override
   void mount(Element parent, dynamic newSlot) {
-    super.mount(parent, newSlot);
+    /// 根据widget来创建对应的_onstage和_offstage  
+    super.mount(parent, newSlot);  
     _onstage = updateChild(_onstage, widget.onstage, _onstageSlot);
     _offstage = List<Element>(widget.offstage.length);
     Element previousChild;
@@ -370,7 +385,13 @@ class _TheatreElement extends RenderObjectElement {
     _forgottenOffstageChildren.clear();
   }
 }
+```
 
+
+
+## _RenderTheatre
+
+```dart
 class _RenderTheatre extends RenderBox
   with RenderObjectWithChildMixin<RenderStack>, 
 	   RenderProxyBoxMixin<RenderStack>,

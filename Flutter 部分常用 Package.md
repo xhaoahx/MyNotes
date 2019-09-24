@@ -1,4 +1,8 @@
-# Flutter 部分常用 Package
+## Flutter 部分常用 Package
+
+[TOC]
+
+
 
 ### 库：
 
@@ -30,14 +34,20 @@ https://pub.dev/flutter，
 
 （照片查看）photo https://pub.dev/packages/photo
 
-### 视频
+
+
+### 视频音乐：
 （视频播放）video_player shttps://pub.dev/packages/video_player
+
+（铃声）flutter_ringtone_player _https://pub.dev/packages/flutter_ringtone_player
 
 
 
 ### 组件：
 
 （flare 动画）flare_flutter https://pub.dev/packages/flare_flutter
+
+（nima 动画）nima https://pub.dev/packages/nima
 
 （轮播图）flutter_swiper https://pub.dev/packages/flutter_swiper
 
@@ -51,8 +61,8 @@ https://pub.dev/flutter，
 
 （小红点）
 
-bottom_navigation_badge https://pub.dev/packages/bottom_navigation_badge
-badges https://pub.dev/packages/badges
+  bottom_navigation_badge https://pub.dev/packages/bottom_navigation_badge
+  badges https://pub.dev/packages/badges
 
 （瀑布流）flutter_staggered_grid_view https://pub.dev/packages/flutter_staggered_grid_view
 
@@ -60,11 +70,13 @@ badges https://pub.dev/packages/badges
 
 （自动调整大小Text）auto_size_text https://pub.dev/packages/auto_size_text
 
+（类似于snakebar的通知栏）flushbar https://pub.dev/packages/flushbar
+
 
 
 ### 原生管理：
 
-（启动第三方app）url_launcher https://pub.dev/packages/url_launcher
+（启动第三方app、网页）url_launcher https://pub.dev/packages/url_launcher
 
 （权限管理）permission_handler https://pub.dev/packages/permission_handler
 
@@ -80,11 +92,13 @@ badges https://pub.dev/packages/badges
 
 （位置获取）location https://pub.dev/packages/location
 
+（本地通知）flutter_local_notification https://pub.dev/packages/flutter_local_notifications
+
 
 
 ### 网络：
 
-dio https://pub.dev/packages/dio
+（网络）dio https://pub.dev/packages/dio
 
 
 
@@ -139,3 +153,11 @@ build_runner https://pub.dev/packages/build_runner
 （二维码）barcode_scan https://pub.dev/packages/barcode_scan
 
 （闪亮特效）shimmer https://pub.dev/packages/shimmer
+
+（微信相关）fluwx https://pub.dev/packages/fluwx
+
+（qq相关）flutter_qq https://pub.dev/packages/flutter_qq
+
+（极光推送）jpush_flutter https://pub.dev/packages/jpush_flutter
+
+（外国推送平台？）onesignal_flutter https://pub.dev/packages/onesignal_flutter
