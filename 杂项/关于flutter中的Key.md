@@ -1,7 +1,10 @@
 # 关于flutter中的Key
 
+[TOC]
 
-##Key
+
+
+## Key
 
 在flutter的key.dart中有这么一段：
 
@@ -39,12 +42,12 @@ abstract class Key {
 
 值得注意的是，Key有一个工厂方法，和一个命名构造函数：Key.empty()。此外，有一段注释说明了GolbalKey:
 
-```da
+```dart
 By contrast, [GlobalKey]s must be unique across the entire app.
 与此相对的，GlobalKey对于整个APP必须是独特的
 ```
 
-##LocalKey
+## LocalKey
 
 LocalKey对Key做了一层封装：
 

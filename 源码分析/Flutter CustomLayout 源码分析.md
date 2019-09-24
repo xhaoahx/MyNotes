@@ -1,4 +1,4 @@
-# Flutter的一些组件源码Ⅲ
+# Flutter CustomLayout 源码分析
 
 [TOC]
 
@@ -397,7 +397,8 @@ class MultiChildLayoutParentData extends ContainerBoxParentData<RenderBox> {
 /// 这个delegate控制多个子元素的布局
 ///
 /// Delegate 必须是幂等的。详细地说，如果两个delegate相等，那么它们产生的布局是一样的
-/// 替换delegate来重新布局
+///
+/// 可以替换delegate来重新布局
 ///
 /// 重载 [getSize] 来控制布局的全部大小。这个大小不能依赖children的属性。
 ///
@@ -458,6 +459,7 @@ abstract class MultiChildLayoutDelegate {
     final RenderBox child = _idToChild[childId];
     final MultiChildLayoutParentData childParentData = child.parentData;
     /// 这里通过设置 childParentData 来决定child的偏移
+    /// BoxParentData里有一个域是offset，通过设置这个offset来确定偏移位置  
     childParentData.offset = offset;
   }
 
@@ -497,6 +499,8 @@ abstract class MultiChildLayoutDelegate {
   String toString() => '$runtimeType';
 }
 ```
+
+
 
 ## MultiChildRenderObjectWidget
 
@@ -617,6 +621,9 @@ class MultiChildRenderObjectElement extends RenderObjectElement {
 ```dart
 /// 这里'mixin' + 'on' 表示该mixin只能被 ParentData 及其子类使用，并且
 /// 该mixin能够访问ParentData中的方法
+
+/// 这个mixin提供了管理孩子的方法，供ParentData使用，使得ContainerRenderObject能够使用链表方法来管
+/// 理孩子
 mixin ContainerParentDataMixin<ChildType extends RenderObject> on ParentData {
   /// 上一个child
   ChildType previousSibling;
@@ -635,7 +642,8 @@ mixin ContainerParentDataMixin<ChildType extends RenderObject> on ParentData {
       previousSiblingParentData.nextSibling = nextSibling;
     } 
     if (nextSibling != null) {
-      final ContainerParentDataMixin<ChildType> nextSiblingParentData = nextSibling.parentData;
+      final ContainerParentDataMixin<ChildType> nextSiblingParentData = 
+          nextSibling.parentData;
       ...  
       /// 链表的结合方式，让下一个节点的前驱变成自己的前驱，从而删除自己
       nextSiblingParentData.previousSibling = previousSibling;
@@ -652,6 +660,7 @@ mixin ContainerParentDataMixin<ChildType extends RenderObject> on ParentData {
 
 ```dart
 /// 这个mixin只能被RenderObject和其子类使用
+/// 这个mixin实现了孩子的管理方式（插入、删除等）
 mixin ContainerRenderObjectMixin
 	<ChildType extends RenderObject, 
 	ParentDataType extends ContainerParentDataMixin<ChildType>> on RenderObject 
@@ -736,14 +745,15 @@ mixin ContainerRenderObjectMixin
     if (childParentData.previousSibling == null) {
       _firstChild = childParentData.nextSibling;
     } else {
-      final ParentDataType childPreviousSiblingParentData = childParentData.previousSibling.parentData;
+      final ParentDataType childPreviousSiblingParentData = 
+          childParentData.previousSibling.parentData;
       childPreviousSiblingParentData.nextSibling = childParentData.nextSibling;
     }
     if (childParentData.nextSibling == null) {
-      assert(_lastChild == child);
       _lastChild = childParentData.previousSibling;
     } else {
-      final ParentDataType childNextSiblingParentData = childParentData.nextSibling.parentData;
+      final ParentDataType childNextSiblingParentData = 
+          childParentData.nextSibling.parentData;
       childNextSiblingParentData.previousSibling = childParentData.previousSibling;
     }
     childParentData.previousSibling = null;
@@ -868,15 +878,14 @@ mixin ContainerRenderObjectMixin
 ## RenderBoxContainerDefaultsMixin
 
 ```dart
+/// 这个mixin提供了一些方法的默认实现
+/// 
 mixin RenderBoxContainerDefaultsMixin
     <ChildType extends RenderBox, 
 	ParentDataType extends ContainerBoxParentData<ChildType>> 
     implements ContainerRenderObjectMixin<ChildType, ParentDataType> 
 {
-  /// Returns the baseline of the first child with a baseline.
-  ///
-  /// Useful when the children are displayed vertically in the same order they
-  /// appear in the child list.
+  /// 返回计算第一个孩子的基准线
   double defaultComputeDistanceToFirstActualBaseline(TextBaseline baseline) {
     assert(!debugNeedsLayout);
     ChildType child = firstChild;
@@ -890,10 +899,7 @@ mixin RenderBoxContainerDefaultsMixin
     return null;
   }
 
-  /// Returns the minimum baseline value among every child.
-  ///
-  /// Useful when the vertical position of the children isn't determined by the
-  /// order in the child list.
+  /// 返回所有孩子中的最小的基准线的值
   double defaultComputeDistanceToHighestActualBaseline(TextBaseline baseline) {
     assert(!debugNeedsLayout);
     double result;
@@ -925,7 +931,6 @@ mixin RenderBoxContainerDefaultsMixin
         offset: childParentData.offset,
         position: position,
         hitTest: (BoxHitTestResult result, Offset transformed) {
-          assert(transformed == position - childParentData.offset);
           return child.hitTest(result, position: transformed);
         },
       );

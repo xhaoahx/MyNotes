@@ -1,4 +1,4 @@
-# ThemeData 属性详解
+# Flutter ThemeData 源码分析
 ```dart
   /// APP的全局亮度。被button之类的widget使用来决定颜色的使用（不使用原始或强调色时）。
   ///
@@ -211,7 +211,7 @@
   /// 特定的颜色，如[cardColor]， [buttonColor]， [canvasColor]等。
   /// 可以根据[colorScheme]定义新的组件。
   /// 现有的组件将在一定程度上逐渐迁移到它
-  /// 在没有明显的向后兼容性中断的情况下，这是可能的。
+  /// 在没有明显的向后兼容性中断的情况下，这是可能的
   final ColorScheme colorScheme;
 
   /// 用于自定义[SnackBar]颜色、阴影、形状、行为。
@@ -227,10 +227,10 @@
   /// [accentTextTheme]。
   final Typography typography;
 
-  /// 组件的[CupertinoThemeData]覆盖从材料[ThemeData]适应。
+  /// 组件的[CupertinoThemeData]自适应[ThemeData]
   ///
   /// 默认情况下，[cupertinoOverrideTheme]是null。并且Cupertino widgets
-  /// 后代[MaterialTheme]将保持同一个[CupertinoTheme]（源自[MeteialData]）。
+  /// 后代[MaterialTheme]将保持同一个[CupertinoTheme]（源自[MeteialData]）
   /// 例如[ThemeData]和[ColorTheme]。
   /// 还将通知[CupertinoThemeData]的‘primary color’等。
   ///
