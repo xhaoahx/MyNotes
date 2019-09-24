@@ -1,4 +1,4 @@
-# Flutter Navigator 源码分析
+Flutter Navigator 源码分析
 
 [TOC]
 
@@ -479,7 +479,8 @@ class NavigatorState
   /// navigator 用于视觉呈现的 覆盖层
   OverlayState get overlay => _overlayKey.currentState;
 
-  /// 当前覆盖层（？最先一个页面的最后一个OverlayEntry）  
+  /// 当前覆盖层
+  /// 逆转_history之后，返回第一个route（push的最后一个route）的最后一层覆盖层  
   OverlayEntry get _currentOverlayEntry {
     for (Route<dynamic> route in _history.reversed) {
       if (route.overlayEntries.isNotEmpty)
@@ -547,11 +548,11 @@ class NavigatorState
 
   /// 在栈顶推入指定的路由
   /// 调用顺序：
-  /// route.install(_currentOverlayEntry) 
+  /// route.install(_currentOverlayEntry) // 为route创建了overlayEntries
   /// 			|
   /// _history.add(route); 
   ///			|
-  /// route.didPush(); 
+  /// route.didPush();// TransitionRoute在这里会启用动画 
   ///			|
   /// route.didChangeNext(null);
   /// 			|(oldRoute 为先前的一个路由)
@@ -559,7 +560,7 @@ class NavigatorState
   /// 			|
   /// route.didChangePrevious(oldRoute); 
   ///			|
-  /// for (NavigatorObserver observer in widget.observers) 
+  /// for(NavigatorObserver observer in widget.observers) 
   ///      observer.didPush(route, oldRoute);
   /// 			|
   /// _afterNavigation(route);
@@ -814,58 +815,8 @@ class NavigatorState
     route.dispose();
   }
 
-  bool get userGestureInProgress => _userGesturesInProgress > 0;
-  int _userGesturesInProgress = 0;
-
-  void didStartUserGesture() {
-    _userGesturesInProgress += 1;
-    if (_userGesturesInProgress == 1) {
-      final Route<dynamic> route = _history.last;
-      final Route<dynamic> previousRoute = !route.willHandlePopInternally && _history.length > 1
-          ? _history[_history.length - 2]
-          : null;
-      // Don't operate the _history list since the gesture may be canceled.
-      // In case of a back swipe, the gesture controller will call .pop() itself.
-
-      for (NavigatorObserver observer in widget.observers)
-        observer.didStartUserGesture(route, previousRoute);
-    }
-  }
-
-  void didStopUserGesture() {
-    assert(_userGesturesInProgress > 0);
-    _userGesturesInProgress -= 1;
-    if (_userGesturesInProgress == 0) {
-      for (NavigatorObserver observer in widget.observers)
-        observer.didStopUserGesture();
-    }
-  }
-
-  final Set<int> _activePointers = <int>{};
-
-  void _handlePointerDown(PointerDownEvent event) {
-    _activePointers.add(event.pointer);
-  }
-
-  void _handlePointerUpOrCancel(PointerEvent event) {
-    _activePointers.remove(event.pointer);
-  }
-
-  void _cancelActivePointers() {
-    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.idle) {
-      // If we're between frames (SchedulerPhase.idle) then absorb any
-      // subsequent pointers from this frame. The absorbing flag will be
-      // reset in the next frame, see build().
-      final RenderAbsorbPointer absorber = 
-         _overlayKey.currentContext?.ancestorRenderObjectOfType(
-         const TypeMatcher<RenderAbsorbPointer>()
-      );
-      setState(() {
-        absorber?.absorbing = true;
-      });
-    }
-    _activePointers.toList().forEach(WidgetsBinding.instance.cancelPointer);
-  }
+  /// 掠过几个手势控制  
+  ...
 
   @override
   Widget build(BuildContext context) {
@@ -878,6 +829,7 @@ class NavigatorState
         child: FocusScope(
           node: focusScopeNode,
           autofocus: true,
+          /// 这里为子树创建了一个最高层 Overlay  
           child: Overlay(
             key: _overlayKey,
             initialEntries: _initialOverlayEntries,
@@ -898,6 +850,7 @@ class NavigatorState
 ### OverlayRoute
 
 ```dart
+/// 一个可以创建覆盖层的Route
 abstract class OverlayRoute<T> extends Route<T> {
   OverlayRoute({
     RouteSettings settings,
@@ -959,7 +912,7 @@ abstract class TransitionRoute<T> extends OverlayRoute<T> {
 
   Duration get transitionDuration;
 
-  /// 如果设置为 true ，那么当 Transition 完成时，这个 route 之前的 rout e就不会被建造，以节省资源
+  /// 如果设置为 true ，那么当 Transition 完成时，这个 route 之前的 route 就不会被建造，以节省资源
   bool get opaque;
 
   @override
@@ -997,6 +950,9 @@ abstract class TransitionRoute<T> extends OverlayRoute<T> {
   /// 但动画状态改变时，触发回调  
   void _handleStatusChanged(AnimationStatus status) {
     switch (status) {
+      /// 如果当动画完成时，把overlayEntries的第一个OverlayEntry的opaque设置为true
+      /// 这样会使得先前路由被遮蔽，在 OverlayState 会把先前的路由从_onstage里移除
+      /// 先前的route不再会被build      
       case AnimationStatus.completed:
         if (overlayEntries.isNotEmpty)
           overlayEntries.first.opaque = opaque;
@@ -1012,9 +968,12 @@ abstract class TransitionRoute<T> extends OverlayRoute<T> {
         }
         break;
     }
+    /// 这个方法在ModelRoute里被重写
+    /// 调用了_modalBarrier.markNeedsBuild();  
     changedInternalState();
   }
 
+  /// 创建了AnimationController   
   @override
   void install(OverlayEntry insertionPoint) {
     _controller = createAnimationController();
@@ -1022,6 +981,7 @@ abstract class TransitionRoute<T> extends OverlayRoute<T> {
     super.install(insertionPoint);
   }
 
+  /// 开始动画  
   @override
   TickerFuture didPush() {
     _animation.addStatusListener(_handleStatusChanged);
@@ -1104,108 +1064,38 @@ abstract class TransitionRoute<T> extends OverlayRoute<T> {
 
 
 
+## LocalHistoryEntry
+
+```dart
+class LocalHistoryEntry {
+  /// Creates an entry in the history of a [LocalHistoryRoute].
+  LocalHistoryEntry({ this.onRemove });
+
+  /// 被移除时调用
+  final VoidCallback onRemove;
+
+  LocalHistoryRoute<dynamic> _owner;
+
+  /// Remove this entry from the history of its associated [LocalHistoryRoute].
+  void remove() {
+    _owner.removeLocalHistoryEntry(this);
+    assert(_owner == null);
+  }
+
+  void _notifyRemoved() {
+    if (onRemove != null)
+      onRemove();
+  }
+}
+```
+
+
+
 ### LocalHistoryRoute
 
 ```dart
 mixin LocalHistoryRoute<T> on Route<T> {
   List<LocalHistoryEntry> _localHistory;
-
-  /// The following example is an app with 2 pages: `HomePage` and `SecondPage`.
-  /// The `HomePage` can navigate to the `SecondPage`.
-  ///
-  /// The `SecondPage` uses a [LocalHistoryEntry] to implement local navigation
-  /// within that page. Pressing 'show rectangle' displays a red rectangle and
-  /// adds a local history entry. At that point, pressing the '< back' button
-  /// pops the latest route, which is the local history entry, and the red
-  /// rectangle disappears. Pressing the '< back' button a second time
-  /// once again pops the latest route, which is the `SecondPage`, itself.
-  /// Therefore, the second press navigates back to the `HomePage`.
-  ///
-  /// ```dart
-  ///
-  /// class _HomePageState extends State<HomePage> {
-  ///   @override
-  ///   Widget build(BuildContext context) {
-  ///     return Scaffold(
-  ///       body: Center(
-  ///         child: Column(
-  ///           mainAxisSize: MainAxisSize.min,
-  ///           children: <Widget>[
-  ///             Text('HomePage'),
-  ///             // Press this button to open the SecondPage.
-  ///             RaisedButton(
-  ///               child: Text('Second Page >'),
-  ///               onPressed: () {
-  ///                 Navigator.pushNamed(context, '/second_page');
-  ///               },
-  ///             ),
-  ///           ],
-  ///         ),
-  ///       ),
-  ///     );
-  ///   }
-  /// }
-  ///
-  /// class SecondPage extends StatefulWidget {
-  ///   @override
-  ///   _SecondPageState createState() => _SecondPageState();
-  /// }
-  ///
-  /// class _SecondPageState extends State<SecondPage> {
-  ///
-  ///   bool _showRectangle = false;
-  ///
-  ///   void _navigateLocallyToShowRectangle() async {
-  ///     // This local history entry essentially represents the display of the red
-  ///     // rectangle. When this local history entry is removed, we hide the red
-  ///     // rectangle.
-  ///     setState(() => _showRectangle = true);
-  ///     ModalRoute.of(context).addLocalHistoryEntry(
-  ///         LocalHistoryEntry(
-  ///             onRemove: () {
-  ///               // Hide the red rectangle.
-  ///               setState(() => _showRectangle = false);
-  ///             }
-  ///         )
-  ///     );
-  ///   }
-  ///
-  ///   @override
-  ///   Widget build(BuildContext context) {
-  ///     final localNavContent = _showRectangle
-  ///       ? Container(
-  ///           width: 100.0,
-  ///           height: 100.0,
-  ///           color: Colors.red,
-  ///         )
-  ///       : RaisedButton(
-  ///           child: Text('Show Rectangle'),
-  ///           onPressed: _navigateLocallyToShowRectangle,
-  ///         );
-  ///
-  ///     return Scaffold(
-  ///       body: Center(
-  ///         child: Column(
-  ///           mainAxisAlignment: MainAxisAlignment.center,
-  ///           children: <Widget>[
-  ///             localNavContent,
-  ///             RaisedButton(
-  ///               child: Text('< Back'),
-  ///               onPressed: () {
-  ///                 // Pop a route. If this is pressed while the red rectangle is
-  ///                 // visible then it will will pop our local history entry, which
-  ///                 // will hide the red rectangle. Otherwise, the SecondPage will
-  ///                 // navigate back to the HomePage.
-  ///                 Navigator.of(context).pop();
-  ///               },
-  ///             ),
-  ///           ],
-  ///         ),
-  ///       ),
-  ///     );
-  ///   }
-  /// }
-  /// ```
 
   void addLocalHistoryEntry(LocalHistoryEntry entry) {
     entry._owner = this;
@@ -1216,7 +1106,7 @@ mixin LocalHistoryRoute<T> on Route<T> {
       changedInternalState();
   }
 
-  /// 同步地移除一个当前 route 的 历史 route
+  /// 同步地移除一个当前 route 的历史 route
   void removeLocalHistoryEntry(LocalHistoryEntry entry) {
     _localHistory.remove(entry);
     entry._owner = null;
@@ -1255,7 +1145,7 @@ mixin LocalHistoryRoute<T> on Route<T> {
 
 
 
-### ModelRoute 
+### ModalRoute 
 
 ```dart
 /// 一个可以在执行动画时阻碍与先前路由交互的 Route
@@ -1274,35 +1164,16 @@ abstract class ModalRoute<T>
     return widget?.route;
   }
 
-  /// Schedule a call to [buildTransitions].
-  ///
-  /// Whenever you need to change internal state for a [ModalRoute] object, make
-  /// the change in a function that you pass to [setState], as in:
-  ///
-  /// ```dart
-  /// setState(() { myState = newValue });
-  /// ```
-  ///
-  /// If you just change the state directly without calling [setState], then the
-  /// route will not be scheduled for rebuilding, meaning that its rendering
-  /// will not be updated.
   @protected
   void setState(VoidCallback fn) {
     if (_scopeKey.currentState != null) {
       _scopeKey.currentState._routeSetState(fn);
     } else {
-      // The route isn't currently visible, so we don't have to call its setState
-      // method, but we do still need to call the fn callback, otherwise the state
-      // in the route won't be updated!
+      // route 当前处于不可见状态，因此不需要setState
       fn();
     }
   }
 
-  /// Returns a predicate that's true if the route has the specified name and if
-  /// popping the route will not yield the same route, i.e. if the route's
-  /// [willHandlePopInternally] property is false.
-  ///
-  /// This function is typically used with [Navigator.popUntil()].
   static RoutePredicate withName(String name) {
     return (Route<dynamic> route) {
       return !route.willHandlePopInternally
@@ -1356,6 +1227,7 @@ abstract class ModalRoute<T>
   /// 当 inactive 时是否要保存状态
   bool get maintainState;
 
+  /// 是否可见（OffStage通过设置最大Size为Size（0,0）来组织布局渲染  
   bool get offstage => _offstage;
   bool _offstage = false;
   set offstage(bool value) {
@@ -1544,6 +1416,9 @@ class MaterialPageRoute<T> extends PageRoute<T> {
   MaterialPageRoute({
     @required this.builder,
     RouteSettings settings,
+    /// 默认maintainState为true
+    /// 这会使得push另一个页面时，保持上一个页面状态，但也会消耗一定资源
+    /// 当页面层数多，且上一页状态无需被储存时，设置false提升性能  
     this.maintainState = true,
     bool fullscreenDialog = false,
   }) : assert(builder != null),
@@ -1616,8 +1491,6 @@ class MaterialPageRoute<T> extends PageRoute<T> {
 
 
 
-
-
 ### _ModelScopeStatus
 
 ```dart
@@ -1668,7 +1541,10 @@ class _ModalScope<T> extends StatefulWidget {
 }
 ```
 
+
+
 ### _ModelScopeState
+
 ```dart
 class _ModalScopeState<T> extends State<_ModalScope<T>> {
   Widget _page;
