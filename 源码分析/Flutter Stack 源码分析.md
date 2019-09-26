@@ -254,7 +254,7 @@ class RenderStack extends RenderBox
         nonPositionedConstraints = constraints.loosen();
         break;
       case StackFit.expand:
-        /// 严格最大越苏    
+        /// 严格最大约束  
         nonPositionedConstraints = BoxConstraints.tight(constraints.biggest);
         break;
       case StackFit.passthrough:

@@ -2,6 +2,8 @@
 
 [TOC]
 
+# 向上请求一帧
+
 ## 从setState开始
 
 
@@ -115,7 +117,13 @@ void ensureFrameCallbacksRegistered() {
     window.onBeginFrame ??= _handleBeginFrame;
     window.onDrawFrame ??= _handleDrawFrame;
 }
+```
 
+
+
+## ScheDuleFrame
+
+```dart
 /// 最后调用到了本地方法
 void scheduleFrame() native 'Window_scheduleFrame';
 
@@ -126,6 +134,10 @@ void scheduleFrame() native 'Window_scheduleFrame';
 /// 请求调用这个方法之后，在接下来的某个合适的时机，
 /// [onBeginFrame] 和 [onDrawFrame] 回调会被引擎激活
 ```
+
+
+
+# 引擎回调,开始一帧
 
 
 

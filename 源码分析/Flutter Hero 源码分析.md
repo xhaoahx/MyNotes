@@ -70,64 +70,35 @@ class Hero extends StatefulWidget {
   /// 用于联系两个页面的hero  
   final Object tag;
 
-  /// Defines how the destination hero's bounds change as it flies from the starting
-  /// route to the destination route.
-  ///
+  /// 定义路由的边界如何变化
   /// A hero flight begins with the destination hero's [child] aligned with the
   /// starting hero's child. The [Tween<Rect>] returned by this callback is used
   /// to compute the hero's bounds as the flight animation's value goes from 0.0
   /// to 1.0.
   ///
-  /// If this property is null, the default, then the value of
-  /// [HeroController.createRectTween] is used. The [HeroController] created by
-  /// [MaterialApp] creates a [MaterialRectArcTween].
+  /// 默认使用[MaterialApp]创建的[HeroController.createRectTween]
   final CreateRectTween createRectTween;
 
-  /// The widget subtree that will "fly" from one route to another during a
-  /// [Navigator] push or pop transition.
-  ///
-  /// The appearance of this subtree should be similar to the appearance of
-  /// the subtrees of any other heroes in the application with the same [tag].
-  /// Changes in scale and aspect ratio work well in hero animations, changes
-  /// in layout or composition do not.
-  ///
-  /// {@macro flutter.widgets.child}
+  /// 一个路由中的widget子树将会飞到另一个路由的widget子树中
+  /// 两个widget的外观应该尽可能地相似（如大小、颜色变化）  
   final Widget child;
-
-  /// Optional override to supply a widget that's shown during the hero's flight.
+  
+  /// ## 限制
   ///
-  /// This in-flight widget can depend on the route transition's animation as
-  /// well as the incoming and outgoing routes' [Hero] descendants' widgets and
-  /// layout.
-  ///
-  /// When both the source and destination [Hero]es provide a [flightShuttleBuilder],
-  /// the destination's [flightShuttleBuilder] takes precedence.
-  ///
-  /// If none is provided, the destination route's Hero child is shown in-flight
-  /// by default.
-  ///
-  /// ## Limitations
-  ///
-  /// If a widget built by [flightShuttleBuilder] takes part in a [Navigator]
-  /// push transition, that widget or its descendants must not have any
-  /// [GlobalKey] that is used in the source Hero's descendant widgets. That is
-  /// because both subtrees will be included in the widget tree during the Hero
-  /// flight animation, and [GlobalKey]s must be unique across the entire widget
-  /// tree.
-  ///
+  /// 如果[flightShuttleBuilder] 产生的widget参加了[Navigator]的push过程
+  /// 那么它的子树不能使用globalKey。因为在飞行时，在路由页面的子树中都会包含hero及其子树，但
+  /// [GlobalKey]必须是全局单一的
   /// If the said [GlobalKey] is essential to your application, consider providing
   /// a custom [placeholderBuilder] for the source Hero, to avoid the [GlobalKey]
   /// collision, such as a builder that builds an empty [SizedBox], keeping the
   /// Hero [child]'s original size.
+    
   final HeroFlightShuttleBuilder flightShuttleBuilder;
 
-  /// Placeholder widget left in place as the Hero's [child] once the flight takes
-  /// off.
+  /// hero [child] 起飞之后的占位符
   ///
-  /// By default the placeholder widget is an empty [SizedBox] keeping the Hero
-  /// child's original size, unless this Hero is a source Hero of a [Navigator]
-  /// push transition, in which case [child] will be a descendant of the placeholder
-  /// and will be kept [Offstage] during the Hero's flight.
+  /// 默认是一个保持hero原始size的[SizedBox]，除非是导航过渡动画
+  /// 导航过渡时，child是占位符的子树，保持offstage  
   final HeroPlaceholderBuilder placeholderBuilder;
 
   /// Whether to perform the hero transition if the [PageRoute] transition was
@@ -145,33 +116,15 @@ class Hero extends StatefulWidget {
   /// Defaults to false and cannot be null.
   final bool transitionOnUserGestures;
 
-  // Returns a map of all of the heroes in `context` indexed by hero tag that
-  // should be considered for animation when `navigator` transitions from one
-  // PageRoute to another.
+  // 当从一个页面过渡到另一个页面时，返回一个从Herotag到Hero的映射表
   static Map<Object, _HeroState> _allHeroesFor(
       BuildContext context,
       bool isUserGestureTransition,
       NavigatorState navigator,
   ) {
-    assert(context != null);
-    assert(isUserGestureTransition != null);
-    assert(navigator != null);
     final Map<Object, _HeroState> result = <Object, _HeroState>{};
 
     void inviteHero(StatefulElement hero, Object tag) {
-      assert(() {
-        if (result.containsKey(tag)) {
-          throw FlutterError(
-            'There are multiple heroes that share the same tag within a subtree.\n'
-            'Within each subtree for which heroes are to be animated (i.e. a PageRoute subtree), '
-            'each Hero must have a unique non-null tag.\n'
-            'In this case, multiple heroes had the following tag: $tag\n'
-            'Here is the subtree for one of the offending heroes:\n'
-            '${hero.toStringDeep(prefixLineOne: "# ")}'
-          );
-        }
-        return true;
-      }());
       final Hero heroWidget = hero.widget;
       final _HeroState heroState = hero.state;
       if (!isUserGestureTransition || heroWidget.transitionOnUserGestures) {
@@ -188,7 +141,6 @@ class Hero extends StatefulWidget {
         final StatefulElement hero = element;
         final Hero heroWidget = element.widget;
         final Object tag = heroWidget.tag;
-        assert(tag != null);
         if (Navigator.of(hero) == navigator) {
           inviteHero(hero, tag);
         } else {
@@ -301,6 +253,7 @@ class _HeroState extends State<Hero> {
 ## HeroFlightManifest
 
 ```dart
+/// 展示类
 class _HeroFlightManifest {
   _HeroFlightManifest({
     @required this.type,
@@ -330,9 +283,12 @@ class _HeroFlightManifest {
 
   Object get tag => fromHero.widget.tag;
 
+  /// 获取动画  
   Animation<double> get animation {
     return CurvedAnimation(
-      parent: (type == HeroFlightDirection.push) ? toRoute.animation : fromRoute.animation,
+      parent: (type == HeroFlightDirection.push) ? 
+        toRoute.animation : 
+        fromRoute.animation,
       curve: Curves.fastOutSlowIn,
       reverseCurve: isDiverted ? null : Curves.fastOutSlowIn.flipped,
     );
@@ -346,7 +302,7 @@ class _HeroFlightManifest {
 ## HeroFlight
 
 ```dart
-// Builds the in-flight hero widget.
+// 构建飞行组件
 class _HeroFlight {
   _HeroFlight(this.onFlightEnded) {
     _proxyAnimation = ProxyAnimation()..addStatusListener(_handleAnimationUpdate);
@@ -589,73 +545,55 @@ class _HeroFlight {
 ## HeroController
 
 ```dart
-/// A [Navigator] observer that manages [Hero] transitions.
-///
-/// An instance of [HeroController] should be used in [Navigator.observers].
-/// This is done automatically by [MaterialApp].
+/// 一个[Navigator] 观测者，用于管理[Hero]变换
 class HeroController extends NavigatorObserver {
-  /// Creates a hero controller with the given [RectTween] constructor if any.
-  ///
-  /// The [createRectTween] argument is optional. If null, the controller uses a
-  /// linear [Tween<Rect>].
-  HeroController({ this.createRectTween });
 
-  /// Used to create [RectTween]s that interpolate the position of heroes in flight.
-  ///
-  /// If null, the controller uses a linear [RectTween].
+  HeroController({ this.createRectTween });
   final CreateRectTween createRectTween;
 
-  // All of the heroes that are currently in the overlay and in motion.
-  // Indexed by the hero tag.
   final Map<Object, _HeroFlight> _flights = <Object, _HeroFlight>{};
 
   @override
   void didPush(Route<dynamic> route, Route<dynamic> previousRoute) {
-    assert(navigator != null);
-    assert(route != null);
     _maybeStartHeroTransition(previousRoute, route, HeroFlightDirection.push, false);
   }
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic> previousRoute) {
-    assert(navigator != null);
-    assert(route != null);
-    // Don't trigger another flight when a pop is committed as a user gesture
-    // back swipe is snapped.
     if (!navigator.userGestureInProgress)
       _maybeStartHeroTransition(route, previousRoute, HeroFlightDirection.pop, false);
   }
 
   @override
   void didReplace({ Route<dynamic> newRoute, Route<dynamic> oldRoute }) {
-    assert(navigator != null);
     if (newRoute?.isCurrent == true) {
-      // Only run hero animations if the top-most route got replaced.
+      // 只在最上层路由被替换时，播放动画
       _maybeStartHeroTransition(oldRoute, newRoute, HeroFlightDirection.push, false);
     }
   }
 
   @override
   void didStartUserGesture(Route<dynamic> route, Route<dynamic> previousRoute) {
-    assert(navigator != null);
-    assert(route != null);
     _maybeStartHeroTransition(route, previousRoute, HeroFlightDirection.pop, true);
   }
 
-  // If we're transitioning between different page routes, start a hero transition
-  // after the toRoute has been laid out with its animation's value at 1.0.
+
   void _maybeStartHeroTransition(
     Route<dynamic> fromRoute,
     Route<dynamic> toRoute,
     HeroFlightDirection flightType,
     bool isUserGestureTransition,
   ) {
-    if (toRoute != fromRoute && toRoute is PageRoute<dynamic> && fromRoute is PageRoute<dynamic>) {
+    if (toRoute != fromRoute 
+        && toRoute is PageRoute<dynamic> 
+        && fromRoute is PageRoute<dynamic>) 
+    {
       final PageRoute<dynamic> from = fromRoute;
       final PageRoute<dynamic> to = toRoute;
-      final Animation<double> animation = (flightType == HeroFlightDirection.push) ? to.animation : from.animation;
+      final Animation<double> animation = 
+          (flightType == HeroFlightDirection.push) ? to.animation : from.animation;
 
-      // A user gesture may have already completed the pop, or we might be the initial route
+	  /// 若路由已完成，跳过 
       switch (flightType) {
         case HeroFlightDirection.pop:
           if (animation.value == 0.0) {
@@ -669,10 +607,11 @@ class HeroController extends NavigatorObserver {
           break;
       }
 
-      // For pop transitions driven by a user gesture: if the "to" page has
-      // maintainState = true, then the hero's final dimensions can be measured
-      // immediately because their page's layout is still valid.
-      if (isUserGestureTransition && flightType == HeroFlightDirection.pop && to.maintainState) {
+      /// 如果使用手势跳转并且页面会维持状态的话，可以立即开始hero过渡	
+      if (isUserGestureTransition 
+          && flightType == HeroFlightDirection.pop 
+          && to.maintainState) 
+      {
         _startHeroTransition(from, to, animation, flightType, isUserGestureTransition);
       } else {
         // Otherwise, delay measuring until the end of the next frame to allow
@@ -690,8 +629,7 @@ class HeroController extends NavigatorObserver {
     }
   }
 
-  // Find the matching pairs of heroes in from and to and either start or a new
-  // hero flight, or divert an existing one.
+  // 找到匹配的hero，开始飞行动画，或者逆转动画
   void _startHeroTransition(
     PageRoute<dynamic> from,
     PageRoute<dynamic> to,
@@ -699,18 +637,19 @@ class HeroController extends NavigatorObserver {
     HeroFlightDirection flightType,
     bool isUserGestureTransition,
   ) {
-    // If the navigator or one of the routes subtrees was removed before this
-    // end-of-frame callback was called, then don't actually start a transition.
+    // 如果一个路由的子树或者navigator在调用这个方法之前被移除了，什么都不做
     if (navigator == null || from.subtreeContext == null || to.subtreeContext == null) {
-      to.offstage = false; // in case we set this in _maybeStartHeroTransition
+      to.offstage = false;
       return;
     }
 
     final Rect navigatorRect = _boundingBoxFor(navigator.context);
 
-    // At this point the toHeroes may have been built and laid out for the first time.
-    final Map<Object, _HeroState> fromHeroes = Hero._allHeroesFor(from.subtreeContext, isUserGestureTransition, navigator);
-    final Map<Object, _HeroState> toHeroes = Hero._allHeroesFor(to.subtreeContext, isUserGestureTransition, navigator);
+    /// 找到对应页面的hero映射表  
+    final Map<Object, _HeroState> fromHeroes =
+        Hero._allHeroesFor(from.subtreeContext, isUserGestureTransition, navigator);
+    final Map<Object, _HeroState> toHeroes =
+        Hero._allHeroesFor(to.subtreeContext, isUserGestureTransition, navigator);
 
     // If the `to` route was offstage, then we're implicitly restoring its
     // animation value back to what it was before it was "moved" offstage.
@@ -718,10 +657,14 @@ class HeroController extends NavigatorObserver {
 
     for (Object tag in fromHeroes.keys) {
       if (toHeroes[tag] != null) {
-        final HeroFlightShuttleBuilder fromShuttleBuilder = fromHeroes[tag].widget.flightShuttleBuilder;
-        final HeroFlightShuttleBuilder toShuttleBuilder = toHeroes[tag].widget.flightShuttleBuilder;
+        /// 获取对应的builder  
+        final HeroFlightShuttleBuilder fromShuttleBuilder =
+            fromHeroes[tag].widget.flightShuttleBuilder;
+        final HeroFlightShuttleBuilder toShuttleBuilder = 
+            toHeroes[tag].widget.flightShuttleBuilder;
         final bool isDiverted = _flights[tag] != null;
 
+        /// 构建manifest  
         final _HeroFlightManifest manifest = _HeroFlightManifest(
           type: flightType,
           overlay: navigator.overlay,
@@ -732,7 +675,9 @@ class HeroController extends NavigatorObserver {
           toHero: toHeroes[tag],
           createRectTween: createRectTween,
           shuttleBuilder:
-              toShuttleBuilder ?? fromShuttleBuilder ?? _defaultHeroFlightShuttleBuilder,
+              toShuttleBuilder ?? 
+              fromShuttleBuilder ??
+              _defaultHeroFlightShuttleBuilder,
           isUserGestureTransition: isUserGestureTransition,
           isDiverted: isDiverted,
         );
@@ -740,8 +685,10 @@ class HeroController extends NavigatorObserver {
         if (isDiverted)
           _flights[tag].divert(manifest);
         else
+          /// 开始飞行  
           _flights[tag] = _HeroFlight(_handleFlightEnded)..start(manifest);
       } else if (_flights[tag] != null) {
+        /// 放弃飞行  
         _flights[tag].abort();
       }
     }
@@ -755,6 +702,7 @@ class HeroController extends NavigatorObserver {
   }
 
   void _handleFlightEnded(_HeroFlight flight) {
+    /// 完成后从_flight中移除  
     _flights.remove(flight.manifest.tag);
   }
 
