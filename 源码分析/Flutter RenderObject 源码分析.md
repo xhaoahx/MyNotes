@@ -2,13 +2,383 @@
 
 [TOC]
 
+## AbstractNode
+
+```dart
+/// 抽象节点
+class AbstractNode {
+  /// 深度
+  int get depth => _depth;
+  int _depth = 0;
+
+  /// 重新分配孩子深度
+  @protected
+  void redepthChild(AbstractNode child) {
+    if (child._depth <= _depth) {
+      child._depth = _depth + 1;
+      child.redepthChildren();
+    }
+  }
+
+  void redepthChildren() { }
+
+  /// 这个节点的持有者（如果没有attach，则为null）
+  /// 整棵树只有一个持有者
+  Object get owner => _owner;
+  Object _owner;
+
+  /// 是否atatched
+  bool get attached => _owner != null;
+
+  /// attach这个节点到指定的持有者上
+  @mustCallSuper
+  void attach(covariant Object owner) {
+    assert(owner != null);
+    assert(_owner == null);
+    _owner = owner;
+  }
+
+  /// detach这个节点
+  @mustCallSuper
+  void detach() {
+    assert(_owner != null);
+    _owner = null;
+    assert(parent == null || attached == parent.attached);
+  }
+
+  /// 父节点
+  AbstractNode get parent => _parent;
+  AbstractNode _parent;
+
+  /// 把给定的节点作为自己的孩子
+  @protected
+  @mustCallSuper
+  void adoptChild(covariant AbstractNode child) {
+    child._parent = this;
+    if (attached)
+      child.attach(_owner);
+    redepthChild(child);
+  }
+
+  /// 移除一个已有的孩子
+  @protected
+  @mustCallSuper
+  void dropChild(covariant AbstractNode child) {
+    child._parent = null;
+    if (attached)
+      child.detach();
+  }
+}
+```
+
+
+
+## PipeLine Owner
+```dart
+/// 流水线持有者
+class PipelineOwner {
+  /// Creates a pipeline owner.
+  ///
+  /// Typically created by the binding (e.g., [RendererBinding]), but can be
+  /// created separately from the binding to drive off-screen render objects
+  /// through the rendering pipeline.
+  PipelineOwner({
+    this.onNeedVisualUpdate,
+    this.onSemanticsOwnerCreated,
+    this.onSemanticsOwnerDisposed,
+  });
+
+  /// Called when a render object associated with this pipeline owner wishes to
+  /// update its visual appearance.
+  ///
+  /// Typical implementations of this function will schedule a task to flush the
+  /// various stages of the pipeline. This function might be called multiple
+  /// times in quick succession. Implementations should take care to discard
+  /// duplicate calls quickly.
+  final VoidCallback onNeedVisualUpdate;
+
+  /// Called whenever this pipeline owner creates a semantics object.
+  ///
+  /// Typical implementations will schedule the creation of the initial
+  /// semantics tree.
+  final VoidCallback onSemanticsOwnerCreated;
+
+  /// Called whenever this pipeline owner disposes its semantics owner.
+  ///
+  /// Typical implementations will tear down the semantics tree.
+  final VoidCallback onSemanticsOwnerDisposed;
+
+  /// Calls [onNeedVisualUpdate] if [onNeedVisualUpdate] is not null.
+  ///
+  /// Used to notify the pipeline owner that an associated render object wishes
+  /// to update its visual appearance.
+  void requestVisualUpdate() {
+    if (onNeedVisualUpdate != null)
+      onNeedVisualUpdate();
+  }
+
+  /// The unique object managed by this pipeline that has no parent.
+  ///
+  /// This object does not have to be a [RenderObject].
+  AbstractNode get rootNode => _rootNode;
+  AbstractNode _rootNode;
+  set rootNode(AbstractNode value) {
+    if (_rootNode == value)
+      return;
+    _rootNode?.detach();
+    _rootNode = value;
+    _rootNode?.attach(this);
+  }
+
+  List<RenderObject> _nodesNeedingLayout = <RenderObject>[];
+
+  /// Whether this pipeline is currently in the layout phase.
+  ///
+  /// Specifically, whether [flushLayout] is currently running.
+  ///
+  /// Only valid when asserts are enabled.
+  bool get debugDoingLayout => _debugDoingLayout;
+  bool _debugDoingLayout = false;
+
+  /// Update the layout information for all dirty render objects.
+  ///
+  /// This function is one of the core stages of the rendering pipeline. Layout
+  /// information is cleaned prior to painting so that render objects will
+  /// appear on screen in their up-to-date locations.
+  ///
+  /// See [RendererBinding] for an example of how this function is used.
+  void flushLayout() {
+    if (!kReleaseMode) {
+      Timeline.startSync('Layout', arguments: timelineWhitelistArguments);
+    }
+    assert(() {
+      _debugDoingLayout = true;
+      return true;
+    }());
+    try {
+      // TODO(ianh): assert that we're not allowing previously dirty nodes to redirty themselves
+      while (_nodesNeedingLayout.isNotEmpty) {
+        final List<RenderObject> dirtyNodes = _nodesNeedingLayout;
+        _nodesNeedingLayout = <RenderObject>[];
+        for (RenderObject node in dirtyNodes..sort((RenderObject a, RenderObject b) => a.depth - b.depth)) {
+          if (node._needsLayout && node.owner == this)
+            node._layoutWithoutResize();
+        }
+      }
+    } finally {
+      assert(() {
+        _debugDoingLayout = false;
+        return true;
+      }());
+      if (!kReleaseMode) {
+        Timeline.finishSync();
+      }
+    }
+  }
+
+  // This flag is used to allow the kinds of mutations performed by GlobalKey
+  // reparenting while a LayoutBuilder is being rebuilt and in so doing tries to
+  // move a node from another LayoutBuilder subtree that hasn't been updated
+  // yet. To set this, call [_enableMutationsToDirtySubtrees], which is called
+  // by [RenderObject.invokeLayoutCallback].
+  bool _debugAllowMutationsToDirtySubtrees = false;
+
+  // See [RenderObject.invokeLayoutCallback].
+  void _enableMutationsToDirtySubtrees(VoidCallback callback) {
+    assert(_debugDoingLayout);
+    bool oldState;
+    assert(() {
+      oldState = _debugAllowMutationsToDirtySubtrees;
+      _debugAllowMutationsToDirtySubtrees = true;
+      return true;
+    }());
+    try {
+      callback();
+    } finally {
+      assert(() {
+        _debugAllowMutationsToDirtySubtrees = oldState;
+        return true;
+      }());
+    }
+  }
+
+  final List<RenderObject> _nodesNeedingCompositingBitsUpdate = <RenderObject>[];
+  /// Updates the [RenderObject.needsCompositing] bits.
+  ///
+  /// Called as part of the rendering pipeline after [flushLayout] and before
+  /// [flushPaint].
+  void flushCompositingBits() {
+    if (!kReleaseMode) {
+      Timeline.startSync('Compositing bits');
+    }
+    _nodesNeedingCompositingBitsUpdate.sort((RenderObject a, RenderObject b) => a.depth - b.depth);
+    for (RenderObject node in _nodesNeedingCompositingBitsUpdate) {
+      if (node._needsCompositingBitsUpdate && node.owner == this)
+        node._updateCompositingBits();
+    }
+    _nodesNeedingCompositingBitsUpdate.clear();
+    if (!kReleaseMode) {
+      Timeline.finishSync();
+    }
+  }
+
+  List<RenderObject> _nodesNeedingPaint = <RenderObject>[];
+
+  /// Whether this pipeline is currently in the paint phase.
+  ///
+  /// Specifically, whether [flushPaint] is currently running.
+  ///
+  /// Only valid when asserts are enabled.
+  bool get debugDoingPaint => _debugDoingPaint;
+  bool _debugDoingPaint = false;
+
+  /// Update the display lists for all render objects.
+  ///
+  /// This function is one of the core stages of the rendering pipeline.
+  /// Painting occurs after layout and before the scene is recomposited so that
+  /// scene is composited with up-to-date display lists for every render object.
+  ///
+  /// See [RendererBinding] for an example of how this function is used.
+  void flushPaint() {
+    if (!kReleaseMode) {
+      Timeline.startSync('Paint', arguments: timelineWhitelistArguments);
+    }
+    assert(() {
+      _debugDoingPaint = true;
+      return true;
+    }());
+    try {
+      final List<RenderObject> dirtyNodes = _nodesNeedingPaint;
+      _nodesNeedingPaint = <RenderObject>[];
+      // Sort the dirty nodes in reverse order (deepest first).
+      for (RenderObject node in dirtyNodes..sort((RenderObject a, RenderObject b) => b.depth - a.depth)) {
+        assert(node._layer != null);
+        if (node._needsPaint && node.owner == this) {
+          if (node._layer.attached) {
+            PaintingContext.repaintCompositedChild(node);
+          } else {
+            node._skippedPaintingOnLayer();
+          }
+        }
+      }
+      assert(_nodesNeedingPaint.isEmpty);
+    } finally {
+      assert(() {
+        _debugDoingPaint = false;
+        return true;
+      }());
+      if (!kReleaseMode) {
+        Timeline.finishSync();
+      }
+    }
+  }
+
+  /// The object that is managing semantics for this pipeline owner, if any.
+  ///
+  /// An owner is created by [ensureSemantics]. The owner is valid for as long
+  /// there are [SemanticsHandle]s returned by [ensureSemantics] that have not
+  /// yet been disposed. Once the last handle has been disposed, the
+  /// [semanticsOwner] field will revert to null, and the previous owner will be
+  /// disposed.
+  ///
+  /// When [semanticsOwner] is null, the [PipelineOwner] skips all steps
+  /// relating to semantics.
+  SemanticsOwner get semanticsOwner => _semanticsOwner;
+  SemanticsOwner _semanticsOwner;
+
+  /// The number of clients registered to listen for semantics.
+  ///
+  /// The number is increased whenever [ensureSemantics] is called and decreased
+  /// when [SemanticsHandle.dispose] is called.
+  int get debugOutstandingSemanticsHandles => _outstandingSemanticsHandles;
+  int _outstandingSemanticsHandles = 0;
+
+  /// Opens a [SemanticsHandle] and calls [listener] whenever the semantics tree
+  /// updates.
+  ///
+  /// The [PipelineOwner] updates the semantics tree only when there are clients
+  /// that wish to use the semantics tree. These clients express their interest
+  /// by holding [SemanticsHandle] objects that notify them whenever the
+  /// semantics tree updates.
+  ///
+  /// Clients can close their [SemanticsHandle] by calling
+  /// [SemanticsHandle.dispose]. Once all the outstanding [SemanticsHandle]
+  /// objects for a given [PipelineOwner] are closed, the [PipelineOwner] stops
+  /// maintaining the semantics tree.
+  SemanticsHandle ensureSemantics({ VoidCallback listener }) {
+    _outstandingSemanticsHandles += 1;
+    if (_outstandingSemanticsHandles == 1) {
+      assert(_semanticsOwner == null);
+      _semanticsOwner = SemanticsOwner();
+      if (onSemanticsOwnerCreated != null)
+        onSemanticsOwnerCreated();
+    }
+    return SemanticsHandle._(this, listener);
+  }
+
+  void _didDisposeSemanticsHandle() {
+    assert(_semanticsOwner != null);
+    _outstandingSemanticsHandles -= 1;
+    if (_outstandingSemanticsHandles == 0) {
+      _semanticsOwner.dispose();
+      _semanticsOwner = null;
+      if (onSemanticsOwnerDisposed != null)
+        onSemanticsOwnerDisposed();
+    }
+  }
+
+  bool _debugDoingSemantics = false;
+  final Set<RenderObject> _nodesNeedingSemantics = <RenderObject>{};
+
+  /// Update the semantics for render objects marked as needing a semantics
+  /// update.
+  ///
+  /// Initially, only the root node, as scheduled by
+  /// [RenderObject.scheduleInitialSemantics], needs a semantics update.
+  ///
+  /// This function is one of the core stages of the rendering pipeline. The
+  /// semantics are compiled after painting and only after
+  /// [RenderObject.scheduleInitialSemantics] has been called.
+  ///
+  /// See [RendererBinding] for an example of how this function is used.
+  void flushSemantics() {
+    if (_semanticsOwner == null)
+      return;
+    if (!kReleaseMode) {
+      Timeline.startSync('Semantics');
+    }
+    assert(_semanticsOwner != null);
+    assert(() { _debugDoingSemantics = true; return true; }());
+    try {
+      final List<RenderObject> nodesToProcess = _nodesNeedingSemantics.toList()
+        ..sort((RenderObject a, RenderObject b) => a.depth - b.depth);
+      _nodesNeedingSemantics.clear();
+      for (RenderObject node in nodesToProcess) {
+        if (node._needsSemanticsUpdate && node.owner == this)
+          node._updateSemantics();
+      }
+      _semanticsOwner.sendSemanticsUpdate();
+    } finally {
+      assert(_nodesNeedingSemantics.isEmpty);
+      assert(() { _debugDoingSemantics = false; return true; }());
+      if (!kReleaseMode) {
+        Timeline.finishSync();
+      }
+    }
+  }
+}
+```
+
+
 ## RenderObject
 
 ```dart
-abstract class RenderObject extends AbstractNode 
-    with DiagnosticableTreeMixin implements HitTestTarget 
+abstract class RenderObject 
+    extends AbstractNode 
+    with DiagnosticableTreeMixin 
+    implements HitTestTarget 
 {
-  /// Initializes internal fields for subclasses.
+  /// 初始化域
   RenderObject() {
     _needsCompositing = isRepaintBoundary || alwaysNeedsCompositing;
   }
@@ -23,15 +393,17 @@ abstract class RenderObject extends AbstractNode
       child.reassemble();
     });
   }
+```
 
-  // LAYOUT
+### Layout
+```dart
+  // LAYOUT 布局
 
   /// 为孩子设置有用的信息，仅通过父节点的 setupParentData 方法设置，而不是直接修改
   ParentData parentData;
 
   /// 可以在子RenderObject还未加入到子元素列表时，为它附加parentData
   void setupParentData(covariant RenderObject child) {
-    assert(_debugCanPerformMutations);
     if (child.parentData is! ParentData)
       child.parentData = ParentData();
   }
@@ -39,10 +411,10 @@ abstract class RenderObject extends AbstractNode
   /// 将一个RenderObejct设置为孩子，会触发重新布局
   @override
   void adoptChild(RenderObject child) {
-    assert(_debugCanPerformMutations);
-    assert(child != null);
     setupParentData(child);
+    /// 需要重新布局  
     markNeedsLayout();
+    /// 需要合成   
     markNeedsCompositingBitsUpdate();
     markNeedsSemanticsUpdate();
     super.adoptChild(child);
@@ -51,9 +423,6 @@ abstract class RenderObject extends AbstractNode
   /// 移除一个孩子，会触发重新布局
   @override
   void dropChild(RenderObject child) {
-    assert(_debugCanPerformMutations);
-    assert(child != null);
-    assert(child.parentData != null);
     child._cleanRelayoutBoundary();
     child.parentData.detach();
     child.parentData = null;
@@ -71,7 +440,7 @@ abstract class RenderObject extends AbstractNode
   @override
   PipelineOwner get owner => super.owner;
 
-  /// 分配  PipelineOwner
+  /// 分配 PipelineOwner
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
@@ -103,7 +472,7 @@ abstract class RenderObject extends AbstractNode
 
   /// 是否需要重新布局（在实例化RenderObject的时候初始化为true）  
   bool _needsLayout = true;
-
+  /// 是否是重绘边界	
   RenderObject _relayoutBoundary;
   bool _doingThisLayoutWithCallback = false;
 
@@ -112,8 +481,8 @@ abstract class RenderObject extends AbstractNode
   Constraints get constraints => _constraints;
   Constraints _constraints;
     
-  /// 将这个renderobecjt标记为脏，并在PipelineOwner中注册（或延迟给父节点），
-  /// 这取决于这个节点是否是relayout boundary
+  /// 将这个 RenderObecjt 标记为_needsLayout，并在 PipelineOwner 中注册（或延迟给父节点），
+  /// 这取决于这个节点是否是 RelayoutBoundary
     
   /// 如果[sizedByParent]发生改变，调用
   /// [markNeedsLayoutForSizedByParentChange]而不是[markNeedsLayout].
@@ -121,11 +490,9 @@ abstract class RenderObject extends AbstractNode
   void markNeedsLayout() {
     /// 如果已经标记，返回
     if (_needsLayout) {
-      assert(_debugSubtreeRelayoutRootAlreadyMarkedNeedsLayout());
       return;
     }
-    assert(_relayoutBoundary != null);
-    /// 如果不是  _relayoutBoundary ，调用markParentNeedsLayout()，
+    /// 如果不是 _relayoutBoundary，则调用markParentNeedsLayout()，
     /// 其中调用了parent.markNeedsLayout()  
     if (_relayoutBoundary != this) {
       markParentNeedsLayout();
@@ -139,6 +506,8 @@ abstract class RenderObject extends AbstractNode
     }
   }
 
+  /// 标记父节点需要布局
+  /// 标记自身_needsLayout = true，并调用父节点的markNeedsLayout
   @protected
   void markParentNeedsLayout() {
     _needsLayout = true;
@@ -158,6 +527,8 @@ abstract class RenderObject extends AbstractNode
     markParentNeedsLayout();
   }
 
+  /// 清除 RelayoutBoundary
+  /// 这个操作会调用孩子的_cleanRelayoutBoundary
   void _cleanRelayoutBoundary() {
     if (_relayoutBoundary != this) {
       _relayoutBoundary = null;
@@ -171,20 +542,12 @@ abstract class RenderObject extends AbstractNode
   /// 通过计划第一次布局来启动渲染流水线
   /// 仅被根节点调用  
   void scheduleInitialLayout() {
-    assert(attached);
-    assert(parent is! RenderObject);
-    assert(!owner._debugDoingLayout);
-    assert(_relayoutBoundary == null);
-    /// 将自身设为_relayoutBoundary  
+    /// 将自身（this）设为_relayoutBoundary  
     _relayoutBoundary = this;
-    assert(() {
-      _debugCanParentUseSize = false;
-      return true;
-    }());
     owner._nodesNeedingLayout.add(this);
   }
 
-  /// 在改变不必改变父节点布局的情况下开始布局，这个方法会被PipelineOwner调用 
+  /// 
   void _layoutWithoutResize() {
     RenderObject debugPreviousActiveLayout;
     try {
@@ -207,12 +570,15 @@ abstract class RenderObject extends AbstractNode
   /// 子类不应该直接重载[layout] 而是重载[performResize]、[performLayout]
   /// 父节点的[performLayout]必须无条件地调用子节点的[layout]
   void layout(Constraints constraints, { bool parentUsesSize = false }) {
-    assert(constraints != null);
     ...
     RenderObject relayoutBoundary;
       
-    if (!parentUsesSize || sizedByParent || constraints.isTight || parent is! RenderObject) {
-      /// 如果父节点不适用自身大小，或大小仅受父布局大小影响，或是固定大小，或父节点不是RenderObject
+    if (!parentUsesSize 
+        || sizedByParent 
+        || constraints.isTight 
+        || parent is! RenderObject) 
+    {
+      /// 如果父节点不使用自身大小，或大小仅受父布局大小影响，或是固定大小，或父节点不是 RenderObject
       /// 则把自身设为relayoutBoundary
       relayoutBoundary = this;
     } else {
@@ -231,7 +597,6 @@ abstract class RenderObject extends AbstractNode
     try {
       performLayout();
       markNeedsSemanticsUpdate();
-      assert(() { debugAssertDoesMeetConstraints(); return true; }());
     } catch (e, stack) {
       _debugReportException('performLayout', e, stack);
     }
@@ -242,77 +607,88 @@ abstract class RenderObject extends AbstractNode
     markNeedsPaint();
   }
 
-  /// 大小是否仅受父节点的constraint的影响
+  /// 大小约束是否是size算法的惟一参数
+  /// 返回false总是正确的，但是返回true可以使得计算render object的size更有效率。因为在约束没有发生改
+  /// 变时，不必重新计算大小
+  /// 无论何时，当这个值发生改变时，调用[markNeedsLayoutForSizedByParentChange]  
   @protected
   bool get sizedByParent => false;
 
   /// 只用constraint来更新渲染对象
   ///
-  /// 子类设置[sizedByParent]为true，一个重载这个方法来计算他们的大小
+  /// 子类设置[sizedByParent]为true，一定重载这个方法来计算他们的大小
   ///
   /// 只在[sizedByParent]为true时调用这个方法
     
   @protected
   void performResize();
 
-  /// 布局。必须在这个方法里调用孩子的layout
+  /// 布局。必须在这个方法里调用所有孩子的layout（）
   @protected
   void performLayout();
 
   ... /// 未实现的屏幕旋转
+```
 
-  // PAINTING
+### Paint
+```dart
+  // PAINTING 绘制
 
   /// render object 是否与其父节点分开重绘
   ///
   /// 设为true时，这个属性将会应用于这个节点及其所有后代
   bool get isRepaintBoundary => false;
 
-  /// Whether this render object always needs compositing.
+  /// 这个渲染对象是否总是需要合成。
   ///
-  /// Override this in subclasses to indicate that your paint function always
-  /// creates at least one composited layer. For example, videos should return
-  /// true if they use hardware decoders.
+  /// 在子类中重写这个函数，表示终使用paint函数创建至少一个复合层。
+  /// 例如，视频如果使用硬件解码器，应该返回ture
   ///
-  /// You must call [markNeedsCompositingBitsUpdate] if the value of this getter
-  /// changes. (This is implied when [adoptChild] or [dropChild] are called.)
+  /// 如果这个getter的值被修改，必须调用[markNeedsCompositingBitsUpdate]，
   @protected
   bool get alwaysNeedsCompositing => false;
 
-  OffsetLayer _layer;
   /// The compositing layer that this render object uses to repaint.
   ///
-  /// Call only when [isRepaintBoundary] is true and the render object has
-  /// already painted.
+  /// If this render object is not a repaint boundary, it is the responsibility
+  /// of the [paint] method to populate this field. If [needsCompositing] is
+  /// true, this field may be populated with the root-most layer used by the
+  /// render object implementation. When repainting, instead of creating a new
+  /// layer the render object may update the layer stored in this field for better
+  /// performance. It is also OK to leave this field as null and create a new
+  /// layer on every repaint, but without the performance benefit. If
+  /// [needsCompositing] is false, this field must be set to null either by
+  /// never populating this field, or by setting it to null when the value of
+  /// [needsCompositing] changes from true to false.
   ///
-  /// To access the layer in debug code, even when it might be inappropriate to
-  /// access it (e.g. because it is dirty), consider [debugLayer].
-  OffsetLayer get layer {
-    assert(isRepaintBoundary, 'You can only access RenderObject.layer for render objects that are repaint boundaries.');
-    assert(!_needsPaint);
+  /// If this render object is a repaint boundary, the framework automatically
+  /// creates an [OffsetLayer] and populates this field prior to calling the
+  /// [paint] method. The [paint] method must not replace the value of this
+  /// field.
+  @protected
+  ContainerLayer get layer {
+    assert(!isRepaintBoundary || (_layer == null || _layer is OffsetLayer));
     return _layer;
   }
-  /// In debug mode, the compositing layer that this render object uses to repaint.
-  ///
-  /// This getter is intended for debugging purposes only. In release builds, it
-  /// always returns null. In debug builds, it returns the layer even if the layer
-  /// is dirty.
-  ///
-  /// For production code, consider [layer].
-  OffsetLayer get debugLayer {
-    OffsetLayer result;
-    assert(() {
-      result = _layer;
-      return true;
-    }());
-    return result;
+
+  @protected
+  set layer(ContainerLayer newLayer) {
+    assert(
+      !isRepaintBoundary,
+      'Attempted to set a layer to a repaint boundary render object.\n'
+      'The framework creates and assigns an OffsetLayer to a repaint '
+      'boundary automatically.',
+    );
+    _layer = newLayer;
   }
+  ContainerLayer _layer;
 
   bool _needsCompositingBitsUpdate = false; // set to true when a child is added
   /// Mark the compositing state for this render object as dirty.
   ///
   /// This is called to indicate that the value for [needsCompositing] needs to
-  /// be recomputed during the next [flushCompositingBits] engine phase.
+  /// be recomputed during the next [PipelineOwner.flushCompositingBits] engine
+  /// phase.
   ///
   /// When the subtree is mutated, we need to recompute our
   /// [needsCompositing] bit, and some of our ancestors need to do the
@@ -337,12 +713,6 @@ abstract class RenderObject extends AbstractNode
         return;
       }
     }
-    assert(() {
-      final AbstractNode parent = this.parent;
-      if (parent is RenderObject)
-        return parent._needsCompositing;
-      return true;
-    }());
     // parent is fine (or there isn't one), but we are dirty
     if (owner != null)
       owner._nodesNeedingCompositingBitsUpdate.add(this);
@@ -357,7 +727,6 @@ abstract class RenderObject extends AbstractNode
   /// Only legal to call after [PipelineOwner.flushLayout] and
   /// [PipelineOwner.flushCompositingBits] have been called.
   bool get needsCompositing {
-    assert(!_needsCompositingBitsUpdate); // make sure we don't use this bit when it is dirty
     return _needsCompositing;
   }
 
@@ -378,6 +747,7 @@ abstract class RenderObject extends AbstractNode
     _needsCompositingBitsUpdate = false;
   }
 
+  bool _needsPaint = true;
   
   /// 初始标记为true  
   bool _needsPaint = true;
@@ -408,14 +778,6 @@ abstract class RenderObject extends AbstractNode
       return;
     _needsPaint = true;
     if (isRepaintBoundary) {
-      assert(() {
-        if (debugPrintMarkNeedsPaintStacks)
-          debugPrintStack(label: 'markNeedsPaint() called for $this');
-        return true;
-      }());
-      // If we always have our own layer, then we can just repaint
-      // ourselves without involving any other nodes.
-      assert(_layer != null);
       if (owner != null) {
         owner._nodesNeedingPaint.add(this);
         owner.requestVisualUpdate();
@@ -429,11 +791,6 @@ abstract class RenderObject extends AbstractNode
       parent.markNeedsPaint();
       assert(parent == this.parent);
     } else {
-      assert(() {
-        if (debugPrintMarkNeedsPaintStacks)
-          debugPrintStack(label: 'markNeedsPaint() called for $this (root of render tree)');
-        return true;
-      }());
       // If we're the root of the render tree (probably a RenderView),
       // then we have to paint ourselves, since nobody else can paint
       // us. We don't add ourselves to _nodesNeedingPaint in this
@@ -1192,4 +1549,6 @@ abstract class RenderObject extends AbstractNode
   }
 }
 ```
+
+
 

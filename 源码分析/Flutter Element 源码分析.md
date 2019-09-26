@@ -9,24 +9,32 @@
 ```dart
 /// Element的生命周期如下:
 ///
-/// *框架通过调用[Widget.createElement]创建一个使用该widget作为初始配置的element。
+/// *框架通过调用[Widget.createElement]创建一个使用该widget作为初始配置的element
+///
 /// *框架调用[mount]将新创建的element添加到树上一个指定的父节点上的一个指定位置。[mount]方法负责扩展任
-///  何子部件并调用其[attachRenderObject]，将任何有关的的渲染对象附加到渲染树上。
-/// *此时，element被认为是“活动的”，并且可能会出现在屏幕山。
-/// *在某个时候，父节点可能会决定更改配置此element的widget，例如因为父节点重新构建状态。当这种情况 发生
+///  何子部件并调用其[attachRenderObject]，将任何关联的的RenderObject附加到渲染树上。
+///
+/// *此时，element被认为是“Active”，并且可能会出现在屏幕上
+///
+/// *在某个时候，父节点可能会决定更改配置此element的widget，例如因为父节点重新构建状态。当这种情况发生的
 ///  时，框架将调用新widget的[update]。新widget将始终具有与旧wiedget相同的[runtimeType]和[key]。
 ///  如果父节点希望更改[runtimeType]或[key]或这个widget在树中的位置，它可以通过卸载这个elemtent来实
-///  现，并在此位置填充一个新的widget。
+///  现，并在此位置扩展一个新的widget
+///
 /// *在某个时候，祖先可能会决定删除某个element(或者中间祖先)，该祖先通过在自身调用[deactiveChild]来完
-///  成。将中间祖先deactive会从渲染树中删除该元素的渲染对象并添加这个element到[owner]的非活动元素列
-///  表，从而导致框架对该element调用[deactive]。
-/// *此时，element被认为是“非活动的”，并不会出现屏幕上。元素能保持在非活动状态，直到当前动画帧的结束。在
-///  动画的最后帧，任何仍然不活动的元素将被unmount。
+///  成。将中间祖先deactive会从渲染树中删除该element的RenderObject并添加这个element到[owner]的非活
+///  动元素列表，从而导致框架对该element调用[deactive]
+///
+/// *此时，element被认为是“非活动的”，且不会出现屏幕上。元素能保持在非活动状态，直到当前动画帧的结束。在
+///  动画的最后帧，任何仍然不活动的元素将被unmount
+///
 /// *如果element重新合并到树中(例如，因为它或他的祖先element有可重用的[GlobalKey])，框架将会从
 ///  [owner]的非活动elemten列表中删除元素并调用它的[activate]，并将element的渲染对象重新添加到渲染
-///  树。此时，element再次被认为是“active”，并可能会出现在屏幕上。
-/// *如果element在当前动画结束帧时没有重新合并到树中，框架将调用该element的[unmount]。
-/// *此时，元素被认为是“defunct”，之后不再会合并到树中。
+///  树。此时，element再次被认为是“active”，并可能会出现在屏幕上
+///
+/// *如果element在当前动画结束帧时没有重新合并到树中，框架将调用该element的[unmount]
+///
+/// *此时，元素被认为是“defunct”，之后不再会合并到树中
 
 
 abstract class Element extends DiagnosticableTree implements BuildContext {

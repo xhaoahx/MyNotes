@@ -8,14 +8,26 @@
 
 ```dart
 class StackParentData extends ContainerBoxParentData<RenderBox> {
-  /// 距离上右下左的距离  
+  /// The distance by which the child's top edge is inset from the top of the stack.
   double top;
+
+  /// The distance by which the child's right edge is inset from the right of the stack.
   double right;
+
+  /// The distance by which the child's bottom edge is inset from the bottom of the stack.
   double bottom;
+
+  /// The distance by which the child's left edge is inset from the left of the stack.
   double left;
 
-  /// 孩子宽高
+  /// The child's width.
+  ///
+  /// Ignored if both left and right are non-null.
   double width;
+
+  /// The child's height.
+  ///
+  /// Ignored if both top and bottom are non-null.
   double height;
 
   /// Get or set the current values in terms of a RelativeRect object.
@@ -27,17 +39,29 @@ class StackParentData extends ContainerBoxParentData<RenderBox> {
     left = value.left;
   }
 
-  /// 是否是固定的
-  /// 当上右下左宽高有其一被指定时，为固定状态  
-  bool get isPositioned => 
-      top != null 
-      || right != null 
-      || bottom != null 
-      || left != null 
-      || width != null 
-      || height != null;
+  /// Whether this child is considered positioned.
+  ///
+  /// A child is positioned if any of the top, right, bottom, or left properties
+  /// are non-null. Positioned children do not factor into determining the size
+  /// of the stack but are instead placed relative to the non-positioned
+  /// children in the stack.
+  bool get isPositioned => top != null || right != null || bottom != null || left != null || width != null || height != null;
 
-  ...
+  @override
+  String toString() {
+    final List<String> values = <String>[
+      if (top != null) 'top=${debugFormatDouble(top)}',
+      if (right != null) 'right=${debugFormatDouble(right)}',
+      if (bottom != null) 'bottom=${debugFormatDouble(bottom)}',
+      if (left != null) 'left=${debugFormatDouble(left)}',
+      if (width != null) 'width=${debugFormatDouble(width)}',
+      if (height != null) 'height=${debugFormatDouble(height)}',
+    ];
+    if (values.isEmpty)
+      values.add('not positioned');
+    values.add(super.toString());
+    return values.join('; ');
+  }
 }
 ```
 
@@ -47,6 +71,10 @@ class StackParentData extends ContainerBoxParentData<RenderBox> {
 
 ```dart
 class Stack extends MultiChildRenderObjectWidget {
+  /// Creates a stack layout widget.
+  ///
+  /// By default, the non-positioned children of the stack are aligned by their
+  /// top left corners.
   Stack({
     Key key,
     this.alignment = AlignmentDirectional.topStart,
@@ -56,17 +84,45 @@ class Stack extends MultiChildRenderObjectWidget {
     List<Widget> children = const <Widget>[],
   }) : super(key: key, children: children);
 
-  /// 排列Stack中非固定的元素
+  /// How to align the non-positioned and partially-positioned children in the
+  /// stack.
+  ///
+  /// The non-positioned children are placed relative to each other such that
+  /// the points determined by [alignment] are co-located. For example, if the
+  /// [alignment] is [Alignment.topLeft], then the top left corner of
+  /// each non-positioned child will be located at the same global coordinate.
+  ///
+  /// Partially-positioned children, those that do not specify an alignment in a
+  /// particular axis (e.g. that have neither `top` nor `bottom` set), use the
+  /// alignment to determine how they should be positioned in that
+  /// under-specified axis.
+  ///
+  /// Defaults to [AlignmentDirectional.topStart].
+  ///
+  /// See also:
+  ///
+  ///  * [Alignment], a class with convenient constants typically used to
+  ///    specify an [AlignmentGeometry].
+  ///  * [AlignmentDirectional], like [Alignment] for specifying alignments
+  ///    relative to text direction.
   final AlignmentGeometry alignment;
 
-  /// 文字方向
+  /// The text direction with which to resolve [alignment].
+  ///
+  /// Defaults to the ambient [Directionality].
   final TextDirection textDirection;
 
-  /// 栈的（？填充）方式
-  ///   
+  /// How to size the non-positioned children in the stack.
+  ///
+  /// The constraints passed into the [Stack] from its parent are either
+  /// loosened ([StackFit.loose]) or tightened to their biggest size
+  /// ([StackFit.expand]).
   final StackFit fit;
 
-  /// 对于Overflow Element的行为
+  /// Whether overflowing children should be clipped. See [Overflow].
+  ///
+  /// Some children in a stack might overflow its box. When this flag is set to
+  /// [Overflow.clip], children cannot paint outside of the stack's box.
   final Overflow overflow;
 
   @override
@@ -88,6 +144,14 @@ class Stack extends MultiChildRenderObjectWidget {
       ..overflow = overflow;
   }
 
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<AlignmentGeometry>('alignment', alignment));
+    properties.add(EnumProperty<TextDirection>('textDirection', textDirection, defaultValue: null));
+    properties.add(EnumProperty<StackFit>('fit', fit));
+    properties.add(EnumProperty<Overflow>('overflow', overflow));
+  }
 }
 ```
 
@@ -97,22 +161,25 @@ class Stack extends MultiChildRenderObjectWidget {
 
 ```dart
 class RenderStack extends RenderBox
-    /// 提供使用链表管理子类的mixin
     with ContainerRenderObjectMixin<RenderBox, StackParentData>,
-	/// 提供paint，caculate baseline等方法的默认实现
-    RenderBoxContainerDefaultsMixin<RenderBox, StackParentData> {
-
+         RenderBoxContainerDefaultsMixin<RenderBox, StackParentData> {
+  /// Creates a stack render object.
+  ///
+  /// By default, the non-positioned children of the stack are aligned by their
+  /// top left corners.
   RenderStack({
     List<RenderBox> children,
     AlignmentGeometry alignment = AlignmentDirectional.topStart,
     TextDirection textDirection,
     StackFit fit = StackFit.loose,
     Overflow overflow = Overflow.clip,
-  }) : _alignment = alignment,
+  }) : assert(alignment != null),
+       assert(fit != null),
+       assert(overflow != null),
+       _alignment = alignment,
        _textDirection = textDirection,
        _fit = fit,
-       _overflow = overflow 
-  {
+       _overflow = overflow {
     addAll(children);
   }
 
@@ -137,10 +204,23 @@ class RenderStack extends RenderBox
     markNeedsLayout();
   }
 
-  /// 如何排列不是postioned的元素
+  /// How to align the non-positioned or partially-positioned children in the
+  /// stack.
+  ///
+  /// The non-positioned children are placed relative to each other such that
+  /// the points determined by [alignment] are co-located. For example, if the
+  /// [alignment] is [Alignment.topLeft], then the top left corner of
+  /// each non-positioned child will be located at the same global coordinate.
+  ///
+  /// Partially-positioned children, those that do not specify an alignment in a
+  /// particular axis (e.g. that have neither `top` nor `bottom` set), use the
+  /// alignment to determine how they should be positioned in that
+  /// under-specified axis.
+  ///
+  /// If this is set to an [AlignmentDirectional] object, then [textDirection]
+  /// must not be null.
   AlignmentGeometry get alignment => _alignment;
   AlignmentGeometry _alignment;
-  /// 每当aligment改变时，重新布局      
   set alignment(AlignmentGeometry value) {
     assert(value != null);
     if (_alignment == value)
@@ -149,6 +229,10 @@ class RenderStack extends RenderBox
     _markNeedResolution();
   }
 
+  /// The text direction with which to resolve [alignment].
+  ///
+  /// This may be changed to null, but only after the [alignment] has been changed
+  /// to a value that does not depend on the direction.
   TextDirection get textDirection => _textDirection;
   TextDirection _textDirection;
   set textDirection(TextDirection value) {
@@ -158,15 +242,13 @@ class RenderStack extends RenderBox
     _markNeedResolution();
   }
 
-  /// 设置不为position的元素的大小
+  /// How to size the non-positioned children in the stack.
   ///
-  /// ([StackFit.loose])  将宽松的constraints传递给孩子
-  /// ([StackFit.expand]) 将扩展到最大的consraints传递给孩子
-        
+  /// The constraints passed into the [RenderStack] from its parent are either
+  /// loosened ([StackFit.loose]) or tightened to their biggest size
+  /// ([StackFit.expand]).
   StackFit get fit => _fit;
   StackFit _fit;
-        
-  /// 改变 fit 时重新布局      
   set fit(StackFit value) {
     assert(value != null);
     if (_fit != value) {
@@ -175,11 +257,14 @@ class RenderStack extends RenderBox
     }
   }
 
-  /// 溢出的元素是否应该被裁剪
+  /// Whether overflowing children should be clipped. See [Overflow].
+  ///
+  /// Some children in a stack might overflow its box. When this flag is set to
+  /// [Overflow.clip], children cannot paint outside of the stack's box.
   Overflow get overflow => _overflow;
   Overflow _overflow;
-  /// overflow 改变时需要重绘（不要布局）      
   set overflow(Overflow value) {
+    assert(value != null);
     if (_overflow != value) {
       _overflow = value;
       markNeedsPaint();
@@ -193,6 +278,7 @@ class RenderStack extends RenderBox
       final StackParentData childParentData = child.parentData;
       if (!childParentData.isPositioned)
         extent = math.max(extent, mainChildSizeGetter(child));
+      assert(child.parentData == childParentData);
       child = childParentData.nextSibling;
     }
     return extent;
@@ -200,26 +286,22 @@ class RenderStack extends RenderBox
 
   @override
   double computeMinIntrinsicWidth(double height) {
-    return _getIntrinsicDimension((RenderBox child) => 
-                                  child.getMinIntrinsicWidth(height));
+    return _getIntrinsicDimension((RenderBox child) => child.getMinIntrinsicWidth(height));
   }
 
   @override
   double computeMaxIntrinsicWidth(double height) {
-    return _getIntrinsicDimension((RenderBox child) => 
-                                  child.getMaxIntrinsicWidth(height));
+    return _getIntrinsicDimension((RenderBox child) => child.getMaxIntrinsicWidth(height));
   }
 
   @override
   double computeMinIntrinsicHeight(double width) {
-    return _getIntrinsicDimension((RenderBox child) => 
-                                  child.getMinIntrinsicHeight(width));
+    return _getIntrinsicDimension((RenderBox child) => child.getMinIntrinsicHeight(width));
   }
 
   @override
   double computeMaxIntrinsicHeight(double width) {
-    return _getIntrinsicDimension((RenderBox child) => 
-                                  child.getMaxIntrinsicHeight(width));
+    return _getIntrinsicDimension((RenderBox child) => child.getMaxIntrinsicHeight(width));
   }
 
   @override
@@ -227,13 +309,11 @@ class RenderStack extends RenderBox
     return defaultComputeDistanceToHighestActualBaseline(baseline);
   }
 
-        
   @override
   void performLayout() {
     _resolve();
-    /// 一开始将 hasVisuaOverflow 设置 false  
+    assert(_resolvedAlignment != null);
     _hasVisualOverflow = false;
-    /// 是否有 非positioned child  
     bool hasNonPositionedChildren = false;
     if (childCount == 0) {
       size = constraints.biggest;
@@ -241,55 +321,50 @@ class RenderStack extends RenderBox
       return;
     }
 
-    /// 默认采用最小约束作为宽高  
     double width = constraints.minWidth;
     double height = constraints.minHeight;
 
-    /// 设置对于非positioned child 的约束  
     BoxConstraints nonPositionedConstraints;
-      
+    assert(fit != null);
     switch (fit) {
       case StackFit.loose:
-        /// 宽松    
         nonPositionedConstraints = constraints.loosen();
         break;
       case StackFit.expand:
-        /// 严格最大越苏    
         nonPositionedConstraints = BoxConstraints.tight(constraints.biggest);
         break;
       case StackFit.passthrough:
-        /// 传递    
         nonPositionedConstraints = constraints;
         break;
     }
+    assert(nonPositionedConstraints != null);
 
-    /// 通过链表api来遍历children  
     RenderBox child = firstChild;
     while (child != null) {
       final StackParentData childParentData = child.parentData;
-      /// 设置非 positioned 标记  
+
       if (!childParentData.isPositioned) {
         hasNonPositionedChildren = true;
-		/// 布局一个 非positioned child
+
         child.layout(nonPositionedConstraints, parentUsesSize: true);
 
         final Size childSize = child.size;
-        /// 试图将宽高增大  
         width = math.max(width, childSize.width);
         height = math.max(height, childSize.height);
       }
 
-      /// 下一个child  
       child = childParentData.nextSibling;
     }
 
-    /// 如果有 非positioned child，设置size为自适应的宽高  
     if (hasNonPositionedChildren) {
       size = Size(width, height);
-    /// 否则，设置size为最大约束    
+      assert(size.width == constraints.constrainWidth(width));
+      assert(size.height == constraints.constrainHeight(height));
     } else {
       size = constraints.biggest;
     }
+
+    assert(size.isFinite);
 
     child = firstChild;
     while (child != null) {
@@ -300,25 +375,18 @@ class RenderStack extends RenderBox
       } else {
         BoxConstraints childConstraints = const BoxConstraints();
 
-        /// 约束宽度 
         if (childParentData.left != null && childParentData.right != null)
-          childConstraints = childConstraints.tighten(
-          	width: size.width - childParentData.right - childParentData.left
-          );
+          childConstraints = childConstraints.tighten(width: size.width - childParentData.right - childParentData.left);
         else if (childParentData.width != null)
           childConstraints = childConstraints.tighten(width: childParentData.width);
-		/// 约束高度
+
         if (childParentData.top != null && childParentData.bottom != null)
-          childConstraints = childConstraints.tighten(
-            height: size.height - childParentData.bottom - childParentData.top
-          );
+          childConstraints = childConstraints.tighten(height: size.height - childParentData.bottom - childParentData.top);
         else if (childParentData.height != null)
           childConstraints = childConstraints.tighten(height: childParentData.height);
-		
-        /// 请求子元素布局  
+
         child.layout(childConstraints, parentUsesSize: true);
 
-        /// offset.x
         double x;
         if (childParentData.left != null) {
           x = childParentData.left;
@@ -327,12 +395,10 @@ class RenderStack extends RenderBox
         } else {
           x = _resolvedAlignment.alongOffset(size - child.size).dx;
         }
- 
-        /// 如果上下左右有溢出，则 _hasVisualOverflow 为true  
+
         if (x < 0.0 || x + child.size.width > size.width)
           _hasVisualOverflow = true;
 
-        /// offset.y   
         double y;
         if (childParentData.top != null) {
           y = childParentData.top;
@@ -345,10 +411,10 @@ class RenderStack extends RenderBox
         if (y < 0.0 || y + child.size.height > size.height)
           _hasVisualOverflow = true;
 
-        /// 设置paint offset  
         childParentData.offset = Offset(x, y);
       }
 
+      assert(child.parentData == childParentData);
       child = childParentData.nextSibling;
     }
   }
@@ -358,21 +424,34 @@ class RenderStack extends RenderBox
     return defaultHitTestChildren(result, position: position);
   }
 
+  /// Override in subclasses to customize how the stack paints.
+  ///
+  /// By default, the stack uses [defaultPaint]. This function is called by
+  /// [paint] after potentially applying a clip to contain visual overflow.
   @protected
   void paintStack(PaintingContext context, Offset offset) {
-    /// 采用默认实现的绘制方法，根据layout设置的offset来绘制每一个child  
     defaultPaint(context, offset);
   }
 
   @override
   void paint(PaintingContext context, Offset offset) {
-    /// 如果有溢出并且设置Overflow 为 clip，那么根据offset和size来裁剪paint  
     if (_overflow == Overflow.clip && _hasVisualOverflow) {
       context.pushClipRect(needsCompositing, offset, Offset.zero & size, paintStack);
-    /// 否则直接绘制    
     } else {
       paintStack(context, offset);
     }
+  }
+
+  @override
+  Rect describeApproximatePaintClip(RenderObject child) => _hasVisualOverflow ? Offset.zero & size : null;
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(DiagnosticsProperty<AlignmentGeometry>('alignment', alignment));
+    properties.add(EnumProperty<TextDirection>('textDirection', textDirection));
+    properties.add(EnumProperty<StackFit>('fit', fit));
+    properties.add(EnumProperty<Overflow>('overflow', overflow));
   }
 }
 ```
