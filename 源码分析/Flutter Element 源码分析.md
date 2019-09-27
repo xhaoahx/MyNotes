@@ -1368,6 +1368,7 @@ class MultiChildRenderObjectElement extends RenderObjectElement {
     super.mount(parent, newSlot);
     _children = List<Element>(widget.children.length);
     Element previousChild;
+     
     for (int i = 0; i < _children.length; i += 1) {
       final Element newChild = inflateWidget(widget.children[i], previousChild);
       _children[i] = newChild;

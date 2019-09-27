@@ -9,23 +9,14 @@
 /// 通常来说采用非线性的值会比较好看
 typedef CreateRectTween = Tween<Rect> Function(Rect begin, Rect end);
 
-/// Signature for a function that builds a [Hero] placeholder widget given a
-/// child and a [Size].
-///
-/// The child can optionally be part of the returned widget tree. The returned
-/// widget should typically be constrained to [heroSize], if it doesn't do so
-/// implicitly.
-///
-/// See also:
-///  * [TransitionBuilder], which is similar but only takes a [BuildContext]
-///    and a child widget.
+/// 用给定的大小和widget构建一个占位符
 typedef HeroPlaceholderBuilder = Widget Function(
   BuildContext context,
   Size heroSize,
   Widget child,
 );
 
-/// 构建穿梭过程
+/// 构建承载子child的‘穿梭机’
 typedef HeroFlightShuttleBuilder = Widget Function(
   BuildContext flightContext,
   Animation<double> animation,
@@ -130,8 +121,7 @@ class Hero extends StatefulWidget {
       if (!isUserGestureTransition || heroWidget.transitionOnUserGestures) {
         result[tag] = heroState;
       } else {
-        // If transition is not allowed, we need to make sure hero is not hidden.
-        // A hero can be hidden previously due to hero transition.
+        // 如果不能过渡，那么必须将hero展示出来（因为hero可能在先前的过渡中被隐藏了）
         heroState.ensurePlaceholderIsHidden();
       }
     }
@@ -170,9 +160,8 @@ class Hero extends StatefulWidget {
 class _HeroState extends State<Hero> {
   final GlobalKey _key = GlobalKey();
   Size _placeholderSize;
-  // Whether the placeholder widget should wrap the hero's child widget as its
-  // own child, when `_placeholderSize` is non-null (i.e. the hero is currently
-  // in its flight animation). See `startFlight`.
+  // 占位符是否应该将hero的child作为自己的child，当_placeholderSize为非null时 
+  // 例如，hero正处于飞行动画中
   bool _shouldIncludeChild = true;
 
   // The `shouldIncludeChildInPlaceholder` flag dictates if the child widget of
@@ -186,9 +175,9 @@ class _HeroState extends State<Hero> {
   //
   // It is typically set to true for the *from* hero in a push transition,
   // and false otherwise.
+    
   void startFlight({ bool shouldIncludedChildInPlaceholder = false }) {
     _shouldIncludeChild = shouldIncludedChildInPlaceholder;
-    assert(mounted);
     final RenderBox box = context.findRenderObject();
     assert(box != null && box.hasSize);
     setState(() {
@@ -215,17 +204,15 @@ class _HeroState extends State<Hero> {
 
   @override
   Widget build(BuildContext context) {
-    assert(
-      context.ancestorWidgetOfExactType(Hero) == null,
-      'A Hero widget cannot be the descendant of another Hero widget.'
-    );
 
     final bool showPlaceholder = _placeholderSize != null;
 
+    /// 需要展示占位符  
     if (showPlaceholder && widget.placeholderBuilder != null) {
       return widget.placeholderBuilder(context, _placeholderSize, widget.child);
     }
 
+    /// 需要展示占位符并且不包含原hero的子树  
     if (showPlaceholder && !_shouldIncludeChild) {
       return SizedBox(
         width: _placeholderSize.width,
@@ -237,8 +224,10 @@ class _HeroState extends State<Hero> {
       width: _placeholderSize?.width,
       height: _placeholderSize?.height,
       child: Offstage(
+        /// 需要展示占位符时，子树不显示  
         offstage: showPlaceholder,
         child: TickerMode(
+          /// 需要展示占位符时，子树不tick  
           enabled: !showPlaceholder,
           child: KeyedSubtree(key: _key, child: widget.child),
         ),
@@ -253,7 +242,7 @@ class _HeroState extends State<Hero> {
 ## HeroFlightManifest
 
 ```dart
-/// 展示类
+/// 展示类（用于存取数据，构建动画）
 class _HeroFlightManifest {
   _HeroFlightManifest({
     @required this.type,
@@ -320,7 +309,8 @@ class _HeroFlight {
   bool _aborted = false;
 
   Tween<Rect> _doCreateRectTween(Rect begin, Rect end) {
-    final CreateRectTween createRectTween = manifest.toHero.widget.createRectTween ?? manifest.createRectTween;
+    final CreateRectTween createRectTween = 
+        manifest.toHero.widget.createRectTween ?? manifest.createRectTween;
     if (createRectTween != null)
       return createRectTween(begin, end);
     return RectTween(begin: begin, end: end);
@@ -328,9 +318,8 @@ class _HeroFlight {
 
   static final Animatable<double> _reverseTween = Tween<double>(begin: 1.0, end: 0.0);
 
-  // The OverlayEntry WidgetBuilder callback for the hero's overlay.
+  // 覆盖层的widgetbuilder
   Widget _buildOverlay(BuildContext context) {
-    assert(manifest != null);
     shuttle ??= manifest.shuttleBuilder(
       context,
       manifest.animation,
@@ -338,7 +327,6 @@ class _HeroFlight {
       manifest.fromHero.context,
       manifest.toHero.context,
     );
-    assert(shuttle != null);
 
     return AnimatedBuilder(
       animation: _proxyAnimation,
@@ -346,13 +334,14 @@ class _HeroFlight {
       builder: (BuildContext context, Widget child) {
         final RenderBox toHeroBox = manifest.toHero.context?.findRenderObject();
         if (_aborted || toHeroBox == null || !toHeroBox.attached) {
-          // The toHero no longer exists or it's no longer the flight's destination.
-          // Continue flying while fading out.
+          // 当ToHero不存在或者被移除的时候，继续飞行，并且淡出
           if (_heroOpacity.isCompleted) {
             _heroOpacity = _proxyAnimation.drive(
-              _reverseTween.chain(CurveTween(curve: Interval(_proxyAnimation.value, 1.0))),
+              _reverseTween.chain(
+                  CurveTween(curve: Interval(_proxyAnimation.value, 1.0))),
             );
           }
+          // 飞行途中  
         } else if (toHeroBox.hasSize) {
           // The toHero has been laid out. If it's no longer where the hero animation is
           // supposed to end up then recreate the heroRect tween.
@@ -716,6 +705,34 @@ class HeroController extends NavigatorObserver {
     final Hero toHero = toHeroContext.widget;
     return toHero.child;
   };
+}
+```
+
+
+
+## TickerMode
+
+```dart
+/// 启用或阻止子树中的 tickers (and thus animation controllers) 
+///
+/// 只在被使用了widget-aware ticker providers创建的[AnimationController] 有效
+/// 例如[TickerProviderStateMixin] or a [SingleTickerProviderStateMixin].
+class TickerMode extends InheritedWidget {
+  const TickerMode({
+    Key key,
+    @required this.enabled,
+    Widget child,
+  }) : assert(enabled != null),
+       super(key: key, child: child);
+
+  /// true：子树tick，false：子树不tick
+  final bool enabled;
+
+  static bool of(BuildContext context) {
+    final TickerMode widget = context.inheritFromWidgetOfExactType(TickerMode);
+    return widget?.enabled ?? true;
+  }
+
 }
 ```
 
