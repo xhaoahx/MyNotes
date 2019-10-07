@@ -4,6 +4,157 @@
 
 [TOC]
 
+## Positioned
+
+```dart
+class Positioned extends ParentDataWidget<Stack> {
+  const Positioned({
+    Key key,
+    this.left,
+    this.top,
+    this.right,
+    this.bottom,
+    this.width,
+    this.height,
+    @required Widget child,
+  }) : assert(left == null || right == null || width == null),
+       assert(top == null || bottom == null || height == null),
+       super(key: key, child: child);
+
+  Positioned.fromRect({
+    Key key,
+    Rect rect,
+    @required Widget child,
+  }) : left = rect.left,
+       top = rect.top,
+       width = rect.width,
+       height = rect.height,
+       right = null,
+       bottom = null,
+       super(key: key, child: child);
+
+  /// Creates a Positioned object with the values from the given [RelativeRect].
+  ///
+  /// This sets the [left], [top], [right], and [bottom] properties from the
+  /// given [RelativeRect]. The [height] and [width] properties are set to null.
+  Positioned.fromRelativeRect({
+    Key key,
+    RelativeRect rect,
+    @required Widget child,
+  }) : left = rect.left,
+       top = rect.top,
+       right = rect.right,
+       bottom = rect.bottom,
+       width = null,
+       height = null,
+       super(key: key, child: child);
+
+  const Positioned.fill({
+    Key key,
+    this.left = 0.0,
+    this.top = 0.0,
+    this.right = 0.0,
+    this.bottom = 0.0,
+    @required Widget child,
+  }) : width = null,
+       height = null,
+       super(key: key, child: child);
+
+  /// 根据Direction来创建
+  factory Positioned.directional({
+    Key key,
+    @required TextDirection textDirection,
+    double start,
+    double top,
+    double end,
+    double bottom,
+    double width,
+    double height,
+    @required Widget child,
+  }) {
+    assert(textDirection != null);
+    double left;
+    double right;
+    switch (textDirection) {
+      case TextDirection.rtl:
+        left = end;
+        right = start;
+        break;
+      case TextDirection.ltr:
+        left = start;
+        right = end;
+        break;
+    }
+    return Positioned(
+      key: key,
+      left: left,
+      top: top,
+      right: right,
+      bottom: bottom,
+      width: width,
+      height: height,
+      child: child,
+    );
+  }
+
+  /// 距离Stack边界的左上右下
+  final double left;
+  final double top;
+  final double right;
+  final double bottom;
+
+  /// 宽度约束
+  final double width;
+  /// 高度约束
+  final double height;
+
+  /// 修改parentData，标记需要重新布局  
+  @override
+  void applyParentData(RenderObject renderObject) {
+    final StackParentData parentData = renderObject.parentData;
+    bool needsLayout = false;
+
+    if (parentData.left != left) {
+      parentData.left = left;
+      needsLayout = true;
+    }
+
+    if (parentData.top != top) {
+      parentData.top = top;
+      needsLayout = true;
+    }
+
+    if (parentData.right != right) {
+      parentData.right = right;
+      needsLayout = true;
+    }
+
+    if (parentData.bottom != bottom) {
+      parentData.bottom = bottom;
+      needsLayout = true;
+    }
+
+    if (parentData.width != width) {
+      parentData.width = width;
+      needsLayout = true;
+    }
+
+    if (parentData.height != height) {
+      parentData.height = height;
+      needsLayout = true;
+    }
+
+    if (needsLayout) {
+     final AbstractNode targetParent = renderObject.parent;
+      if (targetParent is RenderObject)
+        targetParent.markNeedsLayout();
+    }
+  }
+}
+```
+
+
+
 ## StackParentData
 
 ```dart
@@ -373,6 +524,118 @@ class RenderStack extends RenderBox
     } else {
       paintStack(context, offset);
     }
+  }
+}
+```
+
+
+
+## IndexedStack
+
+```dart
+class IndexedStack extends Stack {
+  /// Creates a [Stack] widget that paints a single child.
+  ///
+  /// The [index] argument must not be null.
+  IndexedStack({
+    Key key,
+    AlignmentGeometry alignment = AlignmentDirectional.topStart,
+    TextDirection textDirection,
+    StackFit sizing = StackFit.loose,
+    this.index = 0,
+    List<Widget> children = const <Widget>[],
+  }) : super(key: key, alignment: alignment, textDirection: textDirection, fit: sizing, children: children);
+
+  /// The index of the child to show.
+  final int index;
+
+  @override
+  RenderIndexedStack createRenderObject(BuildContext context) {
+    return RenderIndexedStack(
+      index: index,
+      alignment: alignment,
+      textDirection: textDirection ?? Directionality.of(context),
+    );
+  }
+
+  @override
+  void updateRenderObject(BuildContext context, RenderIndexedStack renderObject) {
+    renderObject
+      ..index = index
+      ..alignment = alignment
+      ..textDirection = textDirection ?? Directionality.of(context);
+  }
+}
+```
+
+
+
+## RenderIndexedStack
+
+```dart
+class RenderIndexedStack extends RenderStack {
+  /// Creates a stack render object that paints a single child.
+  ///
+  /// If the [index] parameter is null, nothing is displayed.
+  RenderIndexedStack({
+    List<RenderBox> children,
+    AlignmentGeometry alignment = AlignmentDirectional.topStart,
+    TextDirection textDirection,
+    int index = 0,
+  }) : _index = index,
+       super(
+         children: children,
+         alignment: alignment,
+         textDirection: textDirection,
+       );
+
+  ...
+
+  /// 需要展示的child的index，设为为null则不展示
+  int get index => _index;
+  int _index;
+  set index(int value) {
+    if (_index != value) {
+      _index = value;
+      markNeedsLayout();
+    }
+  }
+
+  RenderBox _childAtIndex() {
+    RenderBox child = firstChild;
+    int i = 0;
+    /// 事件复杂度O（n），通过链表访问，得到第index个child
+    while (child != null && i < index) {
+      final StackParentData childParentData = child.parentData;
+      child = childParentData.nextSibling;
+      i += 1;
+    }
+    return child;
+  }
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, { @required Offset position }) {
+    if (firstChild == null || index == null)
+      return false;
+    final RenderBox child = _childAtIndex();
+    final StackParentData childParentData = child.parentData;
+    return result.addWithPaintOffset(
+      offset: childParentData.offset,
+      position: position,
+      hitTest: (BoxHitTestResult result, Offset transformed) {
+        return child.hitTest(result, position: transformed);
+      },
+    );
+  }
+
+  /// 没有重载父类的layout方法，只是绘制指定的child  
+  @override
+  void paintStack(PaintingContext context, Offset offset) {
+    if (firstChild == null || index == null)
+      return;
+    final RenderBox child = _childAtIndex();
+    final StackParentData childParentData = child.parentData;
+    context.paintChild(child, childParentData.offset + offset);
   }
 }
 ```

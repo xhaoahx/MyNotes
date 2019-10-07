@@ -179,6 +179,7 @@ class _BodyBoxConstraints extends BoxConstraints {
 ## _ScaffoldLayout
 
 ```dart
+/// 布局代理，整个Scaffold的布局算法
 class _ScaffoldLayout extends MultiChildLayoutDelegate {
   _ScaffoldLayout({
     @required this.minInsets,
@@ -192,13 +193,7 @@ class _ScaffoldLayout extends MultiChildLayoutDelegate {
     @required this.isSnackBarFloating,
     @required this.extendBody,
     @required this.extendBodyBehindAppBar,
-  }) : assert(minInsets != null),
-       assert(textDirection != null),
-       assert(geometryNotifier != null),
-       assert(previousFloatingActionButtonLocation != null),
-       assert(currentFloatingActionButtonLocation != null),
-       assert(extendBody != null),
-       assert(extendBodyBehindAppBar != null);
+  });
 
   final bool extendBody;
   final bool extendBodyBehindAppBar;
@@ -215,14 +210,11 @@ class _ScaffoldLayout extends MultiChildLayoutDelegate {
 
   @override
   void performLayout(Size size) {
+    /// 将约束宽松  
     final BoxConstraints looseConstraints = BoxConstraints.loose(size);
-
-    // This part of the layout has the same effect as putting the app bar and
-    // body in a column and making the body flexible. What's different is that
-    // in this case the app bar appears _after_ the body in the stacking order,
-    // so the app bar's shadow is drawn on top of the body.
-
-    final BoxConstraints fullWidthConstraints = looseConstraints.tighten(width: size.width);
+    final BoxConstraints fullWidthConstraints = 
+        looseConstraints.tighten(width: size.width);
+        
     final double bottom = size.height;
     double contentTop = 0.0;
     double bottomWidgetsHeight = 0.0;
@@ -236,10 +228,13 @@ class _ScaffoldLayout extends MultiChildLayoutDelegate {
 
     double bottomNavigationBarTop;
     if (hasChild(_ScaffoldSlot.bottomNavigationBar)) {
-      final double bottomNavigationBarHeight = layoutChild(_ScaffoldSlot.bottomNavigationBar, fullWidthConstraints).height;
+      final double bottomNavigationBarHeight = 
+          layoutChild(_ScaffoldSlot.bottomNavigationBar, fullWidthConstraints).height;
       bottomWidgetsHeight += bottomNavigationBarHeight;
       bottomNavigationBarTop = math.max(0.0, bottom - bottomWidgetsHeight);
-      positionChild(_ScaffoldSlot.bottomNavigationBar, Offset(0.0, bottomNavigationBarTop));
+      positionChild(_ScaffoldSlot.bottomNavigationBar, 
+                    Offset(0.0, bottomNavigationBarTop)
+                   );
     }
 
     if (hasChild(_ScaffoldSlot.persistentFooter)) {
@@ -247,22 +242,28 @@ class _ScaffoldLayout extends MultiChildLayoutDelegate {
         maxWidth: fullWidthConstraints.maxWidth,
         maxHeight: math.max(0.0, bottom - bottomWidgetsHeight - contentTop),
       );
-      final double persistentFooterHeight = layoutChild(_ScaffoldSlot.persistentFooter, footerConstraints).height;
+      final double persistentFooterHeight = 
+          layoutChild(_ScaffoldSlot.persistentFooter, footerConstraints).height;
       bottomWidgetsHeight += persistentFooterHeight;
-      positionChild(_ScaffoldSlot.persistentFooter, Offset(0.0, math.max(0.0, bottom - bottomWidgetsHeight)));
+      positionChild(_ScaffoldSlot.persistentFooter, 
+                    Offset(0.0, math.max(0.0, bottom - bottomWidgetsHeight))
+                   );
     }
 
     // Set the content bottom to account for the greater of the height of any
     // bottom-anchored material widgets or of the keyboard or other
     // bottom-anchored system UI.
-    final double contentBottom = math.max(0.0, bottom - math.max(minInsets.bottom, bottomWidgetsHeight));
+    final double contentBottom = 
+        math.max(0.0, bottom - math.max(minInsets.bottom, bottomWidgetsHeight));
 
     if (hasChild(_ScaffoldSlot.body)) {
       double bodyMaxHeight = math.max(0.0, contentBottom - contentTop);
 
       if (extendBody) {
         bodyMaxHeight += bottomWidgetsHeight;
-        bodyMaxHeight = bodyMaxHeight.clamp(0.0, looseConstraints.maxHeight - contentTop).toDouble();
+        bodyMaxHeight = bodyMaxHeight.clamp(
+            0.0, looseConstraints.maxHeight - contentTop
+        ).toDouble();
         assert(bodyMaxHeight <= math.max(0.0, looseConstraints.maxHeight - contentTop));
       }
 
@@ -376,9 +377,12 @@ class _ScaffoldLayout extends MultiChildLayoutDelegate {
   bool shouldRelayout(_ScaffoldLayout oldDelegate) {
     return oldDelegate.minInsets != minInsets
         || oldDelegate.textDirection != textDirection
-        || oldDelegate.floatingActionButtonMoveAnimationProgress != floatingActionButtonMoveAnimationProgress
-        || oldDelegate.previousFloatingActionButtonLocation != previousFloatingActionButtonLocation
-        || oldDelegate.currentFloatingActionButtonLocation != currentFloatingActionButtonLocation
+        || oldDelegate.floatingActionButtonMoveAnimationProgress 
+           != floatingActionButtonMoveAnimationProgress
+        || oldDelegate.previousFloatingActionButtonLocation 
+           != previousFloatingActionButtonLocation
+        || oldDelegate.currentFloatingActionButtonLocation 
+           != currentFloatingActionButtonLocation
         || oldDelegate.extendBody != extendBody
         || oldDelegate.extendBodyBehindAppBar != extendBodyBehindAppBar;
   }
@@ -419,330 +423,65 @@ class Scaffold extends StatefulWidget {
        assert(drawerDragStartBehavior != null),
        super(key: key);
 
-  /// If true, and [bottomNavigationBar] or [persistentFooterButtons]
-  /// is specified, then the [body] extends to the bottom of the Scaffold,
-  /// instead of only extending to the top of the [bottomNavigationBar]
-  /// or the [persistentFooterButtons].
-  ///
-  /// If true, a [MediaQuery] widget whose bottom padding matches the
-  /// the height of the [bottomNavigationBar] will be added above the
-  /// scaffold's [body].
-  ///
-  /// This property is often useful when the [bottomNavigationBar] has
-  /// a non-rectangular shape, like [CircularNotchedRectangle], which
-  /// adds a [FloatingActionButton] sized notch to the top edge of the bar.
-  /// In this case specifying `extendBody: true` ensures that that scaffold's
-  /// body will be visible through the bottom navigation bar's notch.
-  ///
-  /// See also:
-  ///
-  ///  * [extendBodyBehindAppBar], which extends the height of the body
-  ///    to the top of the scaffold.
+  /// 以下两个属性可以模拟出ios的半透明导航栏效果  
+  /// 是否将body拓展到navigationbar顶部以下
   final bool extendBody;
-
-  /// If true, and an [appBar] is specified, then the height of the [body] is
-  /// extended to include the height of the app bar and the top of the body
-  /// is aligned with the top of the app bar.
-  ///
-  /// This is useful if the app bar's [AppBar.backgroundColor] is not
-  /// completely opaque.
-  ///
-  /// This property is false by default. It must not be null.
-  ///
-  /// See also:
-  ///
-  ///  * [extendBody], which extends the height of the body to the bottom
-  ///    of the scaffold.
+  /// 是否将body拓展到appbar底部以上
   final bool extendBodyBehindAppBar;
 
-  /// An app bar to display at the top of the scaffold.
+  /// appbar
   final PreferredSizeWidget appBar;
 
-  /// The primary content of the scaffold.
-  ///
-  /// Displayed below the [appBar], above the bottom of the ambient
-  /// [MediaQuery]'s [MediaQueryData.viewInsets], and behind the
-  /// [floatingActionButton] and [drawer]. If [resizeToAvoidBottomInset] is
-  /// false then the body is not resized when the onscreen keyboard appears,
-  /// i.e. it is not inset by `viewInsets.bottom`.
-  ///
-  /// The widget in the body of the scaffold is positioned at the top-left of
-  /// the available space between the app bar and the bottom of the scaffold. To
-  /// center this widget instead, consider putting it in a [Center] widget and
-  /// having that be the body. To expand this widget instead, consider
-  /// putting it in a [SizedBox.expand].
-  ///
-  /// If you have a column of widgets that should normally fit on the screen,
-  /// but may overflow and would in such cases need to scroll, consider using a
-  /// [ListView] as the body of the scaffold. This is also a good choice for
-  /// the case where your body is a scrollable list.
   final Widget body;
 
-  /// A button displayed floating above [body], in the bottom right corner.
-  ///
-  /// Typically a [FloatingActionButton].
   final Widget floatingActionButton;
 
-  /// Responsible for determining where the [floatingActionButton] should go.
-  ///
-  /// If null, the [ScaffoldState] will use the default location, [FloatingActionButtonLocation.endFloat].
+  /// 浮动按钮的位置
   final FloatingActionButtonLocation floatingActionButtonLocation;
 
-  /// Animator to move the [floatingActionButton] to a new [floatingActionButtonLocation].
+  /// 将 [floatingActionButton] 移动到一个新的 [floatingActionButtonLocation].
   ///
-  /// If null, the [ScaffoldState] will use the default animator, [FloatingActionButtonAnimator.scaling].
+  /// 默认使用[FloatingActionButtonAnimator.scaling].
   final FloatingActionButtonAnimator floatingActionButtonAnimator;
 
-  /// A set of buttons that are displayed at the bottom of the scaffold.
-  ///
-  /// Typically this is a list of [FlatButton] widgets. These buttons are
-  /// persistently visible, even if the [body] of the scaffold scrolls.
-  ///
-  /// These widgets will be wrapped in a [ButtonBar].
-  ///
-  /// The [persistentFooterButtons] are rendered above the
-  /// [bottomNavigationBar] but below the [body].
+  /// 底部按钮
   final List<Widget> persistentFooterButtons;
 
-  /// A panel displayed to the side of the [body], often hidden on mobile
-  /// devices. Swipes in from either left-to-right ([TextDirection.ltr]) or
-  /// right-to-left ([TextDirection.rtl])
-  ///
-  /// In the uncommon case that you wish to open the drawer manually, use the
-  /// [ScaffoldState.openDrawer] function.
-  ///
-  /// Typically a [Drawer].
+  /// Drawer
   final Widget drawer;
 
-  /// A panel displayed to the side of the [body], often hidden on mobile
-  /// devices. Swipes in from right-to-left ([TextDirection.ltr]) or
-  /// left-to-right ([TextDirection.rtl])
-  ///
-  /// In the uncommon case that you wish to open the drawer manually, use the
-  /// [ScaffoldState.openEndDrawer] function.
-  ///
-  /// Typically a [Drawer].
+  /// 反向Drawer
   final Widget endDrawer;
 
-  /// The color to use for the scrim that obscures primary content while a drawer is open.
-  ///
-  /// By default, the color is [Colors.black54]
+  /// 用于遮蔽body的颜色，默认为[Colors.black54]
   final Color drawerScrimColor;
 
-  /// The color of the [Material] widget that underlies the entire Scaffold.
-  ///
-  /// The theme's [ThemeData.scaffoldBackgroundColor] by default.
+  /// 背景颜色
   final Color backgroundColor;
 
-  /// A bottom navigation bar to display at the bottom of the scaffold.
-  ///
-  /// Snack bars slide from underneath the bottom navigation bar while bottom
-  /// sheets are stacked on top.
-  ///
-  /// The [bottomNavigationBar] is rendered below the [persistentFooterButtons]
-  /// and the [body].
+  /// 底部导航栏
   final Widget bottomNavigationBar;
 
-  /// The persistent bottom sheet to display.
-  ///
-  /// A persistent bottom sheet shows information that supplements the primary
-  /// content of the app. A persistent bottom sheet remains visible even when
-  /// the user interacts with other parts of the app.
-  ///
-  /// A closely related widget is a modal bottom sheet, which is an alternative
-  /// to a menu or a dialog and prevents the user from interacting with the rest
-  /// of the app. Modal bottom sheets can be created and displayed with the
-  /// [showModalBottomSheet] function.
-  ///
-  /// Unlike the persistent bottom sheet displayed by [showBottomSheet]
-  /// this bottom sheet is not a [LocalHistoryEntry] and cannot be dismissed
-  /// with the scaffold appbar's back button.
-  ///
-  /// If a persistent bottom sheet created with [showBottomSheet] is already
-  /// visible, it must be closed before building the Scaffold with a new
-  /// [bottomSheet].
-  ///
-  /// The value of [bottomSheet] can be any widget at all. It's unlikely to
-  /// actually be a [BottomSheet], which is used by the implementations of
-  /// [showBottomSheet] and [showModalBottomSheet]. Typically it's a widget
-  /// that includes [Material].
-  ///
-  /// See also:
-  ///
-  ///  * [showBottomSheet], which displays a bottom sheet as a route that can
-  ///    be dismissed with the scaffold's back button.
-  ///  * [showModalBottomSheet], which displays a modal bottom sheet.
+  /// 永久底部面板
   final Widget bottomSheet;
 
-  /// This flag is deprecated, please use [resizeToAvoidBottomInset]
-  /// instead.
-  ///
-  /// Originally the name referred [MediaQueryData.padding]. Now it refers
-  /// [MediaQueryData.viewInsets], so using [resizeToAvoidBottomInset]
-  /// should be clearer to readers.
-  @Deprecated('Use resizeToAvoidBottomInset to specify if the body should resize when the keyboard appears')
-  final bool resizeToAvoidBottomPadding;
-
-  /// If true the [body] and the scaffold's floating widgets should size
-  /// themselves to avoid the onscreen keyboard whose height is defined by the
-  /// ambient [MediaQuery]'s [MediaQueryData.viewInsets] `bottom` property.
-  ///
-  /// For example, if there is an onscreen keyboard displayed above the
-  /// scaffold, the body can be resized to avoid overlapping the keyboard, which
-  /// prevents widgets inside the body from being obscured by the keyboard.
-  ///
-  /// Defaults to true.
+  /// 当屏幕高度改变时，是否改变自身大小
   final bool resizeToAvoidBottomInset;
 
-  /// Whether this scaffold is being displayed at the top of the screen.
-  ///
-  /// If true then the height of the [appBar] will be extended by the height
-  /// of the screen's status bar, i.e. the top padding for [MediaQuery].
-  ///
-  /// The default value of this property, like the default value of
-  /// [AppBar.primary], is true.
+  /// 是否在状态栏之下
   final bool primary;
 
   /// {@macro flutter.material.drawer.dragStartBehavior}
   final DragStartBehavior drawerDragStartBehavior;
 
-  /// The width of the area within which a horizontal swipe will open the
-  /// drawer.
-  ///
-  /// By default, the value used is 20.0 added to the padding edge of
-  /// `MediaQuery.of(context).padding` that corresponds to [alignment].
-  /// This ensures that the drag area for notched devices is not obscured. For
-  /// example, if `TextDirection.of(context)` is set to [TextDirection.ltr],
-  /// 20.0 will be added to `MediaQuery.of(context).padding.left`.
+  /// 打开抽屉需要的水平滑动的距离
   final double drawerEdgeDragWidth;
 
-  /// The state from the closest instance of this class that encloses the given context.
-  ///
-  /// {@tool snippet --template=freeform}
-  /// Typical usage of the [Scaffold.of] function is to call it from within the
-  /// `build` method of a child of a [Scaffold].
-  ///
-  /// ```dart imports
-  /// import 'package:flutter/material.dart';
-  /// ```
-  ///
-  /// ```dart main
-  /// void main() => runApp(MyApp());
-  /// ```
-  ///
-  /// ```dart preamble
-  /// class MyApp extends StatelessWidget {
-  ///   // This widget is the root of your application.
-  ///   @override
-  ///   Widget build(BuildContext context) {
-  ///     return MaterialApp(
-  ///       title: 'Flutter Code Sample for Scaffold.of.',
-  ///       theme: ThemeData(
-  ///         primarySwatch: Colors.blue,
-  ///       ),
-  ///       home: Scaffold(
-  ///         body: MyScaffoldBody(),
-  ///         appBar: AppBar(title: Text('Scaffold.of Example')),
-  ///       ),
-  ///       color: Colors.white,
-  ///     );
-  ///   }
-  /// }
-  /// ```
-  ///
-  /// ```dart
-  /// class MyScaffoldBody extends StatelessWidget {
-  ///   @override
-  ///   Widget build(BuildContext context) {
-  ///     return Center(
-  ///       child: RaisedButton(
-  ///         child: Text('SHOW A SNACKBAR'),
-  ///         onPressed: () {
-  ///           Scaffold.of(context).showSnackBar(
-  ///             SnackBar(
-  ///               content: Text('Have a snack!'),
-  ///             ),
-  ///           );
-  ///         },
-  ///       ),
-  ///     );
-  ///   }
-  /// }
-  /// ```
-  /// {@end-tool}
-  ///
-  /// {@tool snippet --template=stateless_widget_material}
-  /// When the [Scaffold] is actually created in the same `build` function, the
-  /// `context` argument to the `build` function can't be used to find the
-  /// [Scaffold] (since it's "above" the widget being returned in the widget
-  /// tree). In such cases, the following technique with a [Builder] can be used
-  /// to provide a new scope with a [BuildContext] that is "under" the
-  /// [Scaffold]:
-  ///
-  /// ```dart
-  /// Widget build(BuildContext context) {
-  ///   return Scaffold(
-  ///     appBar: AppBar(
-  ///       title: Text('Demo')
-  ///     ),
-  ///     body: Builder(
-  ///       // Create an inner BuildContext so that the onPressed methods
-  ///       // can refer to the Scaffold with Scaffold.of().
-  ///       builder: (BuildContext context) {
-  ///         return Center(
-  ///           child: RaisedButton(
-  ///             child: Text('SHOW A SNACKBAR'),
-  ///             onPressed: () {
-  ///               Scaffold.of(context).showSnackBar(SnackBar(
-  ///                 content: Text('Have a snack!'),
-  ///               ));
-  ///             },
-  ///           ),
-  ///         );
-  ///       },
-  ///     ),
-  ///   );
-  /// }
-  /// ```
-  /// {@end-tool}
-  ///
-  /// A more efficient solution is to split your build function into several
-  /// widgets. This introduces a new context from which you can obtain the
-  /// [Scaffold]. In this solution, you would have an outer widget that creates
-  /// the [Scaffold] populated by instances of your new inner widgets, and then
-  /// in these inner widgets you would use [Scaffold.of].
-  ///
-  /// A less elegant but more expedient solution is assign a [GlobalKey] to the
-  /// [Scaffold], then use the `key.currentState` property to obtain the
-  /// [ScaffoldState] rather than using the [Scaffold.of] function.
-  ///
-  /// If there is no [Scaffold] in scope, then this will throw an exception.
-  /// To return null if there is no [Scaffold], then pass `nullOk: true`.
   static ScaffoldState of(BuildContext context, { bool nullOk = false }) {
-    assert(nullOk != null);
-    assert(context != null);
-    final ScaffoldState result = context.ancestorStateOfType(const TypeMatcher<ScaffoldState>());
+    final ScaffoldState result = 
+        context.ancestorStateOfType(const TypeMatcher<ScaffoldState>());
     if (nullOk || result != null)
       return result;
-    throw FlutterError(
-      'Scaffold.of() called with a context that does not contain a Scaffold.\n'
-      'No Scaffold ancestor could be found starting from the context that was passed to Scaffold.of(). '
-      'This usually happens when the context provided is from the same StatefulWidget as that '
-      'whose build function actually creates the Scaffold widget being sought.\n'
-      'There are several ways to avoid this problem. The simplest is to use a Builder to get a '
-      'context that is "under" the Scaffold. For an example of this, please see the '
-      'documentation for Scaffold.of():\n'
-      '  https://api.flutter.dev/flutter/material/Scaffold/of.html\n'
-      'A more efficient solution is to split your build function into several widgets. This '
-      'introduces a new context from which you can obtain the Scaffold. In this solution, '
-      'you would have an outer widget that creates the Scaffold populated by instances of '
-      'your new inner widgets, and then in these inner widgets you would use Scaffold.of().\n'
-      'A less elegant but more expedient solution is assign a GlobalKey to the Scaffold, '
-      'then use the key.currentState property to obtain the ScaffoldState rather than '
-      'using the Scaffold.of() function.\n'
-      'The context used was:\n'
-      '  $context'
-    );
   }
 
   /// Returns a [ValueListenable] for the [ScaffoldGeometry] for the closest
@@ -766,48 +505,20 @@ class Scaffold extends StatefulWidget {
   /// the listener, and register a listener to the new [ScaffoldGeometry]
   /// listenable.
   static ValueListenable<ScaffoldGeometry> geometryOf(BuildContext context) {
-    final _ScaffoldScope scaffoldScope = context.inheritFromWidgetOfExactType(_ScaffoldScope);
-    if (scaffoldScope == null)
-      throw FlutterError(
-        'Scaffold.geometryOf() called with a context that does not contain a Scaffold.\n'
-        'This usually happens when the context provided is from the same StatefulWidget as that '
-        'whose build function actually creates the Scaffold widget being sought.\n'
-        'There are several ways to avoid this problem. The simplest is to use a Builder to get a '
-        'context that is "under" the Scaffold. For an example of this, please see the '
-        'documentation for Scaffold.of():\n'
-        '  https://api.flutter.dev/flutter/material/Scaffold/of.html\n'
-        'A more efficient solution is to split your build function into several widgets. This '
-        'introduces a new context from which you can obtain the Scaffold. In this solution, '
-        'you would have an outer widget that creates the Scaffold populated by instances of '
-        'your new inner widgets, and then in these inner widgets you would use Scaffold.geometryOf().\n'
-        'The context used was:\n'
-        '  $context'
-      );
-
+    final _ScaffoldScope scaffoldScope = 
+        context.inheritFromWidgetOfExactType(_ScaffoldScope);
     return scaffoldScope.geometryNotifier;
   }
 
-  /// Whether the Scaffold that most tightly encloses the given context has a
-  /// drawer.
-  ///
-  /// If this is being used during a build (for example to decide whether to
-  /// show an "open drawer" button), set the `registerForUpdates` argument to
-  /// true. This will then set up an [InheritedWidget] relationship with the
-  /// [Scaffold] so that the client widget gets rebuilt whenever the [hasDrawer]
-  /// value changes.
-  ///
-  /// See also:
-  ///
-  ///  * [Scaffold.of], which provides access to the [ScaffoldState] object as a
-  ///    whole, from which you can show snackbars, bottom sheets, and so forth.
+  /// 最近的scaffold是否有Drawer
   static bool hasDrawer(BuildContext context, { bool registerForUpdates = true }) {
-    assert(registerForUpdates != null);
-    assert(context != null);
     if (registerForUpdates) {
-      final _ScaffoldScope scaffold = context.inheritFromWidgetOfExactType(_ScaffoldScope);
+      final _ScaffoldScope scaffold = 
+          context.inheritFromWidgetOfExactType(_ScaffoldScope);
       return scaffold?.hasDrawer ?? false;
     } else {
-      final ScaffoldState scaffold = context.ancestorStateOfType(const TypeMatcher<ScaffoldState>());
+      final ScaffoldState scaffold = context.ancestorStateOfType(
+          const TypeMatcher<ScaffoldState>());
       return scaffold?.hasDrawer ?? false;
     }
   }
@@ -822,50 +533,33 @@ class Scaffold extends StatefulWidget {
 ## ScaffoldState
 
 ```dart
-/// State for a [Scaffold].
-///
-/// Can display [SnackBar]s and [BottomSheet]s. Retrieve a [ScaffoldState] from
-/// the current [BuildContext] using [Scaffold.of].
 class ScaffoldState extends State<Scaffold> with TickerProviderStateMixin {
 
   // DRAWER API
 
-  final GlobalKey<DrawerControllerState> _drawerKey = GlobalKey<DrawerControllerState>();
-  final GlobalKey<DrawerControllerState> _endDrawerKey = GlobalKey<DrawerControllerState>();
+  /// 两个globalkey用于控制左右两个drawer  
+  final GlobalKey<DrawerControllerState> _drawerKey = 
+      GlobalKey<DrawerControllerState>();
+  final GlobalKey<DrawerControllerState> _endDrawerKey = 
+      GlobalKey<DrawerControllerState>();
 
-  /// Whether this scaffold has a non-null [Scaffold.appBar].
+  /// 是否具有指定的组件  
   bool get hasAppBar => widget.appBar != null;
-  /// Whether this scaffold has a non-null [Scaffold.drawer].
   bool get hasDrawer => widget.drawer != null;
-  /// Whether this scaffold has a non-null [Scaffold.endDrawer].
   bool get hasEndDrawer => widget.endDrawer != null;
-  /// Whether this scaffold has a non-null [Scaffold.floatingActionButton].
   bool get hasFloatingActionButton => widget.floatingActionButton != null;
 
   double _appBarMaxHeight;
-  /// The max height the [Scaffold.appBar] uses.
-  ///
-  /// This is based on the appBar preferred height plus the top padding.
+  /// appbar的最高（总）高度
   double get appBarMaxHeight => _appBarMaxHeight;
+    
+  /// 两个drawer是否处于打开状态  
   bool _drawerOpened = false;
   bool _endDrawerOpened = false;
 
-  /// Whether the [Scaffold.drawer] is opened.
-  ///
-  /// See also:
-  ///
-  ///  * [ScaffoldState.openDrawer], which opens the [Scaffold.drawer] of a
-  ///    [Scaffold].
   bool get isDrawerOpen => _drawerOpened;
-
-  /// Whether the [Scaffold.endDrawer] is opened.
-  ///
-  /// See also:
-  ///
-  ///  * [ScaffoldState.openEndDrawer], which opens the [Scaffold.endDrawer] of
-  ///    a [Scaffold].
   bool get isEndDrawerOpen => _endDrawerOpened;
-
+  
   void _drawerOpenedCallback(bool isOpened) {
     setState(() {
       _drawerOpened = isOpened;
@@ -878,36 +572,13 @@ class ScaffoldState extends State<Scaffold> with TickerProviderStateMixin {
     });
   }
 
-  /// Opens the [Drawer] (if any).
-  ///
-  /// If the scaffold has a non-null [Scaffold.drawer], this function will cause
-  /// the drawer to begin its entrance animation.
-  ///
-  /// Normally this is not needed since the [Scaffold] automatically shows an
-  /// appropriate [IconButton], and handles the edge-swipe gesture, to show the
-  /// drawer.
-  ///
-  /// To close the drawer once it is open, use [Navigator.pop].
-  ///
-  /// See [Scaffold.of] for information about how to obtain the [ScaffoldState].
+  /// 打开抽屉
   void openDrawer() {
     if (_endDrawerKey.currentState != null && _endDrawerOpened)
       _endDrawerKey.currentState.close();
     _drawerKey.currentState?.open();
   }
-
-  /// Opens the end side [Drawer] (if any).
-  ///
-  /// If the scaffold has a non-null [Scaffold.endDrawer], this function will cause
-  /// the end side drawer to begin its entrance animation.
-  ///
-  /// Normally this is not needed since the [Scaffold] automatically shows an
-  /// appropriate [IconButton], and handles the edge-swipe gesture, to show the
-  /// drawer.
-  ///
-  /// To close the end side drawer once it is open, use [Navigator.pop].
-  ///
-  /// See [Scaffold.of] for information about how to obtain the [ScaffoldState].
+    
   void openEndDrawer() {
     if (_drawerKey.currentState != null && _drawerOpened)
       _drawerKey.currentState.close();
@@ -916,7 +587,8 @@ class ScaffoldState extends State<Scaffold> with TickerProviderStateMixin {
 
   // SNACKBAR API
 
-  final Queue<ScaffoldFeatureController<SnackBar, SnackBarClosedReason>> _snackBars = Queue<ScaffoldFeatureController<SnackBar, SnackBarClosedReason>>();
+  final Queue<ScaffoldFeatureController<SnackBar, SnackBarClosedReason>> _snackBars = 
+      Queue<ScaffoldFeatureController<SnackBar, SnackBarClosedReason>>();
   AnimationController _snackBarController;
   Timer _snackBarTimer;
   bool _accessibleNavigation;

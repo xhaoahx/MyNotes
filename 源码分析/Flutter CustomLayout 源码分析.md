@@ -156,7 +156,9 @@ abstract class SingleChildLayoutDelegate {
 ## RenderShiftedBox
 
 ```dart
-abstract class RenderShiftedBox extends RenderBox with RenderObjectWithChildMixin<RenderBox> {
+abstract class RenderShiftedBox 
+    extends RenderBox 
+    with RenderObjectWithChildMixin<RenderBox> {
   /// Initializes the [child] property for subclasses.
   RenderShiftedBox(RenderBox child) {
     this.child = child;
@@ -194,7 +196,6 @@ abstract class RenderShiftedBox extends RenderBox with RenderObjectWithChildMixi
   double computeDistanceToActualBaseline(TextBaseline baseline) {
     double result;
     if (child != null) {
-      assert(!debugNeedsLayout);
       result = child.getDistanceToActualBaseline(baseline);
       final BoxParentData childParentData = child.parentData;
       if (result != null)
