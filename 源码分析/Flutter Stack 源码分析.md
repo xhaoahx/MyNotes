@@ -534,9 +534,6 @@ class RenderStack extends RenderBox
 
 ```dart
 class IndexedStack extends Stack {
-  /// Creates a [Stack] widget that paints a single child.
-  ///
-  /// The [index] argument must not be null.
   IndexedStack({
     Key key,
     AlignmentGeometry alignment = AlignmentDirectional.topStart,
@@ -544,9 +541,12 @@ class IndexedStack extends Stack {
     StackFit sizing = StackFit.loose,
     this.index = 0,
     List<Widget> children = const <Widget>[],
-  }) : super(key: key, alignment: alignment, textDirection: textDirection, fit: sizing, children: children);
+  }) : super(key: key, 
+             alignment: alignment, 
+             textDirection: textDirection, 
+             fit: sizing, children: children
+            );
 
-  /// The index of the child to show.
   final int index;
 
   @override

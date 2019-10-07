@@ -2,9 +2,9 @@
 
 [TOC]
 
-# 向上请求一帧
+## 一、请求一帧
 
-## 从setState开始
+### 从setState开始
 
 
 ```dart
@@ -19,7 +19,7 @@ void setState(VoidCallback fn) {
 
 
 
-## markNeedsBuild
+### markNeedsBuild
 
 源码里有这么一段介绍：
 
@@ -36,11 +36,11 @@ the build itself.
 
 
 
-删掉各种assert之后，mark Needs Build只有几行。。。
+删掉各种assert之后，markNeedsBuild只有几行
 
  ```dart
 void markNeedsBuild() {
-    /// 如果这个element处于非active（ 通常当页面处于不可见的状态时）的状态，则不重建
+    /// 如果这个element处于非active（通常当页面处于不可见的状态时）的状态，则不重建
     if (!_active)
         return;
 	/// 如果已经处于dirty状态了，就返回
@@ -52,6 +52,8 @@ void markNeedsBuild() {
     owner.scheduleBuildFor(this);
 }
  ```
+
+
 
 然后调用到了BuildOwner.scheduleBuildFor
 
@@ -80,7 +82,7 @@ void scheduleBuildFor(Element element) {
 
 
 
-## _handleBuildScheduled...
+### _handleBuildScheduled...
 
 ```dart
 void _handleBuildScheduled() {
@@ -121,7 +123,7 @@ void ensureFrameCallbacksRegistered() {
 
 
 
-## ScheDuleFrame
+### ScheDuleFrame
 
 ```dart
 /// 最后调用到了本地方法
@@ -137,11 +139,9 @@ void scheduleFrame() native 'Window_scheduleFrame';
 
 
 
-# 引擎回调,开始一帧
+## 二、引擎回调,开始一帧
 
-
-
-## _handleBeginFrame
+### _handleBeginFrame
 
 ```dart
 void _handleBeginFrame(Duration rawTimeStamp) {
@@ -173,13 +173,14 @@ void handleBeginFrame(Duration rawTimeStamp) {
         callbacks.forEach((int id, _FrameCallbackEntry callbackEntry) {
             /// 减小时间复杂度的方式：利用hashSet暂存移除的元素
             if (!_removedIds.contains(id))
-                //  逐个调用 _transientCallbacks 
+                //  逐个调用 _transientCallbacks 注册的方法
                 _invokeFrameCallback(
                     callbackEntry.callback, 
                     _currentFrameTimeStamp, 
                     callbackEntry.debugStack
             	);
         });
+        /// 清空列表
         _removedIds.clear();
     } finally {
         // 处理微任务队列阶段
@@ -203,7 +204,7 @@ void _invokeFrameCallback(
 
 
 
-## _handleDrawFrame
+### _handleDrawFrame
 
 ```dart
 void _handleDrawFrame() {
@@ -249,7 +250,7 @@ void handleDrawFrame() {
 
 
 
-## drawFrame
+### drawFrame
 
 ```dart
 /// 由于WidgetBinding重载了这个方法，所以先调用这个
@@ -277,7 +278,9 @@ void drawFrame() {
 
 
 
-## BuildScope
+## 三、构建阶段
+
+### BuildScope
 
 ```dart
 void buildScope(Element context, [ VoidCallback callback ]) {
@@ -315,12 +318,14 @@ void buildScope(Element context, [ VoidCallback callback ]) {
                 /// 这里调用了对应element的rebuild
                 _dirtyElements[index].rebuild();
             } catch (e, stack) {
+                ...
             }
             index += 1;
             if (dirtyCount < _dirtyElements.length || _dirtyElementsNeedsResorting) {
                 _dirtyElements.sort(Element._sort);
                 _dirtyElementsNeedsResorting = false;
                 dirtyCount = _dirtyElements.length;
+                /// 找到最右一个不为dirty的element
                 while (index > 0 && _dirtyElements[index - 1].dirty) { 
                     // 之前标记为dirty但是inactive的widget可以在列表中右移。
                     // 因此，我们不得不把索引移到列表的左边来解决这个问题。
@@ -331,9 +336,11 @@ void buildScope(Element context, [ VoidCallback callback ]) {
             }
         }
     } finally {
+        /// 清除inDirtyList标记
         for (Element element in _dirtyElements) {
             element._inDirtyList = false;
         }
+        /// 清空咧白哦
         _dirtyElements.clear();
         _scheduledFlushDirtyElements = false;
         _dirtyElementsNeedsResorting = null;
@@ -344,9 +351,10 @@ void buildScope(Element context, [ VoidCallback callback ]) {
 
 
 
-## rebuild
+### rebuild
 
 ```dart
+/// element.rebuild
 void rebuild() {
     if (!_active || !_dirty)
         return;
@@ -359,41 +367,46 @@ void rebuild() {
 
 
 
-## 以StatelesElement为例
+### 1.以StatelessElement为例
 
-### performRebuild
+#### performRebuild
 
 ```dart
-/// 调用了一次widget.build方法,
-/// 调用了 updateChild方法
+/// 调用widget.build
+/// 调用updateChild
 void performRebuild() {
     if (!kReleaseMode && debugProfileBuildsEnabled)
-      Timeline.startSync('${widget.runtimeType}',  arguments: 
-                         timelineWhitelistArguments);
+        Timeline.startSync(
+            '${widget.runtimeType}',  
+            arguments:timelineWhitelistArguments
+    	);
     Widget built;
     try {
-      built = build();
-    } catch (e, stack) ();
-    } finally {
-      _dirty = false;
-    }
-    try {
-      _child = updateChild(_child, built, slot);
+        built = build();
     } catch (e, stack) {
+        ... 
+    } finally {
+        _dirty = false;
+    }
+    /// 试图用新产生的widget去更新_child
+    try {
+        _child = updateChild(_child, built, slot);
+    } catch (e, stack) {
+        ...  
     }
 
     if (!kReleaseMode && debugProfileBuildsEnabled)
-      Timeline.finishSync();
-  }
+        Timeline.finishSync();
+}
 ```
 
 
 
 
-### updateChild
+#### updateChild
 
 ```dart
-/// Summarizes(四种情况)：
+/// Summarizes(四种情况):
 ///
 /// |                     | **newWidget == null**   | **newWidget != null**           |
 /// | :-----------------: | :---------------------  | :-------------------------------|
@@ -412,12 +425,12 @@ Element updateChild(Element child, Widget newWidget, dynamic newSlot) {
     }
     if (child != null) {
         /// 情况 4
-        /// widget 没有改变(引用的对象不变)
+        /// widget 没有改变(引用的对象不变，通常是因为build方法返回了同一个对象)
         if (child.widget == newWidget) {
             if (child.slot != newSlot)
-                /// 只跟新slot
+                /// 只更新slot
                 updateSlotForChild(child, newSlot);
-            /// 返回传入的child，而不是重建
+            /// 直接返回传入的child，没有重建
             return child;
         }
         /// canUpdate判断了类型并且Key相同,则可以更新
@@ -425,6 +438,7 @@ Element updateChild(Element child, Widget newWidget, dynamic newSlot) {
             /// 如果可以更新
             if (child.slot != newSlot)
                 updateSlotForChild(child, newSlot);
+            /// 调用了由子类实现的update
             child.update(newWidget);
         }
         /// 如果不能更新widget，那么deactivate Element
@@ -437,7 +451,7 @@ Element updateChild(Element child, Widget newWidget, dynamic newSlot) {
 
 
 
-### deactivateChild
+#### deactivateChild
 
 ```dart
 /// 当旧的子widget不为空，而新的子widget为空时调用
@@ -461,10 +475,10 @@ void detachRenderObject() {
 
 
 
-### InActiveElements
+#### InActiveElements
 
 ```dart
-/// 没想到builderOwner._inactiveElements是一个类
+/// builderOwner._inactiveElements是一个类
 /// class BuildOwner {
 ///    ...
 ///    final _InactiveElements _inactiveElements = _InactiveElements();
@@ -475,6 +489,7 @@ class _InactiveElements {
   bool _locked = false;
   final Set<Element> _elements = HashSet<Element>();
 
+  /// unmount一个element会unmount其所有的孩子  
   void _unmount(Element element) {
     element.visitChildren((Element child) {
       _unmount(child);
@@ -482,6 +497,7 @@ class _InactiveElements {
     element.unmount();
   }
 
+  /// unmount _elements列表（inactive的element列表）中的所有元素  
   void _unmountAll() {
     _locked = true;
     final List<Element> elements = _elements.toList()..sort(Element._sort);
@@ -493,14 +509,15 @@ class _InactiveElements {
     }
   }
 
+  /// 递归地 deactivate 孩子   
   static void _deactivateRecursively(Element element) {
     element.deactivate();
     element.visitChildren(_deactivateRecursively);
   }
 
+  /// 并将自身加入到 _elements 中 
   void add(Element element) {
     if (element._active)
-      /// 递归地 deactivate 孩子 
       _deactivateRecursively(element);
     _elements.add(element);
   }
@@ -513,36 +530,25 @@ class _InactiveElements {
 
 
 
-### DeactiveChild
+#### DeactiveChild
 
 ```dart
 void deactivate() {
-    assert(_debugLifecycleState == _ElementLifecycle.active);
-    assert(widget != null);
-    assert(depth != null);
-    assert(_active);
+    /// 解除依赖关系
     if (_dependencies != null && _dependencies.isNotEmpty) {
         for (InheritedElement dependency in _dependencies)
             dependency._dependents.remove(this);
-        // For expediency, we don't actually clear the list here, even though it's
-        // no longer representative of what we are registered with. If we never
-        // get re-used, it doesn't matter. If we do, then we'll clear the list in
-        // activate(). The benefit of this is that it allows Element's activate()
-        // implementation to decide whether to rebuild based on whether we had
-        // dependencies here.
     }
     _inheritedWidgets = null;
     _active = false;
-    assert(() { _debugLifecycleState = _ElementLifecycle.inactive; return true; }());
 }
 ```
 
 
 
-### updateSlotForChild
+#### updateSlotForChild
 
 ```dart
-
 /// Slots的介绍如下：
 /// 父级为孩子设定的位置信息（孩子处于child list中的哪个位置）
 ///
@@ -569,7 +575,7 @@ void _updateSlot(dynamic newSlot) {
 
 
 
-### update
+#### update
 
 ```dart
 /// 子类可以重载这一方法, 来完成不同的需求
@@ -580,7 +586,7 @@ void update(covariant Widget newWidget) {
 
 
 
-### retakeInactiveElement
+#### retakeInactiveElement
 
 ```dart
 Element _retakeInactiveElement(GlobalKey key, Widget newWidget) {
@@ -595,36 +601,26 @@ Element _retakeInactiveElement(GlobalKey key, Widget newWidget) {
         return null;
     if (!Widget.canUpdate(element.widget, newWidget))
         return null;
-    assert(() {
-        if (debugPrintGlobalKeyedWidgetLifecycle)
-            debugPrint('Attempting to take $element from ${element._parent ?? "inactive elements list"} to put in $this.');
-        return true;
-    }());
     final Element parent = element._parent;
     if (parent != null) {
-        assert(() {
-            if (parent == this) {
-                throw FlutterError.fromParts(<DiagnosticsNode>[
-                    ErrorSummary('A GlobalKey was used multiple times inside one widget\'s child list.'),
-                    DiagnosticsProperty<GlobalKey>('The offending GlobalKey was', key),
-                    parent.describeElement('The parent of the widgets with that key was'),
-                    element.describeElement('The first child to get instantiated with that key became'),
-                    DiagnosticsProperty<Widget>('The second child that was to be instantiated with that key was', widget, style: DiagnosticsTreeStyle.errorProperty),
-                    ErrorDescription('A GlobalKey can only be specified on one widget at a time in the widget tree.'),
-                ]);
-            }
-            parent.owner._debugTrackElementThatWillNeedToBeRebuiltDueToGlobalKeyShenanigans(
-                parent,
-                key,
-            );
-            return true;
-        }());
         parent.forgetChild(element);
         parent.deactivateChild(element);
     }
-    assert(element._parent == null);
     owner._inactiveElements.remove(element);
     return element;
+}
+```
+
+
+
+### 2.以RenderObjectElement为例
+
+```dart
+/// RenderObjectElement.performRebuild
+/// 只调用了updateRenderObject
+void performRebuild() {
+    widget.updateRenderObject(this, renderObject);
+    _dirty = false;
 }
 ```
 
@@ -741,4 +737,12 @@ void drawFrame() {
     pipelineOwner.flushSemantics(); // this also sends the semantics to the OS.
 }
 ```
+
+
+
+## 四、布局阶段
+
+## 五、合成阶段
+
+## 六、绘制阶段
 
