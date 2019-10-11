@@ -153,7 +153,6 @@ class _DelegateWidgetState extends State<DelegateWidget> {
   @override
   void initState() {
     super.initState();
-    /// 使Delegate持有setState方法和context  
     _mountDelegate();
     _initDelegate();
   }
@@ -162,12 +161,14 @@ class _DelegateWidgetState extends State<DelegateWidget> {
     widget.delegate.initDelegate();
   }
 
+  /// 使Delegate持有setState方法和context    
   void _mountDelegate() {
     widget.delegate
       .._context = context
       .._setState = setState;
   }
 
+  /// 使Delegate解除持有setState方法和context     
   void _unmountDelegate(StateDelegate delegate) {
     delegate
       .._context = null
@@ -222,6 +223,7 @@ class _DelegateElement extends StatefulElement {
 ### ValueStateDelegate
 
 ```dart
+/// 向后代提供一个常量
 abstract class ValueStateDelegate<T> extends StateDelegate {
   /// value 不应该被直接修改
   T get value;
@@ -302,7 +304,8 @@ abstract class ValueDelegateWidget<T> extends DelegateWidget {
 ## Provider
 
 ```dart
-class Provider<T> extends ValueDelegateWidget<T>
+class Provider<T> 
+    extends ValueDelegateWidget<T>
     implements SingleChildCloneableWidget {
     /// 创建一个持有value的provider，并将value暴露给子树，供其获取
     /// 同时，可提供一个dispose，用于释放内存
@@ -884,7 +887,7 @@ class ChangeNotifier implements Listenable {
           // 在flutter源码里，通常采用一个 HashSet 来储存被移除的 listener
           // 通过if(!_removedListener.contains(listener)) 来判断  
           // 查找时间复杂度O(1)  
-          // 在listener不多的情况下，其实没有太大的差别。。。  
+          // 在listener不多的情况下，其实没有太大的差别 
           try {
             if (_listeners.contains(listener))
               listener();

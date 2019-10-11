@@ -230,6 +230,8 @@ StoreEnhancer<T> applyMiddleware<T>(List<Middleware<T>> middleware) {
 
 ### combineReducers
 
+#### combineSubReducers
+
 ```dart
 /// Combine an iterable of SubReducer<T> into one Reducer<T>
 Reducer<T> combineSubReducers<T>(Iterable<SubReducer<T>> subReducers) {
@@ -257,7 +259,9 @@ Reducer<T> combineSubReducers<T>(Iterable<SubReducer<T>> subReducers) {
     return copy;
   };
 }
-
+```
+#### combineReducers
+```dart
 /// Combine an iterable of Reducer<T> into one Reducer<T>
 Reducer<T> combineReducers<T>(Iterable<Reducer<T>> reducers) {
   final List<Reducer<T>> notNullReducers =
@@ -279,7 +283,10 @@ Reducer<T> combineReducers<T>(Iterable<Reducer<T>> reducers) {
     return nextState;
   };
 }
+```
 
+#### castReducer
+```dart
 /// Convert a super Reducer<Sup> to a sub Reducer<Sub>
 Reducer<Sub> castReducer<Sub extends Sup, Sup>(Reducer<Sup> sup) {
   return sup == null
@@ -295,9 +302,8 @@ Reducer<Sub> castReducer<Sub extends Sup, Sup>(Reducer<Sup> sup) {
 
 ### connector
 
+#### ImmutableConn
 ```dart
-import 'basic.dart';
-
 /// Define a basic connector for immutable state.
 ///     /// Example:
 ///     class State {
@@ -335,7 +341,10 @@ abstract class ImmutableConn<T, P> implements AbstractConnector<T, P> {
     };
   }
 }
+```
 
+#### Cloneable
+```dart
 /// Definition of Cloneable
 abstract class Cloneable<T extends Cloneable<T>> {
   T clone();
@@ -373,6 +382,10 @@ dynamic _clone<T>(T state) {
 ///       SubState get(State state) => state.sub;
 ///       void set(State state, SubState sub) => state.sub = sub;
 ///     }
+```
+
+#### MutableConn
+```dart
 abstract class MutableConn<T, P> implements AbstractConnector<T, P> {
   const MutableConn();
 
@@ -503,21 +516,119 @@ StoreEnhancer<T> composeStoreEnhancer<T>(List<StoreEnhancer<T>> enhancers) =>
 
 ## ReduxComponent
 
+### autoDispose
+
+#### _Fields
+
+```dart
+class _Fields {
+  bool isDisposed = false;
+  Set<AutoDispose> children;
+  AutoDispose parent;
+  void Function() onDisposed;
+}
+```
+#### AutoDispose
+```dart
+/// 轻量级的生命周期管理系统
+/// 当一个对象的dispose被调用
+///  1. Dispose 所有 children
+///  2. 切断与父级之间的联系
+///  3. onDisposed 函数被调用
+///  4. 标记 isDisposed = true
+class AutoDispose {
+  final _Fields _fields = _Fields();
+
+  /// 对所有的孩子依次调用visitor   
+  void visit(void Function(AutoDispose) visitor) =>
+      _fields.children?.forEach(visitor);
+
+  /// 是否处于disposed状态  
+  bool get isDisposed => _fields.isDisposed;
+
+  /// dispose 方法，用于dispose这个Object和其所有的孩子，切断其与父级的联系  
+  void dispose() {
+    /// dispose 所有 children
+    if (_fields.children != null) {
+      final List<AutoDispose> copy = _fields.children.toList(growable: false);
+      for (AutoDispose child in copy) {
+        child.dispose();
+      }
+      /// 置null，释放内存  
+      _fields.children = null;
+    }
+
+    /// 切断父级联系
+    _fields.parent?._fields?.children?.remove(this);
+    _fields.parent = null;
+
+    /// 调用函数，并释放其内存
+    _fields.onDisposed?.call();
+    _fields.onDisposed = null;
+
+    /// 标记 isDisposed = true.
+    _fields.isDisposed = true;
+  }
+
+  /// 设置 dipose 时的回调  
+  void onDisposed(void Function() onDisposed) {
+    assert(_fields.onDisposed == null);
+    if (_fields.isDisposed) {
+      onDisposed?.call();
+    } else {
+      _fields.onDisposed = onDisposed;
+    }
+  }
+
+  /// 设置父级  
+  void setParent(AutoDispose newParent) {
+    assert(newParent != this);
+
+    final AutoDispose oldParent = _fields.parent;
+    if (oldParent == newParent || isDisposed) {
+      return;
+    }
+
+    if (newParent != null && newParent.isDisposed) {
+      dispose();
+      return;
+    }
+
+    if (newParent != null) {
+      newParent._fields.children ??= <AutoDispose>{};
+      newParent._fields.children.add(this);
+    }
+    if (oldParent != null) {
+      oldParent._fields.children.remove(this);
+    }
+    _fields.parent = newParent;
+  }
+
+  AutoDispose registerOnDisposed(void Function() onDisposed) => AutoDispose()
+    ..setParent(this)
+    ..onDisposed(onDisposed);
+}
+```
+
+
+
 ### basic
 
 ```dart
 /// fish_redux/redux_component/basic
 
-/// Component's view part
-/// 1.State is used to decide how to render
-/// 2.Dispatch is used to send actions
-/// 3.ViewService is used to build sub-components or adapter.
+/// Component 的视图部分
+/// 1.State 决定了如何渲染界面
+/// 2.Dispatch 用于发送 Action
+/// 3.ViewService 用于构建子 Component 或 Adapter
 typedef ViewBuilder<T> = Widget Function(
   T state,
   Dispatch dispatch,
   ViewService viewService,
 );
-
+```
+####  ListAdapter 
+```dart
 /// Define a base ListAdapter which is used for ListView.builder.
 /// Many small listAdapters could be merged to a bigger one.
 class ListAdapter {
@@ -526,19 +637,21 @@ class ListAdapter {
   const ListAdapter(this.itemBuilder, this.itemCount);
 }
 
-/// Adapter's view part
-/// 1.State is used to decide how to render
-/// 2.Dispatch is used to send actions
-/// 3.ViewService is used to build sub-components or adapter.
+/// Adapter 的视图部分
+/// 1.State 决定了如何渲染界面
+/// 2.Dispatch 用于发送 Action
+/// 3.ViewService 用于构建子 Component 或 Adapter
 typedef AdapterBuilder<T> = ListAdapter Function(
   T state,
   Dispatch dispatch,
   ViewService viewService,
 );
-
-/// Data driven ui
-/// 1. How to render
-/// 2. When to update
+```
+#### ViewUpdater
+```dart
+/// 数据驱动 ui
+/// 1. 如何渲染
+/// 2. 合适渲染
 abstract class ViewUpdater<T> {
   Widget buildWidget();
   void didUpdateWidget();
@@ -550,14 +663,12 @@ abstract class ViewUpdater<T> {
 /// A little different with Dispatch (with if it is interrupted).
 /// bool for sync-functions, interrupted if true
 /// Futur<void> for async-functions, should always be interrupted.
-// typedef OnAction = Dispatch;
+/// typedef OnAction = Dispatch;
 
-/// Predicate if a component should be updated when the store is changed.
+/// 判断 store 被改变时 componenet 是否应该被更新
 typedef ShouldUpdate<T> = bool Function(T old, T now);
 
-/// Interrupt if not null not false
-/// bool for sync-functions, interrupted if true
-/// Futur<void> for async-functions, should always be interrupted.
+/// 拦截器
 typedef Effect<T> = dynamic Function(Action action, Context<T> ctx);
 
 /// AOP on view
@@ -615,7 +726,9 @@ typedef EffectMiddleware<T> = Composable<Effect<dynamic>> Function(
   AbstractLogic<dynamic>,
   Store<T>,
 );
-
+```
+#### Enhancer
+```dart
 /// AOP in page on store, view, adapter, effect...
 abstract class Enhancer<T> {
   ViewBuilder<K> viewEnhance<K>(
@@ -654,7 +767,9 @@ abstract class Enhancer<T> {
 }
 
 /// AOP End
-
+```
+#### ExtraData
+```dart
 abstract class ExtraData {
   /// Get|Set extra data in context if needed.
   Map<String, Object> get extra;
@@ -677,7 +792,10 @@ abstract class ViewService implements ExtraData {
   /// Broadcast in all component receivers;
   void broadcastEffect(Action action, {bool excluded});
 }
+```
 
+#### AutoDispose
+```dart
 ///  Seen in effect-part
 abstract class Context<T> extends AutoDispose implements ExtraData {
   /// Get the latest state
@@ -726,7 +844,9 @@ abstract class Context<T> extends AutoDispose implements ExtraData {
     void Function() onChange,
   });
 }
-
+```
+#### ContextSys
+```dart
 /// Seen in framework-component
 abstract class ContextSys<T> extends Context<T> implements ViewService {
   /// Response to lifecycle calls
@@ -740,7 +860,9 @@ abstract class ContextSys<T> extends Context<T> implements ViewService {
 
   DispatchBus get bus;
 }
-
+```
+#### Dependent
+```dart
 /// Representation of each dependency
 abstract class Dependent<T> {
   Get<Object> subGetter(Get<T> getter);
@@ -769,31 +891,34 @@ abstract class Dependent<T> {
 
   bool isAdapter();
 }
-
-/// Encapsulation of the logic part of the component
-/// The logic is divided into two parts, Reducer & SideEffect.
+```
+#### AbstractLogic
+```dart
+/// 组件逻辑部分的封装
+/// 逻辑分为两个部分，Reducer 和 Effect。
 abstract class AbstractLogic<T> {
-  /// To create a reducer<T>
+  /// 创建一个 educer<T>
   Reducer<T> get reducer;
 
   /// To solve Reducer<Object> is neither a subtype nor a supertype of Reducer<T> issue.
   Object onReducer(Object state, Action action);
 
-  /// To create each instance's side-effect-action-handler
+  /// 创建这个实例的副作用处理器
   Dispatch createEffectDispatch(ContextSys<T> ctx, Enhancer<Object> enhancer);
 
-  /// To create each instance's side-effect-action-handler
+  
   Dispatch createNextDispatch(ContextSys<T> ctx, Enhancer<Object> enhancer);
 
-  /// To create each instance's dispatch
-  /// Dispatch is the most important api for users which is provided by framework
+  /// 创建这个实例的 Dispatch  
+  /// Dispatch 是被框架提供给用户的最重要的 api 之一
   Dispatch createDispatch(
     Dispatch effectDispatch,
     Dispatch nextDispatch,
     ContextSys<T> ctx,
   );
 
-  /// To create each instance's context
+  /// 创建每个实例的上下文
+  /// 这个文件导入了 'package:flutter/widgets.dart'，包含了 BuildContext  
   ContextSys<T> createContext(
     Store<Object> store,
     BuildContext buildContext,
@@ -813,7 +938,9 @@ abstract class AbstractLogic<T> {
 
   Type get propertyType;
 }
-
+```
+#### AbstractComponent
+```dart
 abstract class AbstractComponent<T> implements AbstractLogic<T> {
   /// How to build component instance
   Widget buildComponent(
@@ -823,7 +950,9 @@ abstract class AbstractComponent<T> implements AbstractLogic<T> {
     @required Enhancer<Object> enhancer,
   });
 }
-
+```
+#### AbstractAdapter
+```dart
 abstract class AbstractAdapter<T> implements AbstractLogic<T> {
   ListAdapter buildAdapter(ContextSys<T> ctx);
 }
@@ -831,8 +960,10 @@ abstract class AbstractAdapter<T> implements AbstractLogic<T> {
 /// Because a main reducer will be very complicated with multiple level's state.
 /// When a reducer is slow to handle an action, maybe we should use ReducerFilter to improve the performance.
 typedef ReducerFilter<T> = bool Function(T state, Action action);
+```
 
-///
+#### DispatchBus
+```dart
 abstract class DispatchBus {
   void attach(DispatchBus parent);
 
