@@ -310,7 +310,7 @@ Reducer<Sub> castReducer<Sub extends Sup, Sup>(Reducer<Sup> sup) {
 
 ### /connector
 
-在redux/basic中有做如下要求:
+在“..redux/basic”中有做如下要求（其中T为超State，P为子State）:
 
 For mutable state, there are three abilities needed to be met.
     1. get: (S) => P
@@ -318,8 +318,8 @@ For mutable state, there are three abilities needed to be met.
     3. shallow copy: s.clone()
 
 For immutable state, there are two abilities needed to be met.
-    1. get: (S) => P
-    2. set: (S, P) => S
+       1. get: (S) => P
+       2. set: (S, P) => S
 
 
 ```dart
@@ -372,7 +372,6 @@ abstract class ImmutableConn<T, P> implements AbstractConnector<T, P> {
       final bool hasChanged = !identical(newProps, props);
       if (hasChanged) {
         final T result = set(state, newProps);
-        assert(result != null, 'Expected to return a non-null value.');
         return result;
       }
       return state;
@@ -421,6 +420,7 @@ abstract class MutableConn<T, P> implements AbstractConnector<T, P> {
       }
       final P newProps = reducer(props, action);
       final bool hasChanged = newProps != props;
+      /// 对于State只copy一次以提升性能  
       final T copy = (hasChanged && !isStateCopied) ? _clone<T>(state) : state;
       if (hasChanged) {
         set(copy, newProps);
@@ -1434,7 +1434,7 @@ Dependent<K> createDependent<K, T>(
 #### DispatchBusDefault
 
 ```dart
-/// 默认的 DisptachBus
+/// 默认实现的 DisptachBus
 class DispatchBusDefault implements DispatchBus {
   static final DispatchBus shared = DispatchBusDefault();
 
@@ -1500,6 +1500,207 @@ class DispatchBusDefault implements DispatchBus {
 ```
 
 
+
+### /Enhancer
+
+#### EnhancerDefault
+
+```dart
+/// 默认实现的 enhancer
+class EnhancerDefault<T> implements Enhancer<T> {
+  StoreEnhancer<T> _storeEnhancer;
+  ViewMiddleware<T> _viewEnhancer;
+  EffectMiddleware<T> _effectEnhancer;
+  AdapterMiddleware<T> _adapterEnhancer;
+
+  final List<Middleware<T>> _middleware = <Middleware<T>>[];
+  final List<ViewMiddleware<T>> _viewMiddleware = <ViewMiddleware<T>>[];
+  final List<EffectMiddleware<T>> _effectMiddleware = <EffectMiddleware<T>>[];
+  final List<AdapterMiddleware<T>> _adapterMiddleware =
+      <AdapterMiddleware<T>>[];
+
+  EnhancerDefault({
+    List<Middleware<T>> middleware,
+    List<ViewMiddleware<T>> viewMiddleware,
+    List<EffectMiddleware<T>> effectMiddleware,
+    List<AdapterMiddleware<T>> adapterMiddleware,
+  }) {
+    append(
+      middleware: middleware,
+      viewMiddleware: viewMiddleware,
+      effectMiddleware: effectMiddleware,
+      adapterMiddleware: adapterMiddleware,
+    );
+  }
+
+  @override
+  void unshift({
+    List<Middleware<T>> middleware,
+    List<ViewMiddleware<T>> viewMiddleware,
+    List<EffectMiddleware<T>> effectMiddleware,
+    List<AdapterMiddleware<T>> adapterMiddleware,
+  }) {
+    if (middleware != null) {
+      _middleware.insertAll(0, middleware);
+      _storeEnhancer = applyMiddleware<T>(_middleware);
+    }
+    if (viewMiddleware != null) {
+      _viewMiddleware.insertAll(0, viewMiddleware);
+      _viewEnhancer = mergeViewMiddleware<T>(_viewMiddleware);
+    }
+    if (effectMiddleware != null) {
+      _effectMiddleware.insertAll(0, effectMiddleware);
+      _effectEnhancer = mergeEffectMiddleware<T>(_effectMiddleware);
+    }
+    if (adapterMiddleware != null) {
+      _adapterMiddleware.insertAll(0, adapterMiddleware);
+      _adapterEnhancer = mergeAdapterMiddleware<T>(_adapterMiddleware);
+    }
+  }
+
+  @override
+  void append({
+    List<Middleware<T>> middleware,
+    List<ViewMiddleware<T>> viewMiddleware,
+    List<EffectMiddleware<T>> effectMiddleware,
+    List<AdapterMiddleware<T>> adapterMiddleware,
+  }) {
+    if (middleware != null) {
+      _middleware.addAll(middleware);
+      _storeEnhancer = applyMiddleware<T>(_middleware);
+    }
+    if (viewMiddleware != null) {
+      _viewMiddleware.addAll(viewMiddleware);
+      _viewEnhancer = mergeViewMiddleware<T>(_viewMiddleware);
+    }
+    if (effectMiddleware != null) {
+      _effectMiddleware.addAll(effectMiddleware);
+      _effectEnhancer = mergeEffectMiddleware<T>(_effectMiddleware);
+    }
+    if (adapterMiddleware != null) {
+      _adapterMiddleware.addAll(adapterMiddleware);
+      _adapterEnhancer = mergeAdapterMiddleware<T>(_adapterMiddleware);
+    }
+  }
+
+  @override
+  ViewBuilder<K> viewEnhance<K>(
+    ViewBuilder<K> view,
+    AbstractComponent<K> component,
+    Store<T> store,
+  ) {
+    return _viewEnhancer
+        ?.call(component, store)
+        ?.call(_inverterView<K>(view)) 
+        ?? view;
+  }
+     
+
+  @override
+  AdapterBuilder<K> adapterEnhance<K>(
+    AdapterBuilder<K> adapterBuilder,
+    AbstractAdapter<K> logic,
+    Store<T> store,
+  ) =>
+      _adapterEnhancer
+          ?.call(logic, store)
+          ?.call(_inverterAdapter<K>(adapterBuilder)) ??
+      adapterBuilder;
+
+  @override
+  Effect<K> effectEnhance<K>(
+    Effect<K> effect,
+    AbstractLogic<K> logic,
+    Store<T> store,
+  ) =>
+      _effectEnhancer?.call(logic, store)?.call(_inverterEffect<K>(effect)) ??
+      effect;
+
+  @override
+  StoreCreator<T> storeEnhance(StoreCreator<T> creator) =>
+      _storeEnhancer?.call(creator) ?? creator;
+
+  Effect<dynamic> _inverterEffect<K>(Effect<K> effect) => effect == null
+      ? null
+      : (Action action, Context<dynamic> ctx) => effect(action, ctx);
+
+  ViewBuilder<dynamic> _inverterView<K>(ViewBuilder<K> view) => view == null
+      ? null
+      : (dynamic state, Dispatch dispatch, ViewService viewService) =>
+          view(state, dispatch, viewService);
+
+  AdapterBuilder<dynamic> _inverterAdapter<K>(AdapterBuilder<K> adapter) =>
+      adapter == null
+          ? null
+          : (dynamic state, Dispatch dispatch, ViewService viewService) =>
+              adapter(state, dispatch, viewService);
+}
+```
+
+
+
+### /lifecycle
+
+#### Lifecycle
+```dart
+enum Lifecycle {
+  /// componenmt(page) or adapter receives the following events
+  initState,
+  didChangeDependencies,
+  build,
+  reassemble,
+  didUpdateWidget,
+  deactivate,
+  dispose,
+  // didDisposed,
+
+  /// Only a adapter mixin VisibleChangeMixin will receive appear & disappear events.
+  /// class MyAdapter extends Adapter<T> with VisibleChangeMixin<T> {
+  ///   MyAdapter():super(
+  ///     ///
+  ///   );
+  /// }
+  appear,
+  disappear,
+
+  /// Only a componenmt(page) or adapter mixin WidgetsBindingObserverMixin will receive didChangeAppLifecycleState event.
+  /// class MyComponent extends Component<T> with WidgetsBindingObserverMixin<T> {
+  ///   MyComponent():super(
+  ///     ///
+  ///   );
+  /// }
+  didChangeAppLifecycleState,
+}
+```
+#### LifecycleCreator
+```dart
+class LifecycleCreator {
+  static Action initState() => const Action(Lifecycle.initState);
+
+  static Action build(String name) => Action(Lifecycle.build, payload: name);
+
+  static Action reassemble() => const Action(Lifecycle.reassemble);
+
+  static Action dispose() => const Action(Lifecycle.dispose);
+
+  // static Action didDisposed() => const Action(Lifecycle.didDisposed);
+
+  static Action didUpdateWidget() => const Action(Lifecycle.didUpdateWidget);
+
+  static Action didChangeDependencies() =>
+      const Action(Lifecycle.didChangeDependencies);
+
+  static Action deactivate() => const Action(Lifecycle.deactivate);
+
+  static Action appear(int index) => Action(Lifecycle.appear, payload: index);
+
+  static Action disappear(int index) =>
+      Action(Lifecycle.disappear, payload: index);
+
+  static Action didChangeAppLifecycleState(AppLifecycleState state) =>
+      Action(Lifecycle.didChangeAppLifecycleState, payload: state);
+}
+```
 
 ### /logic
 
@@ -2038,13 +2239,257 @@ class _PageState<T, P> extends State<_PageWidget<T, P>> {
 
 
 
-## Utils
+## ReduxConnnector
 
-### collections
+### /connnector
+
+#### connOP
 
 ```dart
-/// /fish_redux/utils/collections
+class ConnOp<T, P> extends MutableConn<T, P> with ConnOpMixin<T, P> {
+  final P Function(T) _getter;
+  final void Function(T, P) _setter;
 
+  const ConnOp({
+    P Function(T) get,
+    void Function(T, P) set,
+  })  : _getter = get,
+        _setter = set;
+
+  @override
+  P get(T state) => _getter(state);
+
+  @override
+  void set(T state, P subState) => _setter(state, subState);
+}
+
+```
+
+
+
+### /generator
+
+#### generator
+
+```dart
+String Function() generator() {
+  int nextId = 0;
+  String prefix = '';
+  return () {
+    /// fix '0x3FFFFFFFFFFFFFFF' can't be represented exactly in JavaScript.
+    if (++nextId >= 0x3FFFFFFF) {
+      nextId = 0;
+      prefix = '\$' + prefix;
+    }
+    return prefix + nextId.toString();
+  };
+}
+```
+
+
+
+### /map_like
+
+#### MapLike
+
+```dart
+abstract class MapLike {
+  Map<String, Object> _fieldsMap = <String, Object>{};
+
+  void clear() => _fieldsMap.clear();
+
+  Object operator [](String key) => _fieldsMap[key];
+
+  void operator []=(String key, Object value) => _fieldsMap[key] = value;
+
+  bool containsKey(String key) => _fieldsMap.containsKey(key);
+
+  void copyFrom(MapLike from) =>
+      _fieldsMap = <String, Object>{}..addAll(from._fieldsMap);
+}
+```
+#### withMapLike
+```dart
+ConnOp<T, P> withMapLike<T extends MapLike, P>(String key) => ConnOp<T, P>(
+      get: (T state) => state[key],
+      set: (T state, P sub) => state[key] = sub,
+    );
+```
+#### AutoInitConnector
+```dart
+class AutoInitConnector<T extends MapLike, P> extends ConnOp<T, P> {
+  static final String Function() _gen = generator();
+
+  final String _key;
+  final void Function(T state, P sub) _setHook;
+  final P Function(T state) init;
+
+  AutoInitConnector(this.init, {String key, void set(T state, P sub)})
+      : assert(init != null),
+        _setHook = set,
+        _key = key ?? _gen();
+
+  @override
+  P get(T state) =>
+      state.containsKey(_key) ? state[_key] : (state[_key] = init(state));
+
+  @override
+  void set(T state, P subState) {
+    state[_key] = subState;
+    _setHook?.call(state, subState);
+  }
+}
+```
+
+
+
+### /none
+
+#### NoneConn
+
+```dart
+class NoneConn<T> extends ImmutableConn<T, T> with ConnOpMixin<T, T> {
+  @override
+  T get(T state) => state;
+
+  @override
+  T set(T state, T subState) => subState;
+}
+```
+
+
+
+### /OPMixin
+
+#### ConnOpMixin
+
+```dart
+mixin ConnOpMixin<T, P> on AbstractConnector<T, P> {
+  Dependent<T> operator +(AbstractLogic<P> logic) =>
+      createDependent<T, P>(this, logic);
+}
+```
+
+
+
+### /reselector
+
+#### _listEquals
+
+```dart
+bool _listEquals(List<dynamic> list1, List<dynamic> list2) {
+  if (identical(list1, list2)) {
+    return true;
+  }
+  if (list1 == null || list2 == null) {
+    return false;
+  }
+  final int length = list1.length;
+  if (length != list2.length) {
+    return false;
+  }
+  for (int i = 0; i < length; i++) {
+    final dynamic e1 = list1[i], e2 = list2[i];
+    if (e1 != e2) {
+      if (e1 is List && e1.runtimeType == e2?.runtimeType) {
+        if (!_listEquals(e1, e2)) {
+          return false;
+        }
+      }
+      return false;
+    }
+  }
+  return true;
+}
+```
+#### _BasicReselect
+```dart
+abstract class _BasicReselect<T, P> extends MutableConn<T, P>
+    with ConnOpMixin<T, P> {
+  List<dynamic> _subsCache;
+  P _pCache;
+  bool _hasBeenCalled = false;
+
+  List<dynamic> getSubs(T state);
+
+  P reduceSubs(List<dynamic> list);
+
+  @override
+  P get(T state) {
+    final List<dynamic> subs = getSubs(state);
+    if (!_hasBeenCalled || !_listEquals(subs, _subsCache)) {
+      _subsCache = subs;
+      _pCache = reduceSubs(_subsCache);
+      _hasBeenCalled = true;
+    }
+    return _pCache;
+  }
+}
+```
+#### Reselect1
+```dart
+abstract class Reselect1<T, P, K0> extends _BasicReselect<T, P> {
+  K0 getSub0(T state);
+  P computed(K0 state);
+
+  @override
+  List<dynamic> getSubs(T state) => <dynamic>[getSub0(state)];
+
+  @override
+  P reduceSubs(List<dynamic> list) => Function.apply(computed, list);
+}
+```
+#### Reselect2
+```dart
+abstract class Reselect2<T, P, K0, K1> extends _BasicReselect<T, P> {
+  K0 getSub0(T state);
+  K1 getSub1(T state);
+  P computed(K0 sub0, K1 sub1);
+
+  @override
+  List<dynamic> getSubs(T state) => <dynamic>[getSub0(state), getSub1(state)];
+
+  @override
+  P reduceSubs(List<dynamic> list) => Function.apply(computed, list);
+}
+```
+#### Reselect3
+```dart
+abstract class Reselect3<T, P, K0, K1, K2> extends _BasicReselect<T, P> {
+  K0 getSub0(T state);
+  K1 getSub1(T state);
+  K2 getSub2(T state);
+  P computed(K0 sub0, K1 sub1, K2 sub2);
+
+  @override
+  List<dynamic> getSubs(T state) => <dynamic>[
+        getSub0(state),
+        getSub1(state),
+        getSub2(state),
+      ];
+
+  @override
+  P reduceSubs(List<dynamic> list) => Function.apply(computed, list);
+}
+```
+...
+#### Reselect
+```dart
+abstract class Reselect<T, P> extends _BasicReselect<T, P> {
+  P computed(List<dynamic> list);
+
+  @override
+  P reduceSubs(List<dynamic> list) => Function.apply(computed, list);
+}
+```
+
+
+
+## Utils
+
+### /collections
+
+```dart
 class Collections {
   /// 提前检查list是否 是空 或者 是null，再调用 reduce
   static E reduce<E>(List<E> list, E combine(E e0, E e1)) =>
@@ -2128,7 +2573,7 @@ class Collections {
 
 
 
-### debug
+### /debug
 
 ```dart
 /// fish_redux/utils/debug
