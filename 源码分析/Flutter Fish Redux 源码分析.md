@@ -1,8 +1,7 @@
-# Flutter Fish Redux 源码分析
-
-
 
 [TOC]
+
+# 前言
 
 ## FishRedux - github
 
@@ -35,7 +34,11 @@ sample_page
 
 ### Redux 和 FishRedux 的不同
 
-<div align = 'center'>以下内容摘自 FishRedux 的 Doc</div>
+<div style = "color: #DE376F">
+    以下内容摘自 FishRedux 的 Doc
+</div>
+
+
 #### 1.它们是解决不同层面问题的两个框架
 
 
@@ -78,6 +81,14 @@ Fish Redux 通过显式的表达组件之间的依赖关系，由框架自动完
 ### 流程图
 
 [<img src="https://user-gold-cdn.xitu.io/2019/4/30/16a6d97f0a8365dc?imageslim" alt="img" style="zoom: 200%;" />](https://user-gold-cdn.xitu.io/2019/4/30/16a6d97f0a8365dc?imageslim)
+
+
+
+# Flutter Fish Redux 源码分析
+
+以下部分是源码分析
+
+
 
 
 
@@ -1036,7 +1047,142 @@ abstract class DispatchBus {
 
 
 
-### /Context
+### /batch_store
+
+#### _BatchNotify
+
+```dart
+mixin _BatchNotify<T> on Store<T> {
+  final List<void Function()> _listeners = <void Function()>[];
+  bool _isBatching = false;
+  bool _isSetupBatch = false;
+  T _prevState;
+
+  void setupBatch() {
+    if (!_isSetupBatch) {
+      _isSetupBatch = true;
+      super.subscribe(_batch);
+
+      subscribe = (void Function() callback) {
+        assert(callback != null);
+        _listeners.add(callback);
+        return () {
+          _listeners.remove(callback);
+        };
+      };
+    }
+  }
+
+  bool isInSuitablePhase() {
+    return SchedulerBinding.instance != null &&
+        SchedulerBinding.instance.schedulerPhase !=
+            SchedulerPhase.persistentCallbacks &&
+        !(SchedulerBinding.instance.schedulerPhase == SchedulerPhase.idle &&
+            WidgetsBinding.instance.renderViewElement == null);
+  }
+
+  void _batch() {
+    if (!isInSuitablePhase()) {
+      if (!_isBatching) {
+        _isBatching = true;
+        SchedulerBinding.instance.addPostFrameCallback((Duration duration) {
+          if (_isBatching) {
+            _batch();
+          }
+        });
+      }
+    } else {
+      final T curState = getState();
+      if (!identical(_prevState, curState)) {
+        _prevState = curState;
+
+        final List<void Function()> notifyListeners = _listeners.toList(
+          growable: false,
+        );
+        for (void Function() listener in notifyListeners) {
+          listener();
+        }
+
+        _isBatching = false;
+      }
+    }
+  }
+}
+```
+#### _BatchStore
+```dart
+class _BatchStore<T> extends Store<T> with _BatchNotify<T> {
+  _BatchStore(Store<T> store) : assert(store != null) {
+    getState = store.getState;
+    subscribe = store.subscribe;
+    replaceReducer = store.replaceReducer;
+    dispatch = store.dispatch;
+    observable = store.observable;
+    teardown = store.teardown;
+
+    setupBatch();
+  }
+}
+```
+#### createBatchStore
+```dart
+Store<T> createBatchStore<T>(
+  T preloadedState,
+  Reducer<T> reducer, {
+  StoreEnhancer<T> storeEnhancer,
+}) =>
+    _BatchStore<T>(
+      createStore(
+        preloadedState,
+        _appendUpdateStateReducer<T>(reducer),
+        storeEnhancer,
+      ),
+    );
+
+/// connect with app-store
+
+```
+#### _appendUpdateStateReducer
+```dart
+enum _UpdateState { Assign }
+
+// replace current state
+Reducer<T> _appendUpdateStateReducer<T>(Reducer<T> reducer) =>
+    (T state, Action action) => action.type == _UpdateState.Assign
+        ? action.payload
+        : reducer == null ? state : reducer(state, action);
+
+Store<T> connectStores<T, K>(
+  Store<T> mainStore,
+  Store<K> extraStore,
+  T Function(T, K) update,
+) {
+  final void Function() subscriber = () {
+    final T prevT = mainStore.getState();
+    final T nextT = update(prevT, extraStore.getState());
+    if (nextT != null && !identical(prevT, nextT)) {
+      mainStore.dispatch(Action(_UpdateState.Assign, payload: nextT));
+    }
+  };
+
+  final void Function() unsubscribe = extraStore.subscribe(subscriber);
+
+  /// should triggle once
+  subscriber();
+
+  final Future<dynamic> Function() superMainTD = mainStore.teardown;
+  mainStore.teardown = () {
+    unsubscribe?.call();
+    return superMainTD();
+  };
+
+  return mainStore;
+}
+```
+
+
+
+### /context
 
 #### _ExtraMixin
 ```dart
@@ -1643,8 +1789,9 @@ class EnhancerDefault<T> implements Enhancer<T> {
 
 #### Lifecycle
 ```dart
+/// 枚举生命周期
 enum Lifecycle {
-  /// componenmt(page) or adapter receives the following events
+  /// componenmt(page) 或者 adapter 接受如下 events
   initState,
   didChangeDependencies,
   build,
@@ -1654,7 +1801,8 @@ enum Lifecycle {
   dispose,
   // didDisposed,
 
-  /// Only a adapter mixin VisibleChangeMixin will receive appear & disappear events.
+  /// 适用于列表的生命周期  
+  /// 只有 adapter 的 mixin VisibleChangeMixin 能够接受 appear & disappear events.
   /// class MyAdapter extends Adapter<T> with VisibleChangeMixin<T> {
   ///   MyAdapter():super(
   ///     ///
@@ -1663,7 +1811,8 @@ enum Lifecycle {
   appear,
   disappear,
 
-  /// Only a componenmt(page) or adapter mixin WidgetsBindingObserverMixin will receive didChangeAppLifecycleState event.
+  /// 只有 componenmt(page) or adapter mixin WidgetsBindingObserverMixin 会接受 
+  /// didChangeAppLifecycleState event.
   /// class MyComponent extends Component<T> with WidgetsBindingObserverMixin<T> {
   ///   MyComponent():super(
   ///     ///
@@ -1674,6 +1823,7 @@ enum Lifecycle {
 ```
 #### LifecycleCreator
 ```dart
+/// 默认实现的生命周期 Action 发生器
 class LifecycleCreator {
   static Action initState() => const Action(Lifecycle.initState);
 
@@ -2359,7 +2509,7 @@ class NoneConn<T> extends ImmutableConn<T, T> with ConnOpMixin<T, T> {
 
 
 
-### /OPMixin
+### /op_mixin
 
 #### ConnOpMixin
 
@@ -2472,7 +2622,8 @@ abstract class Reselect3<T, P, K0, K1, K2> extends _BasicReselect<T, P> {
   P reduceSubs(List<dynamic> list) => Function.apply(computed, list);
 }
 ```
-...
+#### ...
+
 #### Reselect
 ```dart
 abstract class Reselect<T, P> extends _BasicReselect<T, P> {
@@ -2482,6 +2633,164 @@ abstract class Reselect<T, P> extends _BasicReselect<T, P> {
   P reduceSubs(List<dynamic> list) => Function.apply(computed, list);
 }
 ```
+
+## Redux_MiddleWare
+
+### /adapter_middleware
+
+#### safetyAdapter
+
+```dart
+/// type = {0, 1}
+AdapterMiddleware<T> safetyAdapter<T>({
+  Widget Function(dynamic, StackTrace,
+          {AbstractAdapter<dynamic> adapter, Store<T> store, int type})
+      onError,
+}) {
+  return (AbstractAdapter<dynamic> adapter, Store<T> store) {
+    return (AdapterBuilder<dynamic> next) {
+      return isDebug()
+          ? next
+          : (dynamic state, Dispatch dispatch, ViewService viewService) {
+              try {
+                final ListAdapter result = next(state, dispatch, viewService);
+                return ListAdapter((BuildContext buildContext, int index) {
+                  try {
+                    return result.itemBuilder(buildContext, index);
+                  } catch (e, stackTrace) {
+                    return onError?.call(
+                          e,
+                          stackTrace,
+                          adapter: adapter,
+                          store: store,
+                          type: 1,
+                        ) ??
+                        Container(width: 0, height: 0);
+                  }
+                }, result.itemCount);
+              } catch (e, stackTrace) {
+                final Widget errorWidget = onError?.call(
+                  e,
+                  stackTrace,
+                  adapter: adapter,
+                  store: store,
+                  type: 0,
+                );
+                return errorWidget == null
+                    ? const ListAdapter(null, 0)
+                    : ListAdapter(
+                        (BuildContext buildContext, int index) => errorWidget,
+                        1);
+              }
+            };
+    };
+  };
+}
+```
+
+
+
+### /middleware
+
+#### logMiddleware
+
+```dart
+/// Middleware for print action dispatch.
+/// It works on debug mode.
+Middleware<T> logMiddleware<T>({
+  String tag = 'redux',
+  String Function(T) monitor,
+}) {
+  return ({Dispatch dispatch, Get<T> getState}) {
+    return (Dispatch next) {
+      return isDebug()
+          ? (Action action) {
+              print('---------- [$tag] ----------');
+              print('[$tag] ${action.type} ${action.payload}');
+
+              final T prevState = getState();
+              if (monitor != null) {
+                print('[$tag] prev-state: ${monitor(prevState)}');
+              }
+
+              next(action);
+
+              final T nextState = getState();
+              if (monitor != null) {
+                print('[$tag] next-state: ${monitor(nextState)}');
+              }
+
+              // if (prevState == nextState) {
+              //   print('[$tag] warning: ${action.type} has not been used.');
+              // }
+
+              print('========== [$tag] ================');
+            }
+          : next;
+    };
+  };
+}
+```
+
+#### performanceMiddleware
+
+```dart
+/// Middleware for print action dispatch performance by time consuming.
+/// It works on debug mode.
+Middleware<T> performanceMiddleware<T>({String tag = 'redux'}) {
+  return ({Dispatch dispatch, Get<T> getState}) {
+    return (Dispatch next) {
+      return isDebug()
+          ? (Action action) {
+              final int markPrev = DateTime.now().microsecondsSinceEpoch;
+              next(action);
+              final int markNext = DateTime.now().microsecondsSinceEpoch;
+              print('$tag performance: ${action.type} ${markNext - markPrev}');
+            }
+          : next;
+    };
+  };
+}
+```
+
+
+
+### /view_middleware
+
+```dart
+import 'package:flutter/widgets.dart' hide Action;
+
+import '../../redux/redux.dart';
+import '../../redux_component/redux_component.dart';
+import '../../utils/utils.dart';
+
+ViewMiddleware<T> safetyView<T>(
+    {Widget Function(dynamic, StackTrace,
+            {AbstractComponent<dynamic> component, Store<T> store})
+        onError}) {
+  return (AbstractComponent<dynamic> component, Store<T> store) {
+    return (ViewBuilder<dynamic> next) {
+      return isDebug()
+          ? next
+          : (dynamic state, Dispatch dispatch, ViewService viewService) {
+              try {
+                return next(state, dispatch, viewService);
+              } catch (e, stackTrace) {
+                return onError?.call(
+                      e,
+                      stackTrace,
+                      component: component,
+                      store: store,
+                    ) ??
+                    Container(width: 0, height: 0);
+              }
+            };
+    };
+  };
+}
+```
+
+
 
 
 
@@ -2595,4 +2904,14 @@ bool println(Object object) {
   return true;
 }
 ```
+
+
+
+# 流程阐述 & 框架分析
+
+
+
+# 后续
+
+
 
