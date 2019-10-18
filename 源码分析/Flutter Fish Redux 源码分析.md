@@ -95,7 +95,7 @@ Fish Redux 通过显式的表达组件之间的依赖关系，由框架自动完
 
 ## Redux
 
-### /basic(JsRedux基础)
+### /basic(  JsRedux基础  )
 
 ```dart
 /// fish_redux/redux/basic
@@ -130,11 +130,11 @@ class Action {
 }
 
 /// Reducer 的标准定义
-/// 如果 Reducer 需要相应一个 Action, 它返回一个新 state,否则反复旧 state.
+/// 如果 Reducer 需要相应一个 Action, 它返回一个新 state,否则反回旧 state.
 typedef Reducer<T> = T Function(T state, Action action);
 
 /// Dispatch 的标准定义
-/// Send an "intention".
+/// Send an "intention"，用于派发一个Action
 typedef Dispatch = dynamic Function(Action action);
 
 /// subscription function 的标准定义
@@ -148,12 +148,17 @@ typedef ReplaceReducer<T> = void Function(Reducer<T> reducer);
 typedef Observable<T> = Stream<T> Function();
 
 /// Synthesizable functions（可合成函数）的定义
+/// 输入一个 T next，返回一个 T 实例
+/// 可以被 list.fold 使用，最终产生一个 T
 typedef Composable<T> = T Function(T next);
 
 /// 类获取器的定义（获取 R 实例）
+/// 通过一个函数来获取 R
 typedef Get<R> = R Function();
 
 /// Middleware 的标准定义
+/// 输入 Dispatch 和 getState，返回一个 Composable<Dispatch> 函数
+/// 产生的 Composable 可以接受一个 Dispatch 并返回一个 Dispatch
 typedef Middleware<T> = Composable<Dispatch> Function({
   Dispatch dispatch,
   Get<T> getState,
@@ -169,13 +174,13 @@ class Store<T> {
   Future<dynamic> Function() teardown;
 }
 
-/// 创建一个Store
+/// Store 创建器
 typedef StoreCreator<T> = Store<T> Function(
   T preloadedState,
   Reducer<T> reducer,
 );
 
-/// Definition of Enhanced creating a store
+/// 修改一个 Store 创建器 
 typedef StoreEnhancer<T> = StoreCreator<T> Function(StoreCreator<T> creator);
 
 /// SubReducer 的定义
@@ -187,12 +192,14 @@ typedef SubReducer<T> = T Function(T state, Action action, bool isStateCopied);
 /// 2. 如何将 P 实例的更改同步到 S 实例
 /// 3. 如何复制一个新的S
 abstract class AbstractConnector<S, P> {
+  /// 从 State 获取到 P 实例（将大的 State 转化为 小的 State）  
   P get(S state);
 
+  /// 产生一个 SubReducer  
   /// 对于可变的 state, 需要满足以下三个能力
   ///     1. get: (S) => P
   ///     2. set: (S, P) => void
-  ///     3. shallow copy: s.clone()
+  ///     3. shallow copy: s.clone() // 注意这里是要实现浅拷贝
   ///
   /// 对于不可变的 state,需要满足以下两个能力
   ///     1. get: (S) => P
@@ -206,34 +213,34 @@ abstract class AbstractConnector<S, P> {
 
 ### /applyMiddleware
 ```dart
+/// 组装所有 middleware，生成一个 StoreEnhancer
+/// typedef Middleware<T> = Composable<Dispatch> Function({
+///   Dispatch dispatch,
+///   Get<T> getState,
+/// });
 StoreEnhancer<T> applyMiddleware<T>(List<Middleware<T>> middleware) {
   return middleware == null || middleware.isEmpty
       ? null
       : (StoreCreator<T> creator) => (T initState, Reducer<T> reducer) {
-            assert(middleware != null && middleware.isNotEmpty);
-
-            final Store<T> store = creator(initState, reducer);
-            final Dispatch initialValue = store.dispatch;
-            store.dispatch = (Action action) {
-              throw Exception(
-                  'Dispatching while constructing your middleware is not allowed. '
-                  'Other middleware would not be applied to this dispatch.'
-              );
-            };
-            store.dispatch = middleware
-                .map((Middleware<T> middleware) => middleware(
-                      dispatch: (Action action) => store.dispatch(action),
-                      getState: store.getState,
-                    ))
-                .fold(
+          
+          final Store<T> store = creator(initState, reducer);
+          final Dispatch initialValue = store.dispatch;
+          store.dispatch = middleware
+              /// map 返回的是 Composable<Dispatch>
+              .map((Middleware<T> middleware) => middleware(
+                  dispatch: (Action action) => store.dispatch(action),
+                  getState: store.getState,
+              ))
+              /// 折叠所有元素，最终返回一个 Dispatch
+              .fold(
                   initialValue,
-                  (Dispatch previousValue,
-                          Dispatch Function(Dispatch) element) =>
-                      element(previousValue),
-                );
+              	  /// (Dispatch previousValue,Composable<Dispatch> element)
+                  (Dispatch previousValue,Dispatch Function(Dispatch) element) =>
+                  element(previousValue),
+          	  );
 
-            return store;
-          };
+          return store;
+      }; 
 }
 ```
 
@@ -293,7 +300,7 @@ Reducer<T> combineReducers<T>(Iterable<Reducer<T>> reducers) {
   }
     
   /// 返回多个 reducer 的绑定
-  /// 将 action 给所有 reducer 处理一边得到最终的state  
+  /// 将 action 遍历给所有 reducer 处理一边得到最终的 state  
   return (T state, Action action) {
     T nextState = state;
     for (Reducer<T> reducer in notNullReducers) {
@@ -321,6 +328,8 @@ Reducer<Sub> castReducer<Sub extends Sup, Sup>(Reducer<Sup> sup) {
 
 ### /connector
 
+connector：将大的 state 转化为小的 state
+
 在“..redux/basic”中有做如下要求（其中T为超State，P为子State）:
 
 For mutable state, there are three abilities needed to be met.
@@ -334,7 +343,7 @@ For immutable state, there are two abilities needed to be met.
 
 
 ```dart
-/// how to clone an object
+/// 深度复制实现
 dynamic _clone<T>(T state) {
   if (state is Cloneable) {
     return state.clone();
@@ -351,7 +360,17 @@ dynamic _clone<T>(T state) {
 }
 ```
 
+#### Cloneable
+
+```dart
+/// Definition of Cloneable
+abstract class Cloneable<T extends Cloneable<T>> {
+  T clone();
+}
+```
+
 #### ImmutableConn
+
 ```dart
 /// 为不可变的 state 创建一个基础 connnector
 ///     /// Example:
@@ -388,14 +407,6 @@ abstract class ImmutableConn<T, P> implements AbstractConnector<T, P> {
       return state;
     };
   }
-}
-```
-
-#### Cloneable
-```dart
-/// Definition of Cloneable
-abstract class Cloneable<T extends Cloneable<T>> {
-  T clone();
 }
 ```
 
@@ -445,16 +456,19 @@ abstract class MutableConn<T, P> implements AbstractConnector<T, P> {
 ### /creatStore
 
 ```dart
+/// 直接返回 state 的 ruducer
 Reducer<T> _noop<T>() => (T state, Action action) => state;
 
 typedef _VoidCallback = void Function();
 
+/// 不满足条件，抛出异常
 void _throwIfNot(bool condition, [String message]) {
   if (!condition) {
     throw ArgumentError(message);
   }
 }
 
+/// 构建 Store
 Store<T> _createStore<T>(final T preloadedState, final Reducer<T> reducer) {
   _throwIfNot(
     preloadedState != null,
@@ -472,10 +486,13 @@ Store<T> _createStore<T>(final T preloadedState, final Reducer<T> reducer) {
 
   return Store<T>()
     ..getState = (() => _state)
+    /// Store.dispatch 的具体实现  
+    /// 当收到 Actions 的时候，调用如下函数  
     ..dispatch = (Action action) {
       _throwIfNot(action != null, 'Expected the action to be non-null value.');
       _throwIfNot(action.type != null,
           'Expected the action.type to be non-null value.');
+      /// 如果正处于分发阶段，抛出异常
       _throwIfNot(!_isDispatching, 'Reducers may not dispatch actions.');
 
       if (_isDisposed) {
@@ -492,15 +509,19 @@ Store<T> _createStore<T>(final T preloadedState, final Reducer<T> reducer) {
       final List<_VoidCallback> _notifyListeners = _listeners.toList(
         growable: false,
       );
+      
+      /// 通知所有监听者
       for (_VoidCallback listener in _notifyListeners) {
         listener();
       }
 
       _notifyController.add(_state);
     }
+    /// 替换现有的 reducer
     ..replaceReducer = (Reducer<T> replaceReducer) {
       _reducer = replaceReducer ?? _noop;
     }
+    /// 为该 store 添加一个 listener
     ..subscribe = (_VoidCallback listener) {
       _throwIfNot(
         listener != null,
@@ -513,6 +534,7 @@ Store<T> _createStore<T>(final T preloadedState, final Reducer<T> reducer) {
 
       _listeners.add(listener);
 
+      /// 返回一个可以移除这个 listener 的函数，交给调用者自己处理  
       return () {
         _throwIfNot(
           !_isDispatching,
@@ -525,22 +547,25 @@ Store<T> _createStore<T>(final T preloadedState, final Reducer<T> reducer) {
     ..teardown = () {
       _isDisposed = true;
       _listeners.clear();
+      /// 这里似乎有内存泄漏
+      /// 添加 _listeners = null  
       return _notifyController.close();
     };
 }
 
-/// create a store with enhancer
+/// 使用 StoreEnhancer 创建一个 store
 Store<T> createStore<T>(
     T preloadedState, 
     Reducer<T> reducer,
     [StoreEnhancer<T> enhancer]
 ) {
-  return enhancer != null
+   return enhancer != null
+      /// 修改 _createStore，得到新的 createStore 并调用之
       ? enhancer(_createStore)(preloadedState, reducer)
       : _createStore(preloadedState, reducer);  
 }
     
-
+/// 压缩多个 StoreEnhancer 形成一个
 StoreEnhancer<T> composeStoreEnhancer<T>(List<StoreEnhancer<T>> enhancers){
     enhancers == null || enhancers.isEmpty
         ? null
