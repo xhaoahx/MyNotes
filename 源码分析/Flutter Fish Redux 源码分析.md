@@ -937,7 +937,7 @@ ApplyLikeEnhancer waitUntil() {
 
 
 
-## ReduxComponent
+## Redux_Component
 
 ### /autoDispose
 
@@ -1233,7 +1233,7 @@ abstract class ViewService implements ExtraData {
 
 #### Context
 ```dart
-/// 这个 context 实现了自动释放内存，并可以附加额外数据
+/// 这个 context 实现了自动释放内存，并可以附加额外数据，并可以派发、广播 Action 和 Effect
 abstract class Context<T> 
     extends AutoDispose 
     implements ExtraData 
@@ -1241,7 +1241,7 @@ abstract class Context<T>
   /// 最近的一个state
   T get state;
 
-  /// 发送 action 的方方法, which will be consumed by self, or by broadcast-module and store.
+  /// 发送 action 的方法, actions 会被自身或者广播模块或者store接受并使用
   dynamic dispatch(Action action);
 
   /// 从宿主 widget 中获取 Buildcontext
@@ -1266,7 +1266,7 @@ abstract class Context<T>
   /// 组装在 Dependencies.slots 配置的 component
   Widget buildComponent(String name);
 
-  /// Broadcast action in app (inter-stores)
+  /// 广播 action in app (inter-stores)
   void broadcast(Action action);
 
   /// Broadcast in all component receivers;
@@ -1277,7 +1277,7 @@ abstract class Context<T>
 
   void forceUpdate();
 
-  /// listen on the changes of some parts of <T>.
+  /// 监听 <T> 实例的部分变化
   void Function() listen({
     bool Function(T, T) isChanged,
     void Function() onChange,
@@ -1377,7 +1377,7 @@ abstract class AbstractLogic<T> {
   /// To create each instance's key (for recycle) if needed
   Object key(T state);
 
-  /// Find a dependent by name
+  /// 通过 name 找到一个依赖者
   Dependent<T> slot(String name);
 
   /// Get a adapter-dependent
@@ -1390,7 +1390,7 @@ abstract class AbstractLogic<T> {
 ```dart
 /// component 的抽象
 abstract class AbstractComponent<T> implements AbstractLogic<T> {
-  /// How to build component instance
+  /// 只添加了一个构造函数
   Widget buildComponent(
     Store<Object> store,
     Get<T> getter, {
@@ -1413,6 +1413,7 @@ typedef ReducerFilter<T> = bool Function(T state, Action action);
 
 #### DispatchBus
 ```dart
+/// 树状结构的节点？
 abstract class DispatchBus {
   void attach(DispatchBus parent);
 
@@ -1559,6 +1560,261 @@ Store<T> connectStores<T, K>(
 
   return mainStore;
 }
+```
+
+
+
+### /component
+
+#### Component
+
+```dart
+/// fish_redux/redux_component/component
+
+/// 用于包裹一个 widget
+/// e.g.
+/// WidgetWrapper wrapper =
+/// Widget buildRepaintBoundary(Widget child){
+///		return RepaintBoundary(child: child);
+/// }
+
+typedef WidgetWrapper = Widget Function(Widget child);
+
+@immutable
+abstract class Component<T> extends Logic<T> implements AbstractComponent<T> {
+  final ViewBuilder<T> _view;
+  final ShouldUpdate<T> _shouldUpdate;
+  final WidgetWrapper _wrapper;
+  final bool _clearOnDependenciesChanged;
+
+  ViewBuilder<T> get protectedView => _view;
+  ShouldUpdate<T> get protectedShouldUpdate => _shouldUpdate;
+  WidgetWrapper get protectedWrapper => _wrapper;
+  bool get protectedClearOnDependenciesChanged => _clearOnDependenciesChanged;
+
+  Component({
+    @required ViewBuilder<T> view,
+    Reducer<T> reducer,
+    ReducerFilter<T> filter,
+    Effect<T> effect,
+    Dependencies<T> dependencies,
+    ShouldUpdate<T> shouldUpdate,
+    WidgetWrapper wrapper,
+    Key Function(T) key,
+    bool clearOnDependenciesChanged = false,
+  })  : assert(view != null),
+        _view = view,
+        _wrapper = wrapper ?? _wrapperByDefault,
+        _shouldUpdate = shouldUpdate ?? updateByDefault<T>(),
+        _clearOnDependenciesChanged = clearOnDependenciesChanged,
+        super(
+          reducer: reducer,
+          filter: filter,
+          effect: effect,
+          dependencies: dependencies,
+          key: key,
+        );
+
+  @override
+  Widget buildComponent(
+    Store<Object> store,
+    Get<Object> getter, {
+    @required DispatchBus bus,
+    @required Enhancer<Object> enhancer,
+  }) {
+    // assert(bus != null && enhancer != null);
+    return protectedWrapper(
+      ComponentWidget<T>(
+        component: this,
+        getter: _asGetter<T>(getter),
+        store: store,
+        key: key(getter()),
+
+        ///
+        bus: bus ?? DispatchBusDefault(),
+        enhancer: enhancer ?? EnhancerDefault<Object>(),
+      ),
+    );
+  }
+
+  @override
+  ComponentContext<T> createContext(
+    Store<Object> store,
+    BuildContext buildContext,
+    Get<T> getState, {
+    @required void Function() markNeedsBuild,
+    @required DispatchBus bus,
+    @required Enhancer<Object> enhancer,
+  }) {
+    assert(bus != null && enhancer != null);
+    return ComponentContext<T>(
+      logic: this,
+      store: store,
+      buildContext: buildContext,
+      getState: getState,
+      view: enhancer.viewEnhance(protectedView, this, store),
+      shouldUpdate: protectedShouldUpdate,
+      name: name,
+      markNeedsBuild: markNeedsBuild,
+      sidecarCtx: adapterDep()?.createContext(
+        store,
+        buildContext,
+        getState,
+        bus: bus,
+        enhancer: enhancer,
+      ),
+      enhancer: enhancer,
+      bus: bus,
+    );
+  }
+
+  ComponentState<T> createState() => ComponentState<T>();
+
+  String get name => cache<String>('name', () => runtimeType.toString());
+
+  ///
+  static ShouldUpdate<K> neverUpdate<K>() => (K _, K __) => false;
+
+  static ShouldUpdate<K> alwaysUpdate<K>() => (K _, K __) => true;
+
+  static ShouldUpdate<K> updateByDefault<K>() =>
+      (K _, K __) => !identical(_, __);
+
+  static Widget _wrapperByDefault(Widget child) => child;
+
+  static Get<T> _asGetter<T>(Get<Object> getter) {
+    Get<T> runtimeGetter;
+    if (getter is Get<T>) {
+      runtimeGetter = getter;
+    } else {
+      runtimeGetter = () {
+        final T result = getter();
+        return result;
+      };
+    }
+    return runtimeGetter;
+  }
+}
+```
+
+#### ComponenetWidget
+
+```dart
+class ComponentWidget<T> extends StatefulWidget {
+  final Component<T> component;
+  final Store<Object> store;
+  final Get<T> getter;
+  final DispatchBus bus;
+  final Enhancer<Object> enhancer;
+
+  const ComponentWidget({
+    @required this.component,
+    @required this.store,
+    @required this.getter,
+    this.bus,
+    this.enhancer,
+    Key key,
+  })  : assert(component != null),
+        assert(store != null),
+        assert(getter != null),
+        super(key: key);
+
+  @override
+  ComponentState<T> createState() => component.createState();
+}
+
+class ComponentState<T> extends State<ComponentWidget<T>> {
+  ComponentContext<T> _ctx;
+
+  ComponentContext<T> get ctx => _ctx;
+
+  @mustCallSuper
+  @override
+  Widget build(BuildContext context) => _ctx.buildWidget();
+
+  @override
+  @protected
+  @mustCallSuper
+  void reassemble() {
+    super.reassemble();
+    _ctx.clearCache();
+    _ctx.onLifecycle(LifecycleCreator.reassemble());
+  }
+
+  @mustCallSuper
+  @override
+  void initState() {
+    super.initState();
+
+    /// init context
+    _ctx = widget.component.createContext(
+      widget.store,
+      context,
+      () => widget.getter(),
+      markNeedsBuild: () {
+        if (mounted) {
+          setState(() {});
+        }
+      },
+      bus: widget.bus,
+      enhancer: widget.enhancer,
+    );
+
+    /// register store.subscribe
+    _ctx.registerOnDisposed(widget.store.subscribe(() => _ctx.onNotify()));
+
+    _ctx.onLifecycle(LifecycleCreator.initState());
+  }
+
+  @mustCallSuper
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (widget.component.protectedClearOnDependenciesChanged != false) {
+      _ctx.clearCache();
+    }
+
+    _ctx.onLifecycle(LifecycleCreator.didChangeDependencies());
+  }
+
+  @mustCallSuper
+  @override
+  void deactivate() {
+    super.deactivate();
+    _ctx.onLifecycle(LifecycleCreator.deactivate());
+  }
+
+  @mustCallSuper
+  @override
+  void didUpdateWidget(ComponentWidget<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _ctx.didUpdateWidget();
+    _ctx.onLifecycle(LifecycleCreator.didUpdateWidget());
+  }
+
+  @mustCallSuper
+  void disposeCtx() {
+    if (!_ctx.isDisposed) {
+      _ctx
+        ..onLifecycle(LifecycleCreator.dispose())
+        ..dispose();
+    }
+  }
+
+  @mustCallSuper
+  @override
+  void dispose() {
+    disposeCtx();
+    super.dispose();
+
+    /// TODO
+    // mainCtx
+    //   ..onLifecycle(LifecycleCreator.didDisposed())
+    //   ..dispose();
+  }
+}
+
 ```
 
 
@@ -2028,7 +2284,7 @@ class DispatchBusDefault implements DispatchBus {
 
 
 
-### /Enhancer
+### /enhancer
 
 #### EnhancerDefault
 
@@ -2166,6 +2422,161 @@ class EnhancerDefault<T> implements Enhancer<T> {
 
 
 
+### /helper
+
+```dart
+AdapterBuilder<T> asAdapter<T>(ViewBuilder<T> view) {
+  return (T unstableState, Dispatch dispatch, ViewService service) {
+    final ContextSys<T> ctx = service;
+    return ListAdapter(
+      (BuildContext buildContext, int index) =>
+          view(ctx.state, dispatch, service),
+      1,
+    );
+  };
+}
+
+Reducer<T> mergeReducers<T extends K, K>(Reducer<K> sup, [Reducer<T> sub]) {
+  return (T state, Action action) {
+    return sub?.call(sup(state, action), action) ?? sup(state, action);
+  };
+}
+
+Effect<T> mergeEffects<T extends K, K>(Effect<K> sup, [Effect<T> sub]) {
+  return (Action action, Context<T> ctx) {
+    return sub?.call(action, ctx) ?? sup.call(action, ctx);
+  };
+}
+
+/// combine & as
+/// for action.type which override it's == operator
+Reducer<T> asReducer<T>(Map<Object, Reducer<T>> map) => (map == null ||
+        map.isEmpty)
+    ? null
+    : (T state, Action action) =>
+        map.entries
+            .firstWhere(
+                (MapEntry<Object, Reducer<T>> entry) =>
+                    action.type == entry.key,
+                orElse: () => null)
+            ?.value(state, action) ??
+        state;
+
+Reducer<T> filterReducer<T>(Reducer<T> reducer, ReducerFilter<T> filter) {
+  return (reducer == null || filter == null)
+      ? reducer
+      : (T state, Action action) {
+          return filter(state, action) ? reducer(state, action) : state;
+        };
+}
+
+const Object _SUB_EFFECT_RETURN_NULL = Object();
+
+typedef SubEffect<T> = FutureOr<void> Function(Action action, Context<T> ctx);
+
+/// for action.type which override it's == operator
+/// return [UserEffecr]
+Effect<T> combineEffects<T>(Map<Object, SubEffect<T>> map) =>
+    (map == null || map.isEmpty)
+        ? null
+        : (Action action, Context<T> ctx) {
+            final SubEffect<T> subEffect = map.entries
+                .firstWhere(
+                  (MapEntry<Object, SubEffect<T>> entry) =>
+                      action.type == entry.key,
+                  orElse: () => null,
+                )
+                ?.value;
+
+            if (subEffect != null) {
+              return subEffect.call(action, ctx) ?? _SUB_EFFECT_RETURN_NULL;
+            }
+
+            //skip-lifecycle-actions
+            if (action.type is Lifecycle) {
+              return _SUB_EFFECT_RETURN_NULL;
+            }
+
+            /// no subEffect
+            return null;
+          };
+
+/// return [EffectDispatch]
+Dispatch createEffectDispatch<T>(Effect<T> userEffect, Context<T> ctx) {
+  return (Action action) {
+    final Object result = userEffect?.call(action, ctx);
+
+    //skip-lifecycle-actions
+    if (action.type is Lifecycle && (result == null || result == false)) {
+      return _SUB_EFFECT_RETURN_NULL;
+    }
+
+    return result;
+  };
+}
+
+/// return [NextDispatch]
+Dispatch createNextDispatch<T>(ContextSys<T> ctx) => (Action action) {
+      ctx.broadcastEffect(action);
+      ctx.store.dispatch(action);
+    };
+
+/// return [Dispatch]
+Dispatch createDispatch<T>(Dispatch onEffect, Dispatch next, Context<T> ctx) =>
+    (Action action) {
+      final Object result = onEffect?.call(action);
+      if (result == null || result == false) {
+        next(action);
+      }
+
+      return result == _SUB_EFFECT_RETURN_NULL ? null : result;
+    };
+
+ViewMiddleware<T> mergeViewMiddleware<T>(List<ViewMiddleware<T>> middleware) {
+  return Collections.reduce<ViewMiddleware<T>>(middleware,
+      (ViewMiddleware<T> first, ViewMiddleware<T> second) {
+    return (AbstractComponent<dynamic> component, Store<T> store) {
+      final Composable<ViewBuilder<dynamic>> inner = first(component, store);
+      final Composable<ViewBuilder<dynamic>> outer = second(component, store);
+      return (ViewBuilder<dynamic> view) {
+        return outer(inner(view));
+      };
+    };
+  });
+}
+
+AdapterMiddleware<T> mergeAdapterMiddleware<T>(
+    List<AdapterMiddleware<T>> middleware) {
+  return Collections.reduce<AdapterMiddleware<T>>(middleware,
+      (AdapterMiddleware<T> first, AdapterMiddleware<T> second) {
+    return (AbstractAdapter<dynamic> component, Store<T> store) {
+      final Composable<AdapterBuilder<dynamic>> inner = first(component, store);
+      final Composable<AdapterBuilder<dynamic>> outer =
+          second(component, store);
+      return (AdapterBuilder<dynamic> view) {
+        return outer(inner(view));
+      };
+    };
+  });
+}
+
+EffectMiddleware<T> mergeEffectMiddleware<T>(
+    List<EffectMiddleware<T>> middleware) {
+  return Collections.reduce<EffectMiddleware<T>>(middleware,
+      (EffectMiddleware<T> first, EffectMiddleware<T> second) {
+    return (AbstractLogic<dynamic> logic, Store<T> store) {
+      final Composable<Effect<dynamic>> inner = first(logic, store);
+      final Composable<Effect<dynamic>> outer = second(logic, store);
+      return (Effect<dynamic> effect) {
+        return outer(inner(effect));
+      };
+    };
+  });
+}
+```
+
+
+
 ### /lifecycle
 
 #### Lifecycle
@@ -2233,7 +2644,11 @@ class LifecycleCreator {
 }
 ```
 
+
+
 ### /logic
+
+#### Logic
 
 ```dart
 /// fish_redux/redux_component/logic
@@ -2333,257 +2748,6 @@ abstract class Logic<T> implements AbstractLogic<T> {
   @override
   Dependent<T> adapterDep() => protectedDependencies?.adapter;
 }
-```
-
-
-
-### /component
-
-```dart
-/// fish_redux/redux_component/component
-
-/// 用于包裹一个widget
-/// e.g.
-/// WidgetWrapper wrapper =
-/// Widget buildRepaintBoundary(Widget child){
-///		return RepaintBoundary(child: child);
-/// }
-
-typedef WidgetWrapper = Widget Function(Widget child);
-
-@immutable
-abstract class Component<T> extends Logic<T> implements AbstractComponent<T> {
-  final ViewBuilder<T> _view;
-  final ShouldUpdate<T> _shouldUpdate;
-  final WidgetWrapper _wrapper;
-  final bool _clearOnDependenciesChanged;
-
-  ViewBuilder<T> get protectedView => _view;
-  ShouldUpdate<T> get protectedShouldUpdate => _shouldUpdate;
-  WidgetWrapper get protectedWrapper => _wrapper;
-  bool get protectedClearOnDependenciesChanged => _clearOnDependenciesChanged;
-
-  Component({
-    @required ViewBuilder<T> view,
-    Reducer<T> reducer,
-    ReducerFilter<T> filter,
-    Effect<T> effect,
-    Dependencies<T> dependencies,
-    ShouldUpdate<T> shouldUpdate,
-    WidgetWrapper wrapper,
-    Key Function(T) key,
-    bool clearOnDependenciesChanged = false,
-  })  : assert(view != null),
-        _view = view,
-        _wrapper = wrapper ?? _wrapperByDefault,
-        _shouldUpdate = shouldUpdate ?? updateByDefault<T>(),
-        _clearOnDependenciesChanged = clearOnDependenciesChanged,
-        super(
-          reducer: reducer,
-          filter: filter,
-          effect: effect,
-          dependencies: dependencies,
-          key: key,
-        );
-
-  @override
-  Widget buildComponent(
-    Store<Object> store,
-    Get<Object> getter, {
-    @required DispatchBus bus,
-    @required Enhancer<Object> enhancer,
-  }) {
-    // assert(bus != null && enhancer != null);
-    return protectedWrapper(
-      ComponentWidget<T>(
-        component: this,
-        getter: _asGetter<T>(getter),
-        store: store,
-        key: key(getter()),
-
-        ///
-        bus: bus ?? DispatchBusDefault(),
-        enhancer: enhancer ?? EnhancerDefault<Object>(),
-      ),
-    );
-  }
-
-  @override
-  ComponentContext<T> createContext(
-    Store<Object> store,
-    BuildContext buildContext,
-    Get<T> getState, {
-    @required void Function() markNeedsBuild,
-    @required DispatchBus bus,
-    @required Enhancer<Object> enhancer,
-  }) {
-    assert(bus != null && enhancer != null);
-    return ComponentContext<T>(
-      logic: this,
-      store: store,
-      buildContext: buildContext,
-      getState: getState,
-      view: enhancer.viewEnhance(protectedView, this, store),
-      shouldUpdate: protectedShouldUpdate,
-      name: name,
-      markNeedsBuild: markNeedsBuild,
-      sidecarCtx: adapterDep()?.createContext(
-        store,
-        buildContext,
-        getState,
-        bus: bus,
-        enhancer: enhancer,
-      ),
-      enhancer: enhancer,
-      bus: bus,
-    );
-  }
-
-  ComponentState<T> createState() => ComponentState<T>();
-
-  String get name => cache<String>('name', () => runtimeType.toString());
-
-  ///
-  static ShouldUpdate<K> neverUpdate<K>() => (K _, K __) => false;
-
-  static ShouldUpdate<K> alwaysUpdate<K>() => (K _, K __) => true;
-
-  static ShouldUpdate<K> updateByDefault<K>() =>
-      (K _, K __) => !identical(_, __);
-
-  static Widget _wrapperByDefault(Widget child) => child;
-
-  static Get<T> _asGetter<T>(Get<Object> getter) {
-    Get<T> runtimeGetter;
-    if (getter is Get<T>) {
-      runtimeGetter = getter;
-    } else {
-      runtimeGetter = () {
-        final T result = getter();
-        return result;
-      };
-    }
-    return runtimeGetter;
-  }
-}
-```
-#### ComponenetWidget
-```dart
-class ComponentWidget<T> extends StatefulWidget {
-  final Component<T> component;
-  final Store<Object> store;
-  final Get<T> getter;
-  final DispatchBus bus;
-  final Enhancer<Object> enhancer;
-
-  const ComponentWidget({
-    @required this.component,
-    @required this.store,
-    @required this.getter,
-    this.bus,
-    this.enhancer,
-    Key key,
-  })  : assert(component != null),
-        assert(store != null),
-        assert(getter != null),
-        super(key: key);
-
-  @override
-  ComponentState<T> createState() => component.createState();
-}
-
-class ComponentState<T> extends State<ComponentWidget<T>> {
-  ComponentContext<T> _ctx;
-
-  ComponentContext<T> get ctx => _ctx;
-
-  @mustCallSuper
-  @override
-  Widget build(BuildContext context) => _ctx.buildWidget();
-
-  @override
-  @protected
-  @mustCallSuper
-  void reassemble() {
-    super.reassemble();
-    _ctx.clearCache();
-    _ctx.onLifecycle(LifecycleCreator.reassemble());
-  }
-
-  @mustCallSuper
-  @override
-  void initState() {
-    super.initState();
-
-    /// init context
-    _ctx = widget.component.createContext(
-      widget.store,
-      context,
-      () => widget.getter(),
-      markNeedsBuild: () {
-        if (mounted) {
-          setState(() {});
-        }
-      },
-      bus: widget.bus,
-      enhancer: widget.enhancer,
-    );
-
-    /// register store.subscribe
-    _ctx.registerOnDisposed(widget.store.subscribe(() => _ctx.onNotify()));
-
-    _ctx.onLifecycle(LifecycleCreator.initState());
-  }
-
-  @mustCallSuper
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-
-    if (widget.component.protectedClearOnDependenciesChanged != false) {
-      _ctx.clearCache();
-    }
-
-    _ctx.onLifecycle(LifecycleCreator.didChangeDependencies());
-  }
-
-  @mustCallSuper
-  @override
-  void deactivate() {
-    super.deactivate();
-    _ctx.onLifecycle(LifecycleCreator.deactivate());
-  }
-
-  @mustCallSuper
-  @override
-  void didUpdateWidget(ComponentWidget<T> oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _ctx.didUpdateWidget();
-    _ctx.onLifecycle(LifecycleCreator.didUpdateWidget());
-  }
-
-  @mustCallSuper
-  void disposeCtx() {
-    if (!_ctx.isDisposed) {
-      _ctx
-        ..onLifecycle(LifecycleCreator.dispose())
-        ..dispose();
-    }
-  }
-
-  @mustCallSuper
-  @override
-  void dispose() {
-    disposeCtx();
-    super.dispose();
-
-    /// TODO
-    // mainCtx
-    //   ..onLifecycle(LifecycleCreator.didDisposed())
-    //   ..dispose();
-  }
-}
-
 ```
 
 
@@ -2770,13 +2934,14 @@ class _PageState<T, P> extends State<_PageWidget<T, P>> {
 
 
 
-## ReduxConnnector
+## Redux_Connnector
 
 ### /connnector
 
 #### connOP
 
 ```dart
+/// mixin 提供了 + 运算符重载
 class ConnOp<T, P> extends MutableConn<T, P> with ConnOpMixin<T, P> {
   final P Function(T) _getter;
   final void Function(T, P) _setter;
@@ -2824,6 +2989,7 @@ String Function() generator() {
 #### MapLike
 
 ```dart
+/// 可复制的 map 的抽象
 abstract class MapLike {
   Map<String, Object> _fieldsMap = <String, Object>{};
 
@@ -2841,14 +3007,18 @@ abstract class MapLike {
 ```
 #### withMapLike
 ```dart
+/// 通过给定的 key 返回一个 ConnOp<T, P>
 ConnOp<T, P> withMapLike<T extends MapLike, P>(String key) => ConnOp<T, P>(
-      get: (T state) => state[key],
-      set: (T state, P sub) => state[key] = sub,
-    );
+    get: (T state) => state[key],
+    set: (T state, P sub) => state[key] = sub,
+);
 ```
 #### AutoInitConnector
 ```dart
+/// 自动初始化的 connector
 class AutoInitConnector<T extends MapLike, P> extends ConnOp<T, P> {
+  /// 每次构建一个 AutoInitConnector<T extends MapLike, P>
+  /// 都会调用 generator() 来产生一个 String id  
   static final String Function() _gen = generator();
 
   final String _key;
@@ -2879,6 +3049,7 @@ class AutoInitConnector<T extends MapLike, P> extends ConnOp<T, P> {
 #### NoneConn
 
 ```dart
+/// 不做任何中间处理的 Connector
 class NoneConn<T> extends ImmutableConn<T, T> with ConnOpMixin<T, T> {
   @override
   T get(T state) => state;
@@ -2895,6 +3066,8 @@ class NoneConn<T> extends ImmutableConn<T, T> with ConnOpMixin<T, T> {
 #### ConnOpMixin
 
 ```dart
+/// 重载运算符操作
+/// AbstractConnector + AbstractLogic<P> = Dependent<T> 
 mixin ConnOpMixin<T, P> on AbstractConnector<T, P> {
   Dependent<T> operator +(AbstractLogic<P> logic) =>
       createDependent<T, P>(this, logic);
@@ -2935,7 +3108,8 @@ bool _listEquals(List<dynamic> list1, List<dynamic> list2) {
 ```
 #### _BasicReselect
 ```dart
-abstract class _BasicReselect<T, P> extends MutableConn<T, P>
+abstract class _BasicReselect<T, P> 
+    extends MutableConn<T, P>
     with ConnOpMixin<T, P> {
   List<dynamic> _subsCache;
   P _pCache;
@@ -3014,6 +3188,305 @@ abstract class Reselect<T, P> extends _BasicReselect<T, P> {
   P reduceSubs(List<dynamic> list) => Function.apply(computed, list);
 }
 ```
+
+
+
+## Reudx_Component_Mixin
+
+### /keep_alive_mixin
+
+#### _KeepAlivesStfState
+
+```dart
+/// usage
+/// class MyComponent extends Component<T> with KeepAliveMixin<T> {
+///   MyComponent():super(
+///     ///
+///   );
+/// }
+mixin KeepAliveMixin<T> on Component<T> {
+  @override
+  ComponentState<T> createState() => _KeepAliveStfState<T>();
+}
+
+class _KeepAliveStfState<T> extends ComponentState<T>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return ctx.buildWidget();
+  }
+}
+
+```
+
+
+
+### /private_reducer_mixin
+
+#### PrivateReducerMixin
+```dart
+/// usage
+/// class MyComponent extends Component<T> with PrivateReducerMixin<T> {
+///   MyComponent():super(
+///     ///
+///   );
+/// }
+mixin PrivateReducerMixin<T> on Logic<T> {
+  @override
+  Reducer<T> get protectedReducer {
+    final Reducer<T> superReducer = super.protectedReducer;
+    return superReducer != null
+        ? (T state, Action action) {
+            if (action is PrivateAction && action.target == state) {
+              return superReducer(state, action.asAction());
+            }
+            return state;
+          }
+        : null;
+  }
+
+  @override
+  Dispatch createDispatch(Dispatch effect, Dispatch next, Context<T> ctx) {
+    final Dispatch superDispatch = super.createDispatch(effect, next, ctx);
+    return (Action action) {
+      if (action.type is! Lifecycle && action is! PrivateAction) {
+        action = PrivateAction(
+          action.type,
+          payload: action.payload,
+          target: ctx.state,
+        );
+      }
+      return superDispatch(action);
+    };
+  }
+}
+```
+#### PrivateAction
+```dart
+class PrivateAction extends Action {
+  final Object target;
+  PrivateAction(Object type, {dynamic payload, this.target})
+      : super(type, payload: payload);
+
+  Action asAction() => Action(type, payload: payload);
+}
+```
+
+
+
+### /single_ticker_provider_mixin
+
+#### _SingleTickerProviderStfState
+
+```dart
+/// usage
+/// class MyComponent extends Component<T> with SingleTickerProviderMixin<T> {
+///   MyComponent():super(
+///     ///
+///   );
+/// }
+mixin SingleTickerProviderMixin<T> on Component<T> {
+  @override
+  _SingleTickerProviderStfState<T> createState() =>
+      _SingleTickerProviderStfState<T>();
+}
+
+class _SingleTickerProviderStfState<T> extends ComponentState<T>
+    with SingleTickerProviderStateMixin {
+  /// fix SingleTickerProviderStateMixin dispose bug
+  @override
+  void dispose() {
+    disposeCtx();
+    super.dispose();
+  }
+}
+```
+
+
+
+### /ticker_provider_mixin
+
+#### _TickerProviderStfStat
+
+```dart
+/// usage
+/// class MyComponent extends Component<T> with TickerProviderMixin<T> {
+///   MyComponent():super(
+///     ///
+///   );
+/// }
+mixin TickerProviderMixin<T> on Component<T> {
+  @override
+  _TickerProviderStfState<T> createState() => _TickerProviderStfState<T>();
+}
+
+class _TickerProviderStfState<T> extends ComponentState<T>
+    with TickerProviderStateMixin {
+  /// fix TickerProviderStateMixin dispose bug
+  @override
+  void dispose() {
+    disposeCtx();
+    super.dispose();
+  }
+}
+```
+
+
+
+### /visible_change_mixin
+
+#### VisibleChangeMixin
+```dart
+/// usage
+/// class MyAdapter extends Adapter<T> with VisibleChangeMixin<T> {
+///   MyAdapter():super(
+///     ///
+///   );
+/// }
+mixin VisibleChangeMixin<T> on AbstractAdapter<T> {
+  @override
+  ListAdapter buildAdapter(ContextSys<T> ctx) {
+    return _wrapVisibleChange<T>(super.buildAdapter(ctx), ctx);
+  }
+}
+```
+####  _VisibleChangeState
+```dart
+class _VisibleChangeState extends State<_VisibleChangeWidget> {
+  @override
+  Widget build(BuildContext context) =>
+      widget.itemBuilder(context, widget.index);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.dispatch(LifecycleCreator.appear(widget.index));
+  }
+
+  @override
+  void dispose() {
+    widget.dispatch(LifecycleCreator.disappear(widget.index));
+    super.dispose();
+  }
+}
+```
+####  _VisibleChangeWidget
+```dart
+class _VisibleChangeWidget extends StatefulWidget {
+  final IndexedWidgetBuilder itemBuilder;
+  final int index;
+  final Dispatch dispatch;
+
+  const _VisibleChangeWidget({
+    Key key,
+    this.itemBuilder,
+    this.index,
+    this.dispatch,
+  }) : super(key: key);
+
+  @override
+  State<StatefulWidget> createState() => _VisibleChangeState();
+}
+
+ListAdapter _wrapVisibleChange<T>(
+  ListAdapter listAdapter,
+  LogicContext<T> ctx,
+) {
+  final _VisibleChangeDispatch onChange =
+      (ctx.extra['\$visible'] ??= _VisibleChangeDispatch(ctx.dispatch));
+
+  return listAdapter == null
+      ? null
+      : ListAdapter(
+          (BuildContext buildContext, int index) => _VisibleChangeWidget(
+            itemBuilder: listAdapter.itemBuilder,
+            index: index,
+            dispatch: onChange.onAction,
+            key: ValueKey<Tuple2<Object, int>>(Tuple2<Object, int>(ctx, index)),
+          ),
+          listAdapter.itemCount,
+        );
+}
+```
+#### _VisibleChangeDispatch
+```dart
+class _VisibleChangeDispatch extends AutoDispose {
+  int _appearsCount = 0;
+  final Dispatch dispatch;
+
+  _VisibleChangeDispatch(this.dispatch);
+
+  void onAction(Action action) {
+    if (action.type == Lifecycle.appear) {
+      assert(_appearsCount >= 0);
+      if (_appearsCount == 0) {
+        if (!isDisposed) {
+          dispatch(action);
+        }
+      }
+      _appearsCount++;
+    } else if (action.type == Lifecycle.disappear) {
+      _appearsCount--;
+      assert(_appearsCount >= 0);
+      if (_appearsCount == 0) {
+        if (!isDisposed) {
+          dispatch(action);
+        }
+      }
+    }
+  }
+}
+```
+
+
+
+### /widgets_biding_observer
+
+#### _WidgetsBindingObserverStfState
+
+```dart
+/// usage
+/// class MyComponent extends Component<T> with WidgetsBindingObserverMixin<T> {
+///   MyComponent():super(
+///     ///
+///   );
+/// }
+mixin WidgetsBindingObserverMixin<T> on Component<T> {
+  @override
+  _WidgetsBindingObserverStfState<T> createState() =>
+      _WidgetsBindingObserverStfState<T>();
+}
+
+class _WidgetsBindingObserverStfState<T> 
+    extends ComponentState<T>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    ctx.onLifecycle(LifecycleCreator.didChangeAppLifecycleState(state));
+  }
+}
+```
+
+
+
+
 
 ## Redux_MiddleWare
 
@@ -3172,6 +3645,42 @@ ViewMiddleware<T> safetyView<T>(
 ```
 
 
+
+## Redux_Routes
+
+### /page_routes
+
+```dart
+import 'package:flutter/widgets.dart';
+
+import '../redux_component/redux_component.dart';
+
+/// Define a basic behavior of routes.
+abstract class AbstractRoutes {
+  Widget buildPage(String path, dynamic arguments);
+}
+
+/// Each page has a unique store.
+@immutable
+class PageRoutes implements AbstractRoutes {
+  final Map<String, Page<Object, dynamic>> pages;
+
+  PageRoutes({
+    @required this.pages,
+
+    /// For common enhance
+    void Function(String, Page<Object, dynamic>) visitor,
+  }) : assert(pages != null, 'Expected the pages to be non-null value.') {
+    if (visitor != null) {
+      pages.forEach(visitor);
+    }
+  }
+
+  @override
+  Widget buildPage(String path, dynamic arguments) =>
+      pages[path]?.buildPage(arguments);
+}
+```
 
 
 
