@@ -442,8 +442,6 @@ abstract class MutableConn<T, P> implements AbstractConnector<T, P> {
 }
 ```
 
-
-
 ### /creatStore
 
 ```dart
@@ -554,9 +552,367 @@ StoreEnhancer<T> composeStoreEnhancer<T>(List<StoreEnhancer<T>> enhancers){
 
 
 
+## Redux_AOP
+
+fish_redux 的面向切面部分
+
+这个部分实现了对已有函数的修改（ApplyLikeEnhancer）
+
+### /common_aop
+
+#### aop
+
+```dart
+/// Function.apply 的实现如下
+/// external static apply(
+///    Function function, 
+///    List positionalArguments,
+///    [Map<Symbol, dynamic> namedArguments]
+/// );
+/// 即可以通过提供的 positionalArguments 和 namedArguments 来调用给定函数 function
+
+/// 函数调用器
+/// TypedApplyLike，通过指定的参数实现调用不同函数，这个函数返回指定类型结果
+typedef TypedApplyLike<R> = R Function(List<dynamic>, [Map<Symbol, dynamic>]);
+
+/// ApplyLike，通过指定的参数实现调用不同函数，这个函数返回指定结果
+typedef ApplyLike = dynamic Function(List<dynamic>, [Map<Symbol, dynamic>]);
+
+/// 函数AOP的统一抽象, 输入一个函数产出另一个增强版的函数
+typedef ApplyLikeEnhancer = ApplyLike Function(ApplyLike functor);
+
+/// 等价返回调用其
+ApplyLike _identity(ApplyLike f) => f;
+
+/// 组合两个 ApplyLikeEnhancer
+/// 被 enhances.reduce 使用，用以联合所有的enhancer
+ApplyLikeEnhancer _combine(ApplyLikeEnhancer e0, ApplyLikeEnhancer e1) =>
+    (ApplyLike f) => (e1 ?? _identity)((e0 ?? _identity)(f));
+
+/// 等价于：
+///  return (ApplyLike f){
+///    	if(e1 != null){
+///            if(e0 != null){
+///                return e1(e0(f));
+///            }else{
+///                return e1(_identity(f));  		// => e1(f)
+///            }
+///        }else{
+///            if(e0 != null){
+///                return _identity(e0(f));  		// => e0(f)
+///            }else{
+///                return _identity(_identity(f));  // => f
+///            }
+///        }
+///	}
+
+const ApplyLikeEnhancer ApplyLikeEnhancerIdentity = _identity;
+
+/// 用局部套用技术实现 AOP。
+/// (AOP): https://en.wikipedia.org/wiki/Aspect-oriented_programming
+/// (局部套用):https://en.wikipedia.org/wiki/Currying
+/// 过程
+/// 1.输入用户 [Function]
+/// 2.转换为 ApplyLike
+/// 3.添加一些修改（通过[ApplyLikeEnhancer])
+/// 4.得到新的(ApplyLike)
+/// 5.转换为(TypedApplyLike)
+/// 6.转换为用户 [Function]
+
+/// 封装面向切面的方法类
+class AOP {
+  final ApplyLikeEnhancer _enhancer;
+ 
+  AOP(List<ApplyLikeEnhancer> enhances)
+      : _enhancer = enhances?.isNotEmpty == true
+            /// 聚合的所有 ApplyLikeEnhancer ，最终返回一个 ApplyLikeEnhancer 聚合体
+            /// _enhancer(f) => en(...e2(e1(e0(f))))
+            ? enhances.reduce(_combine)
+            : ApplyLikeEnhancerIdentity;
+
+    
+  TypedApplyLike<R> enhance<R>(Function functor) {
+    /// 将 functor 转换为 ApplyLike
+    final ApplyLike init = (
+        	List<dynamic> positionalArguments,
+            [Map<Symbol, dynamic> namedArguments]
+    ) => Function.apply(functor, positionalArguments, namedArguments);
+
+    /// 修改 ApplyLike
+    final ApplyLike enhanced = _enhancer(init);
+
+    /// 如果没有被修改
+    if (init == enhanced) {
+      return null;
+    }
+
+    /// 将 ApplyLike 转换为 TypedApplyLike<R>
+    return (List<dynamic> positionalArguments,[Map<Symbol, dynamic> namedArguments]) {
+      final R result = enhanced(positionalArguments);
+      return result;
+    };
+  }
+
+  /// 适用于无参数的 functor 
+  /// 后面 1~6 依次类推  
+  R Function() withZero<R>(R Function() f) {
+    final TypedApplyLike<R> enhanced = enhance<R>(f);
+    return enhanced != null ? () => enhanced(<dynamic>[]) : f;
+  }
+
+  R Function(P) withOne<R, P>(R Function(P) f) {
+    final TypedApplyLike<R> enhanced = enhance<R>(f);
+    return enhanced != null ? (P p) => enhanced(<dynamic>[p]) : f;
+  }
+
+  R Function(P0, P1) withTwo<R, P0, P1>(R Function(P0, P1) f) {
+    final R Function(List<dynamic>) enhanced = enhance<R>(f);
+    return enhanced != null ? (P0 p0, P1 p1) => enhanced(<dynamic>[p0, p1]) : f;
+  }
+
+  R Function(P0, P1, P2) withThree<R, P0, P1, P2>(R Function(P0, P1, P2) f) {
+    final TypedApplyLike<R> enhanced = enhance<R>(f);
+    return enhanced != null
+        ? (P0 p0, P1 p1, P2 p2) => enhanced(<dynamic>[p0, p1, p2])
+        : f;
+  }
+
+  R Function(P0, P1, P2, P3) withFour<R, P0, P1, P2, P3>(
+      R Function(P0, P1, P2, P3) f) {
+    final TypedApplyLike<R> enhanced = enhance<R>(f);
+    return enhanced != null
+        ? (P0 p0, P1 p1, P2 p2, P3 p3) => enhanced(<dynamic>[p0, p1, p2, p3])
+        : f;
+  }
+
+  R Function(P0, P1, P2, P3, P4) withFive<R, P0, P1, P2, P3, P4>(
+      R Function(P0, P1, P2, P3, P4) f) {
+    final TypedApplyLike<R> enhanced = enhance<R>(f);
+    return enhanced != null
+        ? (P0 p0, P1 p1, P2 p2, P3 p3, P4 p4) =>
+            enhanced(<dynamic>[p0, p1, p2, p3, p4])
+        : f;
+  }
+
+  R Function(P0, P1, P2, P3, P4, P5) withSix<R, P0, P1, P2, P3, P4, P5>(
+      R Function(P0, P1, P2, P3, P4, P5) f) {
+    final TypedApplyLike<R> enhanced = enhance<R>(f);
+    return enhanced != null
+        ? (P0 p0, P1 p1, P2 p2, P3 p3, P4 p4, P5 p5) =>
+            enhanced(<dynamic>[p0, p1, p2, p3, p4, p5])
+        : f;
+  }
+}
+```
+
+#### debounce
+
+```dart
+/// 将一个 functor 修改为：
+/// 延迟 millis 后调用 functor
+/// 如果延迟期间 functor 再次被调用则会取消掉先前的调用
+ApplyLikeEnhancer debounce(int millis) {
+  return (dynamic Function(List<dynamic>) functor) {
+    int idGenerator = 0;
+    return (List<dynamic> positionalArguments,
+        [Map<Symbol, dynamic> namedArguments]) async {
+      final int newId = ++idGenerator;
+      await Future<void>.delayed(Duration(milliseconds: millis));
+      if (newId == idGenerator) {
+        return functor(positionalArguments);
+      }
+    };
+  };
+}
+
+```
+
+#### debug
+
+```dart
+bool _debugFlag = false;
+
+/// app 是否处于 debug mode.
+bool isDebug() {
+  /// 因为断言只在生产阶段启用，故利用断言来判断是否处于生产环境，把 flag 置为 true
+  assert(() {
+    _debugFlag = true;
+    return _debugFlag;
+  }());
+  return _debugFlag;
+}
+
+```
+
+#### delay
+
+```dart
+/// 将一个 functor 修改为 ：
+/// functor 会在延迟指定的时间后执行 
+ApplyLikeEnhancer delay(int millis) {
+ return (dynamic Function(List<dynamic>) functor) {
+   return (List<dynamic> positionalArguments,[Map<Symbol, dynamic> namedArguments])async{
+      await Future<void>.delayed(Duration(milliseconds: millis));
+      return functor(positionalArguments);
+   };
+ };
+}
+```
+
+#### log
+
+```dart
+/// 用于打印 functor 日志
+ApplyLikeEnhancer logAOP(String tag) {
+  /// 如果是 debug 模式下才会打印 functor 日志
+  /// 默认打印 函数的输入和输出  
+  return isDebug()
+    ? (dynamic Function(List<dynamic>) functor) {
+       return (List<dynamic> positionalArguments,[Map<Symbol, dynamic> namedArguments]) {
+         print('$tag input: $positionalArguments');
+         final Object result = functor(positionalArguments);
+         if (result is Future) {
+           result.then((Object r) {
+                print('$tag output <Future>: $r');
+                return r;
+           });
+         } else {
+           print('$tag output: $result');
+       	 }
+         return result;
+       };
+     }
+    : ApplyLikeEnhancerIdentity;
+}
+```
+
+#### menmoize
+
+```dart
+/// 用于判断两个 list 是否相等
+bool _listEquals<E>(List<E> list1, List<E> list2) {
+  if (identical(list1, list2)) {
+    return true;
+  }
+  if (list1 == null || list2 == null) {
+    return false;
+  }
+  final int length = list1.length;
+  if (length != list2.length) {
+    return false;
+  }
+  for (int i = 0; i < length; i++) {
+    if (list1[i] != list2[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/// 当调用的参数不发生改变时，记忆上次调用的返回值缓存
+ApplyLikeEnhancer memoize() {
+  return (dynamic Function(List<dynamic>) functor) {
+    List<dynamic> memoizeArguments;
+    dynamic memoizeResult;
+    bool hasBeenCalled = false;
+
+    return (List<dynamic> positionalArguments, [Map<Symbol, dynamic> namedArguments]) {
+      /// 这里用到了 || 运算符的阻断性，当 hasBeenCalled 为 true 时，不计算 !_listEquals 
+      if (!hasBeenCalled ||
+          !_listEquals<dynamic>(positionalArguments, memoizeArguments)) {
+        memoizeResult = functor(positionalArguments);
+        memoizeArguments = positionalArguments;
+        hasBeenCalled = true;
+      }
+	  /// 直接返回缓存值，免去调用	
+      return memoizeResult;
+    };
+  };
+}
+```
+
+#### performance
+
+```dart
+/// 返回当前时间距离（970-01-01T00:00:00）的微秒值
+int _microSecsSinceEpoch() => DateTime.now().microsecondsSinceEpoch;
+
+/// 计算一个函数消耗的时间
+ApplyLikeEnhancer performanceAOP(String tag) {
+  return isDebug()
+      ? (dynamic Function(List<dynamic>) functor) {
+          return (List<dynamic> positionalArguments,
+              [Map<Symbol, dynamic> namedArguments]) {
+            final int marked = DateTime.now().microsecondsSinceEpoch;
+            final Object result = functor(positionalArguments);
+            if (result is Future) {
+              result.then((Object r) {
+                print(
+                    '$tag performance <Future>: ${_microSecsSinceEpoch() - marked}');
+                return r;
+              });
+            } else {
+              print('$tag performance: ${_microSecsSinceEpoch() - marked}');
+            }
+            return result;
+          };
+        }
+      : ApplyLikeEnhancerIdentity;
+}
+```
+
+#### throttle
+
+```dart
+int _microSecsSinceEpoch() => DateTime.now().microsecondsSinceEpoch;
+
+/// 如果两次调用 functor 的时间小于 millis，则阻止其调用
+ApplyLikeEnhancer throttle(int millis) {
+  return (dynamic Function(List<dynamic>) functor) {
+    int last = 0;
+    return (List<dynamic> positionalArguments,[Map<Symbol, dynamic> namedArguments]) {
+      final int now = _microSecsSinceEpoch();
+      final int elapsed = now - last;
+      if (elapsed >= millis) {
+        last = now;
+        return functor(positionalArguments);
+      }
+    };
+  };
+}
+```
+
+#### wait_until
+
+```dart
+/// 将一个 functor 修改为：
+/// 当这个 functor（返回值为future） 被调用的时候，若再次调用这个 functor 会被取消，
+/// 直到上一个 functor完成
+ApplyLikeEnhancer waitUntil() {
+  return (dynamic Function(List<dynamic>) functor) {
+    bool isLocked = false;
+    return (List<dynamic> positionalArguments,
+        [Map<Symbol, dynamic> namedArguments]) {
+      if (isLocked) {
+        return null;
+      } else {
+        final Object result = functor(positionalArguments);
+        if (result is Future) {
+          isLocked = true;
+          return result.whenComplete(() {
+            isLocked = false;
+          });
+        }
+        return result;
+      }
+    };
+  };
+}
+```
+
+
+
 ## ReduxComponent
-
-
 
 ### /autoDispose
 
