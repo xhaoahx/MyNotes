@@ -1569,17 +1569,15 @@ Store<T> connectStores<T, K>(
 #### Component
 
 ```dart
-/// fish_redux/redux_component/component
-
 /// 用于包裹一个 widget
 /// e.g.
 /// WidgetWrapper wrapper =
 /// Widget buildRepaintBoundary(Widget child){
 ///		return RepaintBoundary(child: child);
 /// }
-
 typedef WidgetWrapper = Widget Function(Widget child);
 
+/// Component 的不可变的配置类
 @immutable
 abstract class Component<T> extends Logic<T> implements AbstractComponent<T> {
   final ViewBuilder<T> _view;
@@ -1677,8 +1675,7 @@ abstract class Component<T> extends Logic<T> implements AbstractComponent<T> {
 
   static ShouldUpdate<K> alwaysUpdate<K>() => (K _, K __) => true;
 
-  static ShouldUpdate<K> updateByDefault<K>() =>
-      (K _, K __) => !identical(_, __);
+  static ShouldUpdate<K> updateByDefault<K>() => (K _, K __) => !identical(_, __);
 
   static Widget _wrapperByDefault(Widget child) => child;
 
@@ -1700,6 +1697,7 @@ abstract class Component<T> extends Logic<T> implements AbstractComponent<T> {
 #### ComponenetWidget
 
 ```dart
+/// 配合 Route.buildComponent 使用，构建一个Component
 class ComponentWidget<T> extends StatefulWidget {
   final Component<T> component;
   final Store<Object> store;
@@ -1896,6 +1894,8 @@ abstract class LogicContext<T> extends ContextSys<T> with _ExtraMixin {
   @override
   dynamic dispatch(Action action) => _dispatch(action);
 
+  /// 通过指定的 name 获取到对应的 dependent，调用其 buildComponent 来获取一个 ComponentWidget
+  /// 其中 dependent 是 connector + logic,在 dependencies 中注册  
   @override
   Widget buildComponent(String name) {
     assert(name != null, 'The name must be NotNull for buildComponent.');
@@ -2095,7 +2095,8 @@ class ComponentContext<T>
 
 ```dart
 class Dependencies<T> {
-  /// 用于返回子 widget 模块的solots 
+  /// 用于返回子 componenet 模块的 solots,便于管理 component 并实现复用 
+  /// 其中 Dependent = AbstractConnector + AbstractLogic  
   final Map<String, Dependent<T>> slots;
   final Dependent<T> adapter;
 
@@ -2109,7 +2110,8 @@ class Dependencies<T> {
         'The dependent must contains adapter.'
   	   );
   
-  /// 调用所有的 Dependent 的 createSubReducer() 来创建一个 subs 列表
+  /// 调用所有的 Dependent 的 createSubReducer() 来创建一个 SubReducer 列表,合成一个 Ruducer
+  /// 即 Depenencies 的 Reducer 是由其 Dependent 的 reducer 组合而成的  
   Reducer<T> get reducer {
     final List<SubReducer<T>> subs = <SubReducer<T>>[];
     if (slots != null && slots.isNotEmpty) {
@@ -2125,6 +2127,7 @@ class Dependencies<T> {
     return combineReducers(<Reducer<T>>[combineSubReducers(subs)]);
   }
 
+  /// 获取一个 dependent   
   Dependent<T> slot(String type) => slots[type];
 }
 ```
@@ -2136,6 +2139,8 @@ class Dependencies<T> {
 ####  _Dependent
 
 ```dart
+/// Dependent 的实现类，这个类对于用户来说是不可见的
+/// Dependent 链接了 Connector 和 AbstractLogic(Componenet 或者 Adapter)
 class _Dependent<T, P> implements Dependent<T> {
   final AbstractConnector<T, P> connector;
   final AbstractLogic<P> logic;
@@ -2205,9 +2210,11 @@ class _Dependent<T, P> implements Dependent<T> {
   bool isAdapter() => logic is AbstractAdapter;
 }
 
+/// 构建 Dependet，使用私有类
 Dependent<K> createDependent<K, T>(
-        AbstractConnector<K, T> connector, AbstractLogic<T> logic) =>
-    logic != null ? _Dependent<K, T>(connector: connector, logic: logic) : null;
+    AbstractConnector<K, T> connector, 
+    AbstractLogic<T> logic
+) => logic != null ? _Dependent<K, T>(connector: connector, logic: logic) : null;
 ```
 
 
@@ -2223,6 +2230,7 @@ class DispatchBusDefault implements DispatchBus {
 
   final List<Dispatch> _dispatchList = <Dispatch>[];
   DispatchBus parent;
+  /// 这个方法是把自身的 dispatch 在父级中注册时获取的回调，可以将自身的 dispatch 在父级中注销  
   void Function() unregister;
 
   /// 无参数，无方法体的构造函数
@@ -2231,7 +2239,7 @@ class DispatchBusDefault implements DispatchBus {
   /// 添加父级  
   @override
   void attach(DispatchBus parent) {
-    this.parent = parent;
+    this.parent = parent;  
     unregister?.call();
     unregister = parent?.registerReceiver(dispatch);
   }
@@ -2256,7 +2264,7 @@ class DispatchBusDefault implements DispatchBus {
     }
   }
 
-  /// 广播，调用父级的 dispatch  
+  /// 广播，调用父级的 dispatch，不会调用自身的 dispatch  
   @override
   void broadcast(Action action, {DispatchBus excluded}) {
     parent?.dispatch(action, excluded: excluded?.dispatch);
@@ -2289,7 +2297,8 @@ class DispatchBusDefault implements DispatchBus {
 #### EnhancerDefault
 
 ```dart
-/// 默认实现的 enhancer
+/// 默认实现的 enhancer 集成类
+/// 提供 ViewMiddleware EffectMiddleware AdapterMiddleware 的修改默认实现
 class EnhancerDefault<T> implements Enhancer<T> {
   StoreEnhancer<T> _storeEnhancer;
   ViewMiddleware<T> _viewEnhancer;
@@ -2705,9 +2714,9 @@ abstract class Logic<T> implements AbstractLogic<T> {
 
   @override
   Reducer<T> get reducer => helper.filterReducer(
-      combineReducers<T>(
-          <Reducer<T>>[protectedReducer, protectedDependencies?.reducer]),
-      protectedFilter);
+      combineReducers<T>(<Reducer<T>>[protectedReducer, protectedDependencies?.reducer]),
+      protectedFilter
+  );
 
   @override
   Object onReducer(Object state, Action action) =>
@@ -2717,14 +2726,14 @@ abstract class Logic<T> implements AbstractLogic<T> {
   @override
   Dispatch createEffectDispatch(ContextSys<T> ctx, Enhancer<Object> enhancer) {
     return helper.createEffectDispatch<T>(
-
         /// enhance userEffect
         enhancer.effectEnhance(
           protectedEffect,
           this,
           ctx.store,
         ),
-        ctx);
+        ctx
+    );
   }
 
   @override
@@ -2736,8 +2745,7 @@ abstract class Logic<T> implements AbstractLogic<T> {
     Dispatch effectDispatch,
     Dispatch nextDispatch,
     Context<T> ctx,
-  ) =>
-      helper.createDispatch<T>(effectDispatch, nextDispatch, ctx);
+  ) => helper.createDispatch<T>(effectDispatch, nextDispatch, ctx);
 
   @override
   Object key(T state) => _key?.call(state) ?? ValueKey<Type>(runtimeType);
