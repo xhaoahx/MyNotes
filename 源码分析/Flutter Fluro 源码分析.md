@@ -16,6 +16,7 @@ enum RouteTreeNodeType {
   parameter,
 }
 
+/// 过渡类型
 enum TransitionType {
   native,
   nativeModal,
@@ -39,7 +40,7 @@ enum RouteMatchType {
 typedef Route<T> RouteCreator<T>(
     RouteSettings route, Map<String, List<String>> parameters);
 
-///
+/// 用于构建 widget 的 handler
 typedef Widget HandlerFunc(
     BuildContext context, Map<String, List<String>> parameters);
 
@@ -73,16 +74,23 @@ class Router {
   bool pop(BuildContext context) => Navigator.pop(context);
 
   ///
-  Future navigateTo(BuildContext context, String path,
+  Future navigateTo(
+      BuildContext context, 
+      String path,
       {bool replace = false,
       bool clearStack = false,
       TransitionType transition,
       Duration transitionDuration = const Duration(milliseconds: 250),
-      RouteTransitionsBuilder transitionBuilder}) {
-    RouteMatch routeMatch = matchRoute(context, path,
+      RouteTransitionsBuilder transitionBuilder}) 
+  {
+      
+   RouteMatch routeMatch = matchRoute(
+        context, 
+        path,
         transitionType: transition,
         transitionsBuilder: transitionBuilder,
-        transitionDuration: transitionDuration);
+        transitionDuration: transitionDuration
+    );
     Route<dynamic> route = routeMatch.route;
     Completer completer = Completer();
     Future future = completer.future;
