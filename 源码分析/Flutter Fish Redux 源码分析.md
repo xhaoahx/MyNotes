@@ -2763,23 +2763,25 @@ abstract class Logic<T> implements AbstractLogic<T> {
 ### /page
 
 ```dart
-/// init store's state by route-params
+/// 通过指定类型的参数 P 来创建起始 State
 typedef InitState<T, P> = T Function(P params);
 
 typedef StoreUpdater<T> = Store<T> Function(Store<T> store);
 ```
 #### Page
 ```dart
+/// !注意：这个Page其实是类似于 widget的配置描述，通过这个描述来创建 page widget
 @immutable
 abstract class Page<T, P> extends Component<T> {
-  /// AppBus is a event-bus used to communicate between pages.
+  /// AppBus 用于跨页面传递 Action
   final DispatchBus appBus = DispatchBusDefault.shared;
 
   final InitState<T, P> _initState;
-
+  
+  /// 提升器
   final Enhancer<T> enhancer;
 
-  /// connect with other stores
+  /// 连接到其他 store
   final List<StoreUpdater<T>> _storeUpdaters = <StoreUpdater<T>>[];
 
   Page({
@@ -2815,11 +2817,21 @@ abstract class Page<T, P> extends Component<T> {
           key: key,
         );
 
+  /// 构建一个页面	
+  /// 在router中：
+  /// onGenerateRoute(RouteSetting setting){
+  ///	switch(setting.name)
+  ///     case xxxx: return xxxxPage.buildPage(setting.param)
+  ///   ...
+  /// }
   Widget buildPage(P param) => protectedWrapper(_PageWidget<T, P>(
         page: this,
         param: param,
       ));
 
+  /// 传入 iniState 在这里被调用，产生这个页面的store 和初始 State
+  /// ！注意：这里通过调用 createBatchStore 来创建 store ，为 store 实现了主要的更新逻辑
+  /// 同时，还会组合并调用 storeUpdaters ，来更新这个页面
   Store<T> createStore(P param) => updateStore(createBatchStore<T>(
         _initState(param),
         reducer,
@@ -2832,7 +2844,7 @@ abstract class Page<T, P> extends Component<T> {
             element(previousValue),
       );
 
-  /// page-store connect with app-store
+  /// page-store 连接到 app-store （全局store）
   void connectExtraStore<K>(
     Store<K> extraStore,
 
@@ -2847,6 +2859,8 @@ abstract class Page<T, P> extends Component<T> {
 
   DispatchBus createPageBus() => DispatchBusDefault();
 
+  /// aop 部分，实际调用到 enhancer 内的附加 middleware 方法
+  /// 前插
   void unshift({
     List<Middleware<T>> middleware,
     List<ViewMiddleware<T>> viewMiddleware,
@@ -2861,6 +2875,7 @@ abstract class Page<T, P> extends Component<T> {
     );
   }
 
+  /// 后插
   void append({
     List<Middleware<T>> middleware,
     List<ViewMiddleware<T>> viewMiddleware,
@@ -2900,9 +2915,11 @@ class _PageState<T, P> extends State<_PageWidget<T, P>> {
 
   final Map<String, Object> extra = <String, Object>{};
 
+  /// 以下，当widget的生命周期发生变化的时候，会派发对应的 action
   @override
   void initState() {
     super.initState();
+    /// 在首次 build 阶段就初始化了 store 和 eventbus，并被这个 State 持有
     _store = widget.page.createStore(widget.param);
     _pageBus = widget.page.createPageBus();
   }
@@ -2923,6 +2940,7 @@ class _PageState<T, P> extends State<_PageWidget<T, P>> {
     //   child:
     // );
 
+    /// buildComponent 在 Component 中实现，通过 store、state、eventbus、和 enhancer 来构建widget
     return widget.page.buildComponent(
       _store,
       _store.getState,
