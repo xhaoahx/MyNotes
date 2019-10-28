@@ -78,7 +78,7 @@ Fish Redux 通过显式的表达组件之间的依赖关系，由框架自动完
 
 
 
-### 流程图
+### 流程
 
 [<img src="https://user-gold-cdn.xitu.io/2019/4/30/16a6d97f0a8365dc?imageslim" alt="img" style="zoom: 200%;" />](https://user-gold-cdn.xitu.io/2019/4/30/16a6d97f0a8365dc?imageslim)
 
@@ -138,7 +138,7 @@ typedef Reducer<T> = T Function(T state, Action action);
 typedef Dispatch = dynamic Function(Action action);
 
 /// subscription function 的标准定义
-/// 输入一个 subscriber ，产生 anti-subscription function
+/// 输入一个 需要被注册订阅的回调 ，产生取消订阅这个回调的函数 
 typedef Subscribe = void Function() Function(void Function() callback);
 
 /// ReplaceReducer 的定义
@@ -476,6 +476,7 @@ Store<T> _createStore<T>(final T preloadedState, final Reducer<T> reducer) {
   );
 
   final List<_VoidCallback> _listeners = <_VoidCallback>[];
+  /// 同步广播流  
   final StreamController<T> _notifyController =
       StreamController<T>.broadcast(sync: true);
 
@@ -484,20 +485,20 @@ Store<T> _createStore<T>(final T preloadedState, final Reducer<T> reducer) {
   bool _isDispatching = false;
   bool _isDisposed = false;
 
-  return Store<T>()
-    ..getState = (() => _state)
+  return Store<T>()  
+    ..getState = (() => _state) // () => preloadedState
     /// Store.dispatch 的具体实现  
     /// 当收到 Actions 的时候，调用如下函数  
     ..dispatch = (Action action) {
       _throwIfNot(action != null, 'Expected the action to be non-null value.');
-      _throwIfNot(action.type != null,
-          'Expected the action.type to be non-null value.');
+      _throwIfNot(
+          action.type != null,
+          'Expected the action.type to be non-null value.'
+      );
       /// 如果正处于分发阶段，抛出异常
       _throwIfNot(!_isDispatching, 'Reducers may not dispatch actions.');
 
-      if (_isDisposed) {
-        return;
-      }
+      if (_isDisposed) return;
 
       try {
         _isDispatching = true;
@@ -514,14 +515,14 @@ Store<T> _createStore<T>(final T preloadedState, final Reducer<T> reducer) {
       for (_VoidCallback listener in _notifyListeners) {
         listener();
       }
-
+	  /// 将改变后的 state 添加到流中	
       _notifyController.add(_state);
     }
     /// 替换现有的 reducer
     ..replaceReducer = (Reducer<T> replaceReducer) {
       _reducer = replaceReducer ?? _noop;
     }
-    /// 为该 store 添加一个 listener
+    /// 为该 store 添加一个 listener，并返回注销这个 istenenr 的函数
     ..subscribe = (_VoidCallback listener) {
       _throwIfNot(
         listener != null,
@@ -543,7 +544,9 @@ Store<T> _createStore<T>(final T preloadedState, final Reducer<T> reducer) {
         _listeners.remove(listener);
       };
     }
+    /// typedef observable = Stream Function()
     ..observable = (() => _notifyController.stream)
+    /// 类似于dispose    
     ..teardown = () {
       _isDisposed = true;
       _listeners.clear();
@@ -912,7 +915,7 @@ ApplyLikeEnhancer throttle(int millis) {
 ```dart
 /// 将一个 functor 修改为：
 /// 当这个 functor（返回值为future） 被调用的时候，若再次调用这个 functor 会被取消，
-/// 直到上一个 functor完成
+/// 直到上一个 functor 完成,类似于锁定
 ApplyLikeEnhancer waitUntil() {
   return (dynamic Function(List<dynamic>) functor) {
     bool isLocked = false;
@@ -939,6 +942,8 @@ ApplyLikeEnhancer waitUntil() {
 
 ## Redux_Component
 
+<img src = "https://camo.githubusercontent.com/3716d405a7771d53951f4cf0df44306e85d2d8df/68747470733a2f2f696d672e616c6963646e2e636f6d2f7466732f5442317354684d4a5976704b31526a535a467158586358555658612d313432362d3736322e706e67" style = "align = center"></img>
+
 ### /autoDispose
 
 #### _Fields
@@ -946,7 +951,9 @@ ApplyLikeEnhancer waitUntil() {
 ```dart
 class _Fields {
   bool isDisposed = false;
+  /// 孩子  
   Set<AutoDispose> children;
+  /// 父级  
   AutoDispose parent;
   void Function() onDisposed;
 }
@@ -1029,9 +1036,11 @@ class AutoDispose {
     _fields.parent = newParent;
   }
 
-  AutoDispose registerOnDisposed(void Function() o
-                                 nDisposed) 
-  	=> AutoDispose()..setParent(this)..onDisposed(onDisposed);
+  /// 为这个对象添加一个孩子  
+  AutoDispose registerOnDisposed(void Function() onDisposed) 
+   => AutoDispose()
+      ..setParent(this)
+      ..onDisposed(onDisposed);
 }
 ```
 
@@ -1182,7 +1191,7 @@ abstract class Enhancer<T> {
     Store<T> store,
   );
 
-  /// 函数  
+  /// 函数抽象  
   StoreCreator<T> storeEnhance(StoreCreator<T> creator);
 
   /// 前添加  
@@ -1214,7 +1223,7 @@ abstract class ExtraData {
 #### ViewService
 ```dart
 abstract class ViewService implements ExtraData {
-  /// 组装在 Dependencies.list 配置的adapter
+  /// 组装在 Dependencies.list 配置的 adapter
   ListAdapter buildAdapter();
 
   /// 组装在 Dependencies.slots 配置的 component
@@ -1223,10 +1232,10 @@ abstract class ViewService implements ExtraData {
   /// 从宿主 widget 中获取 Buildcontext
   BuildContext get context;
 
-  /// Broadcast action(the intent) in app (inter-pages)
+  /// 广播一个 Action
   void broadcast(Action action);
 
-  /// Broadcast in all component receivers;
+  /// 广播一个 Action，exclude 标识自身是否接受广播
   void broadcastEffect(Action action, {bool excluded});
 }
 ```
@@ -1241,14 +1250,14 @@ abstract class Context<T>
   /// 最近的一个state
   T get state;
 
-  /// 发送 action 的方法, actions 会被自身或者广播模块或者store接受并使用
+  /// 发送 action 的方法, actions 会被 自身 或者 广播模块 或者 store 接受并使用
   dynamic dispatch(Action action);
 
   /// 从宿主 widget 中获取 Buildcontext
   BuildContext get context;
 
-  /// In general, we should not need this field.
-  /// When we have to use this field, it means that we have encountered difficulties.
+  /// 通常来说，我们不需要使用到这一属性
+  /// 当我们必须使用这一属性时，意味着我们遇到了困境
   /// 这与 逻辑视图分离思想 和 flutter widget 树相矛盾
   ///
   /// How to use ?
@@ -1272,7 +1281,9 @@ abstract class Context<T>
   /// Broadcast in all component receivers;
   void broadcastEffect(Action action, {bool excluded});
 
-  /// add observable
+  /// 注册一个 Subscribe
+  /// typedef Subscribe = void Function() Function(void Function() callback); 
+  /// 其中，返回值是注销 callback 的函数  
   void Function() addObservable(Subscribe observable);
 
   void forceUpdate();
@@ -1296,21 +1307,26 @@ abstract class ContextSys<T>
   void onLifecycle(Action action);
 
   /// 绑定强制刷新  
+  /// 子类有实现：  bindForceUpdate（markneedsbuild -> setState）
   void bindForceUpdate(void Function() forceUpdate);
 
+  /// 获取 store   
   Store<dynamic> get store;
-
+  
   Enhancer<dynamic> get enhancer;
 
+  /// 事件（Action）派发控制  
   DispatchBus get bus;
 }
 ```
 #### Dependent
-```dart
-/// 呈现每个 Dependency
-abstract class Dependent<T> {
-  Get<Object> subGetter(Get<T> getter);
 
+```dart
+/// 呈现每个 Dependenct
+abstract class Dependent<T> {
+  /// 通过一个 getter 获取一个子 getter  
+  Get<Object> subGetter(Get<T> getter);
+  
   SubReducer<T> createSubReducer();
 
   Widget buildComponent(
@@ -1333,6 +1349,7 @@ abstract class Dependent<T> {
   });
 
   /// 是否是 component  
+  /// 修改：bool get isComponent  
   bool isComponent();
 
   /// 是否是 adapter  
@@ -1344,7 +1361,7 @@ abstract class Dependent<T> {
 /// 组件逻辑部分的封装
 /// 逻辑分为两个部分，Reducer 和 Effect。
 abstract class AbstractLogic<T> {
-  /// 创建一个 educer<T>
+  /// 获取这个 logic 的 reducer<T>
   Reducer<T> get reducer;
 
   /// To solve Reducer<Object> is neither a subtype nor a supertype of Reducer<T> issue.
@@ -1378,9 +1395,10 @@ abstract class AbstractLogic<T> {
   Object key(T state);
 
   /// 通过 name 找到一个依赖者
+  /// 重命名：getDependentBy(String name);  
   Dependent<T> slot(String name);
 
-  /// Get a adapter-dependent
+  /// 获取 adapter 依赖
   Dependent<T> adapterDep();
 
   Type get propertyType;
@@ -1390,7 +1408,7 @@ abstract class AbstractLogic<T> {
 ```dart
 /// component 的抽象
 abstract class AbstractComponent<T> implements AbstractLogic<T> {
-  /// 只添加了一个构造函数
+  /// 只添加了一个构造Componenet的函数
   Widget buildComponent(
     Store<Object> store,
     Get<T> getter, {
@@ -1406,14 +1424,16 @@ abstract class AbstractAdapter<T> implements AbstractLogic<T> {
   ListAdapter buildAdapter(ContextSys<T> ctx);
 }
 
-/// 因为主 reudecer 会因为多层 state 的创建而变得复杂
+/// 因为主 redecer 会因为多层 state 的创建而变得复杂
 /// 使用 ReducerFilter 来提升性能
+/// 通过返回一个 bool 值来决定 reducer 是否应该被调用
 typedef ReducerFilter<T> = bool Function(T state, Action action);
 ```
 
 #### DispatchBus
 ```dart
-/// 树状结构的节点？
+/// 树状结构的节点
+/// 可以跨层派发 Action
 abstract class DispatchBus {
   void attach(DispatchBus parent);
 
@@ -1444,7 +1464,7 @@ mixin _BatchNotify<T> on Store<T> {
     if (!_isSetupBatch) {
       _isSetupBatch = true;
       super.subscribe(_batch);
-
+	  /// 这个 subscribe 是 store 里的 subscribe
       subscribe = (void Function() callback) {
         assert(callback != null);
         _listeners.add(callback);
@@ -1455,16 +1475,19 @@ mixin _BatchNotify<T> on Store<T> {
     }
   }
 
+  /// 是否处于合适阶段
+  /// 不处于 persistentCallbacks 阶段，或者首次构建递归还未返回阶段  
   bool isInSuitablePhase() {
-    return SchedulerBinding.instance != null &&
-        SchedulerBinding.instance.schedulerPhase !=
-            SchedulerPhase.persistentCallbacks &&
-        !(SchedulerBinding.instance.schedulerPhase == SchedulerPhase.idle &&
-            WidgetsBinding.instance.renderViewElement == null);
+    return SchedulerBinding.instance != null 
+        && SchedulerBinding.instance.schedulerPhase != SchedulerPhase.persistentCallbacks 
+        && !(   SchedulerBinding.instance.schedulerPhase == SchedulerPhase.idle 
+             && WidgetsBinding.instance.renderViewElement == null);
   }
 
+  /// 这个方法会被注册到 store 中  
   void _batch() {
     if (!isInSuitablePhase()) {
+      /// 如果没有标记 _isBatching，则在帧尾回调这个方法（最终是要执行else块里的内容）  
       if (!_isBatching) {
         _isBatching = true;
         SchedulerBinding.instance.addPostFrameCallback((Duration duration) {
@@ -1475,15 +1498,14 @@ mixin _BatchNotify<T> on Store<T> {
       }
     } else {
       final T curState = getState();
+      /// 因为 store 可能重载了 == ，故，使用 indentical  
+      /// state 发生改变时，通知所有监听者  
       if (!identical(_prevState, curState)) {
         _prevState = curState;
 
-        final List<void Function()> notifyListeners = _listeners.toList(
-          growable: false,
-        );
-        for (void Function() listener in notifyListeners) {
-          listener();
-        }
+        final List<VoidcallBack> notifyListeners = _listeners.toList(growable: false);
+          
+        for (VoidCallback listener in notifyListeners) {listener();}
 
         _isBatching = false;
       }
@@ -1495,13 +1517,14 @@ mixin _BatchNotify<T> on Store<T> {
 ```dart
 class _BatchStore<T> extends Store<T> with _BatchNotify<T> {
   _BatchStore(Store<T> store) : assert(store != null) {
+    /// 以下为 store 里的域  
     getState = store.getState;
     subscribe = store.subscribe;
     replaceReducer = store.replaceReducer;
     dispatch = store.dispatch;
     observable = store.observable;
     teardown = store.teardown;
-
+	/// mixin 里的 setup
     setupBatch();
   }
 }
@@ -1512,28 +1535,26 @@ Store<T> createBatchStore<T>(
   T preloadedState,
   Reducer<T> reducer, {
   StoreEnhancer<T> storeEnhancer,
-}) =>
-    _BatchStore<T>(
-      createStore(
-        preloadedState,
-        _appendUpdateStateReducer<T>(reducer),
-        storeEnhancer,
-      ),
-    );
-
-/// connect with app-store
-
+}) => _BatchStore<T>(
+       /// createStore 会调用 _createStore
+       createStore(
+         preloadedState,
+         _appendUpdateStateReducer<T>(reducer),
+         storeEnhancer,
+       ),
+     );
 ```
 #### _appendUpdateStateReducer
 ```dart
 enum _UpdateState { Assign }
 
-// replace current state
+// 替换当前的 state
 Reducer<T> _appendUpdateStateReducer<T>(Reducer<T> reducer) =>
     (T state, Action action) => action.type == _UpdateState.Assign
         ? action.payload
         : reducer == null ? state : reducer(state, action);
 
+/// 连接主要的 store 和额外的 store
 Store<T> connectStores<T, K>(
   Store<T> mainStore,
   Store<K> extraStore,
@@ -1543,13 +1564,14 @@ Store<T> connectStores<T, K>(
     final T prevT = mainStore.getState();
     final T nextT = update(prevT, extraStore.getState());
     if (nextT != null && !identical(prevT, nextT)) {
+      /// 对 mainStore 派发 赋值Action  
       mainStore.dispatch(Action(_UpdateState.Assign, payload: nextT));
     }
   };
 
   final void Function() unsubscribe = extraStore.subscribe(subscriber);
 
-  /// should triggle once
+  /// 只应该被触发一次
   subscriber();
 
   final Future<dynamic> Function() superMainTD = mainStore.teardown;
@@ -1579,7 +1601,10 @@ typedef WidgetWrapper = Widget Function(Widget child);
 
 /// Component 的不可变的配置类
 @immutable
-abstract class Component<T> extends Logic<T> implements AbstractComponent<T> {
+abstract class Component<T> 
+    extends Logic<T> 
+    implements AbstractComponent<T> 
+{
   final ViewBuilder<T> _view;
   final ShouldUpdate<T> _shouldUpdate;
   final WidgetWrapper _wrapper;
@@ -1865,7 +1890,12 @@ abstract class LogicContext<T> extends ContextSys<T> with _ExtraMixin {
     ///
     _effectDispatch = logic.createEffectDispatch(this, enhancer);
 
-    /// create Dispatch
+    /// 将 _effectDispatch 和 NextDispatch 组装在一起：
+    /// Dispatch createNextDispatch<T>(ContextSys<T> ctx) => (Action action) {
+    ///  ctx.broadcastEffect(action);
+    ///  ctx.store.dispatch(action);
+    /// }; 
+    ///         
     _dispatch = logic.createDispatch(
       _effectDispatch,
       logic.createNextDispatch(
@@ -1875,7 +1905,8 @@ abstract class LogicContext<T> extends ContextSys<T> with _ExtraMixin {
       this,
     );
 
-    /// Register inter-component broadcast
+    /// 在 event_bus 中注册 _effectDispatch，产生一个注销函数
+    /// 再将这个注销函数        
     registerOnDisposed(bus.registerReceiver(_effectDispatch));
   }
 
@@ -2433,24 +2464,27 @@ class EnhancerDefault<T> implements Enhancer<T> {
 
 ### /helper
 
+提供一些方法的实现,和辅助方法
+
 ```dart
 AdapterBuilder<T> asAdapter<T>(ViewBuilder<T> view) {
   return (T unstableState, Dispatch dispatch, ViewService service) {
     final ContextSys<T> ctx = service;
     return ListAdapter(
-      (BuildContext buildContext, int index) =>
-          view(ctx.state, dispatch, service),
+      (BuildContext buildContext, int index) => view(ctx.state, dispatch, service),
       1,
     );
   };
 }
 
+/// 合并两个 Reducer
 Reducer<T> mergeReducers<T extends K, K>(Reducer<K> sup, [Reducer<T> sub]) {
   return (T state, Action action) {
     return sub?.call(sup(state, action), action) ?? sup(state, action);
   };
 }
 
+/// 合并两个 Effect
 Effect<T> mergeEffects<T extends K, K>(Effect<K> sup, [Effect<T> sub]) {
   return (Action action, Context<T> ctx) {
     return sub?.call(action, ctx) ?? sup.call(action, ctx);
@@ -2459,17 +2493,18 @@ Effect<T> mergeEffects<T extends K, K>(Effect<K> sup, [Effect<T> sub]) {
 
 /// combine & as
 /// for action.type which override it's == operator
-Reducer<T> asReducer<T>(Map<Object, Reducer<T>> map) => (map == null ||
-        map.isEmpty)
+Reducer<T> asReducer<T>(Map<Object, Reducer<T>> map){
+	return (map == null || map.isEmpty)
     ? null
-    : (T state, Action action) =>
-        map.entries
+    : (T state, Action action){
+        return (map.entries
             .firstWhere(
-                (MapEntry<Object, Reducer<T>> entry) =>
-                    action.type == entry.key,
-                orElse: () => null)
-            ?.value(state, action) ??
-        state;
+                (MapEntry<Object, Reducer<T>> entry) => action.type == entry.key,
+                orElse: () => null
+    		)
+            ?.value(state, action)) ?? state;
+    }
+}
 
 Reducer<T> filterReducer<T>(Reducer<T> reducer, ReducerFilter<T> filter) {
   return (reducer == null || filter == null)
@@ -2481,12 +2516,13 @@ Reducer<T> filterReducer<T>(Reducer<T> reducer, ReducerFilter<T> filter) {
 
 const Object _SUB_EFFECT_RETURN_NULL = Object();
 
+/// FutureOr<void> == Future<void> or void
 typedef SubEffect<T> = FutureOr<void> Function(Action action, Context<T> ctx);
 
 /// for action.type which override it's == operator
 /// return [UserEffecr]
-Effect<T> combineEffects<T>(Map<Object, SubEffect<T>> map) =>
-    (map == null || map.isEmpty)
+Effect<T> combineEffects<T>(Map<Object, SubEffect<T>> map){
+	return (map == null || map.isEmpty)
         ? null
         : (Action action, Context<T> ctx) {
             final SubEffect<T> subEffect = map.entries
@@ -2508,8 +2544,10 @@ Effect<T> combineEffects<T>(Map<Object, SubEffect<T>> map) =>
 
             /// no subEffect
             return null;
-          };
+         };
 
+}    
+    
 /// return [EffectDispatch]
 Dispatch createEffectDispatch<T>(Effect<T> userEffect, Context<T> ctx) {
   return (Action action) {
@@ -2526,20 +2564,20 @@ Dispatch createEffectDispatch<T>(Effect<T> userEffect, Context<T> ctx) {
 
 /// return [NextDispatch]
 Dispatch createNextDispatch<T>(ContextSys<T> ctx) => (Action action) {
-      ctx.broadcastEffect(action);
-      ctx.store.dispatch(action);
-    };
+    ctx.broadcastEffect(action);
+    ctx.store.dispatch(action);
+};
 
 /// return [Dispatch]
 Dispatch createDispatch<T>(Dispatch onEffect, Dispatch next, Context<T> ctx) =>
     (Action action) {
-      final Object result = onEffect?.call(action);
-      if (result == null || result == false) {
-        next(action);
-      }
-
-      return result == _SUB_EFFECT_RETURN_NULL ? null : result;
-    };
+        final Object result = onEffect?.call(action);
+    	/// 如果 effect 的返回值不为 ture 的话,这回触发 dispatch 向 store 发送 Actions
+        if (result == null || result == false) {
+            next(action);
+        }
+    	return result == _SUB_EFFECT_RETURN_NULL ? null : result;
+	};
 
 ViewMiddleware<T> mergeViewMiddleware<T>(List<ViewMiddleware<T>> middleware) {
   return Collections.reduce<ViewMiddleware<T>>(middleware,
@@ -2660,8 +2698,6 @@ class LifecycleCreator {
 #### Logic
 
 ```dart
-/// fish_redux/redux_component/logic
-
 /// 四个部分
 /// 1. Reducer 和 ReducerFilter
 /// 2. Effect
@@ -2700,14 +2736,16 @@ abstract class Logic<T> implements AbstractLogic<T> {
   @override
   Type get propertyType => T;
 
+  /// 判断 T 是否是 K 的超类  
   bool isSuperTypeof<K>() => Tuple0<K>() is Tuple0<T>;
 
+  /// 判读 T 是否是 K  
   bool isTypeof<K>() => Tuple0<T>() is Tuple0<K>;
 
   /// if
   /// _resultCache['key'] = null;
   /// then
-  /// _resultCache.containsKey('key') will be true;
+  /// _resultCache.containsKey('key') will be true; 
   R cache<R>(String key, Get<R> getter) => _resultCache.containsKey(key)
       ? _resultCache[key]
       : (_resultCache[key] = getter());
@@ -2720,8 +2758,8 @@ abstract class Logic<T> implements AbstractLogic<T> {
 
   @override
   Object onReducer(Object state, Action action) =>
-      cache<Reducer<T>>('onReducer', () => reducer)?.call(state, action) ??
-      state;
+      cache<Reducer<T>>('onReducer', () => reducer)?.call(state, action) 
+      ?? state;
 
   @override
   Dispatch createEffectDispatch(ContextSys<T> ctx, Enhancer<Object> enhancer) {
