@@ -2506,6 +2506,9 @@ Reducer<T> asReducer<T>(Map<Object, Reducer<T>> map){
     }
 }
 
+/// 通过给定的 reducer 和 fliter 来返回一个 reducer
+/// 如果 fliter 返回为真，那么返回的 reducer 会执行 传入的reducer
+/// 否则，返回的 reducer 直接返回 state
 Reducer<T> filterReducer<T>(Reducer<T> reducer, ReducerFilter<T> filter) {
   return (reducer == null || filter == null)
       ? reducer
@@ -2553,16 +2556,18 @@ Dispatch createEffectDispatch<T>(Effect<T> userEffect, Context<T> ctx) {
   return (Action action) {
     final Object result = userEffect?.call(action, ctx);
 
-    //skip-lifecycle-actions
+    // 跳过生命周期 action
+    // 当返回值是 null 或者 false 时，返回  
     if (action.type is Lifecycle && (result == null || result == false)) {
       return _SUB_EFFECT_RETURN_NULL;
     }
-
+	
+    // 接着传递 result
     return result;
   };
 }
 
-/// return [NextDispatch]
+/// 创建一个能够广播 action，并调用 store.dispatch 的 dispatch，
 Dispatch createNextDispatch<T>(ContextSys<T> ctx) => (Action action) {
     ctx.broadcastEffect(action);
     ctx.store.dispatch(action);
