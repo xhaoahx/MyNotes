@@ -78,122 +78,69 @@ abstract class Layer extends AbstractNode with DiagnosticableTreeMixin {
   @override
   ContainerLayer get parent => super.parent;
 
-  // Whether this layer has any changes since its last call to [addToScene].
+  // 该层自上次调用[addToScene]后是否有任何变化。
+  // 初始化为true，因为新层从未调用[addToScene]，在调用[addToScene]后设置为false。如果  
+  // [markNeedsAddToScene]被调用，或者[updateSubtreeNeedsAddToScene]在该层或在祖先层上被调用，则
+  // 该值可以再次变为true。
+  // 如果树中的每一层都满足以下条件，则表示树中[_needsAddToScene]的值是一致的:
   //
-  // Initialized to true as a new layer has never called [addToScene], and is
-  // set to false after calling [addToScene]. The value can become true again
-  // if [markNeedsAddToScene] is called, or when [updateSubtreeNeedsAddToScene]
-  // is called on this layer or on an ancestor layer.
+  // - 如果[alwaysNeedsAddToScene]为 true,则[_needsAddToScene]也是 true
+  // - 如果[_needsAddToScene]为 true 且[parent]非 null,则 `parent._needsAddToScene`为 true.
   //
-  // The values of [_needsAddToScene] in a tree of layers are said to be
-  // _consistent_ if every layer in the tree satisfies the following:
-  //
-  // - If [alwaysNeedsAddToScene] is true, then [_needsAddToScene] is also true.
-  // - If [_needsAddToScene] is true and [parent] is not null, then
-  //   `parent._needsAddToScene` is true.
-  //
-  // Typically, this value is set during the paint phase and during compositing.
-  // During the paint phase render objects create new layers and call
-  // [markNeedsAddToScene] on existing layers, causing this value to become
-  // true. After the paint phase the tree may be in an inconsistent state.
-  // During compositing [ContainerLayer.buildScene] first calls
-  // [updateSubtreeNeedsAddToScene] to bring this tree to a consistent state,
-  // then it calls [addToScene], and finally sets this field to false.
+  // 通常，这个值是在绘制阶段和合成期间设置的。
+  // 在绘制阶段，[RenderObject]创建新的层，并在现有层上调用[markNeedsAddToScene]，使这个值变为真。
+  // 在绘制阶段之后，树可能处于不一致的状态。
+  // 在合成阶段，[ContainerLayer.buildScene]首先调用[updateSubTreeNeedsAddToScene]使树达到一致
+  // 状态，然后调用[addToScene]，最后将该字段设置为 false。
   bool _needsAddToScene = true;
 
-  /// Mark that this layer has changed and [addToScene] needs to be called.
+  /// 标记这一层发生了改变，且[addToScene]需要被调用
   @protected
   @visibleForTesting
   void markNeedsAddToScene() {
-    assert(
-      !alwaysNeedsAddToScene,
-      '$runtimeType with alwaysNeedsAddToScene set called markNeedsAddToScene.\n'
-      'The layer\'s alwaysNeedsAddToScene is set to true, and therefore it should not call markNeedsAddToScene.',
-    );
-
-    // Already marked. Short-circuit.
     if (_needsAddToScene) {
       return;
     }
-
     _needsAddToScene = true;
   }
 
-  /// Mark that this layer is in sync with engine.
-  ///
-  /// This is for debugging and testing purposes only. In release builds
-  /// this method has no effect.
-  @visibleForTesting
-  void debugMarkClean() {
-    assert(() {
-      _needsAddToScene = false;
-      return true;
-    }());
-  }
-
-  /// Subclasses may override this to true to disable retained rendering.
+  /// 子类可以将此重写为 true 以禁用 维持渲染状态.
   @protected
   bool get alwaysNeedsAddToScene => false;
 
-  /// Whether this or any descendant layer in the subtree needs [addToScene].
+  /// 存储为这一层创建的引擎层，以便跨帧重用引擎资源以获得更好的应用程序性能。
+  ///   
+  /// 此值可以传递给[ui.SceneBuilder]，通知引擎这一层或它的任何后代都没有改变。
+  /// 例如，native 引擎可以重用在前一帧中呈现的纹理。
+  /// 例如，web 引擎可以重用为前一帧创建的HTML DOM节点。
   ///
-  /// This is for debug and test purpose only. It only becomes valid after
-  /// calling [updateSubtreeNeedsAddToScene].
-  @visibleForTesting
-  bool get debugSubtreeNeedsAddToScene {
-    bool result;
-    assert(() {
-      result = _needsAddToScene;
-      return true;
-    }());
-    return result;
-  }
-
-  /// Stores the engine layer created for this layer in order to reuse engine
-  /// resources across frames for better app performance.
-  ///
-  /// This value may be passed to [ui.SceneBuilder.addRetained] to communicate
-  /// to the engine that nothing in this layer or any of its descendants
-  /// changed. The native engine could, for example, reuse the texture rendered
-  /// in a previous frame. The web engine could, for example, reuse the HTML
-  /// DOM nodes created for a previous frame.
-  ///
-  /// This value may be passed as `oldLayer` argument to a "push" method to
-  /// communicate to the engine that a layer is updating a previously rendered
-  /// layer. The web engine could, for example, update the properties of
-  /// previously rendered HTML DOM nodes rather than creating new nodes.
+  /// 此值可以作为“oldLayer”参数传递给“push”方法，通知引擎某个层正在更新先前已经渲染的层。
+  /// 例如，web引擎可以更新以前呈现的HTML DOM节点的属性，而不是创建新节点。
   @protected
   ui.EngineLayer get engineLayer => _engineLayer;
 
-  /// Sets the engine layer used to render this layer.
+  /// 设置用于渲染该层的引擎层.
   ///
   /// Typically this field is set to the value returned by [addToScene], which
   /// in turn returns the engine layer produced by one of [ui.SceneBuilder]'s
   /// "push" methods, such as [ui.SceneBuilder.pushOpacity].
+  /// 通常，该字段被设置为[addToScene]返回的值，该字段随后返回由[ui.SceneBuilder]的“push”方法之一产
+  /// 生的引擎层，例如[ui.SceneBuilder.pushOpacity]。
+  /// OpacityEngineLayer pushOpacity(...){}  
   @protected
   set engineLayer(ui.EngineLayer value) {
     _engineLayer = value;
     if (!alwaysNeedsAddToScene) {
-      // The parent must construct a new engine layer to add this layer to, and
-      // so we mark it as needing [addToScene].
-      //
-      // This is designed to handle two situations:
-      //
-      // 1. When rendering the complete layer tree as normal. In this case we
-      // call child `addToScene` methods first, then we call `set engineLayer`
-      // for the parent. The children will call `markNeedsAddToScene` on the
-      // parent to signal that they produced new engine layers and therefore
-      // the parent needs to update. In this case, the parent is already adding
-      // itself to the scene via [addToScene], and so after it's done, its
-      // `set engineLayer` is called and it clears the `_needsAddToScene` flag.
-      //
-      // 2. When rendering an interior layer (e.g. `OffsetLayer.toImage`). In
-      // this case we call `addToScene` for one of the children but not the
-      // parent, i.e. we produce new engine layers for children but not for the
-      // parent. Here the children will mark the parent as needing
-      // `addToScene`, but the parent does not clear the flag until some future
-      // frame decides to render it, at which point the parent knows that it
-      // cannot retain its engine layer and will call `addToScene` again.
+      // 父类必须构造一个新的引擎层来添加这个层，因此我们将它标记为需要[addToScene]。
+	  // 这是为了处理两种情况:
+      // 1.当渲染完整的图层树时。在本例中，我们首先调用子节点的 addToScene 方法，然后调用 父节点的 set 
+      // engineLayer。子节点会在父节点上调用 markNeedsAddToScene 来表示它们产生了新的引擎层，因此
+      // 父节点需要被更新。在本例中，父类已经通过 [addToScene] 将自己添加到场景中，因此在它完成之后，它
+      // 的 set engineLayer  被调用，并清除 _needsAddToScene 标志。
+	  // 2.当渲染一个内层时(例如“OffsetLayer.toImage”)。在这种情况下，我们为其中一个子节点而不是父节 
+      // 点调用 addToScene ，也就是说，我们为子节点生成新引擎层，但不为父节点生成新引擎层。在这里，子节
+      // 点将标记父节点需要 addToScene ，但是父节点直到将来的某个帧决定渲染它时才清除标记，此时父节点知
+      // 道它不能保留它的引擎层并将再次调用“addToScene”.
       if (parent != null && !parent.alwaysNeedsAddToScene) {
         parent.markNeedsAddToScene();
       }
@@ -201,29 +148,28 @@ abstract class Layer extends AbstractNode with DiagnosticableTreeMixin {
   }
   ui.EngineLayer _engineLayer;
 
-  /// Traverses the layer subtree starting from this layer and determines whether it needs [addToScene].
+  /// 遍历这一层的子树并且决定它是否需要 [addToScene]
+  /// 当以下条件为真时，一个层需要 [addToScene]
   ///
-  /// A layer needs [addToScene] if any of the following is true:
+  /// 1. [alwaysNeedsAddToScene] is true.
+  /// 2. [markNeedsAddToScene] has been called.
+  /// 3. Any of its descendants need [addToScene].
   ///
-  /// - [alwaysNeedsAddToScene] is true.
-  /// - [markNeedsAddToScene] has been called.
-  /// - Any of its descendants need [addToScene].
-  ///
-  /// [ContainerLayer] overrides this method to recursively call it on its children.
+  /// [ContainerLayer] 重载了这个方法，递归地调用其子层的这个方法.
   @protected
   @visibleForTesting
   void updateSubtreeNeedsAddToScene() {
     _needsAddToScene = _needsAddToScene || alwaysNeedsAddToScene;
   }
 
-  /// This layer's next sibling in the parent layer's child list.
+  /// 以下提供了链表实现的兄弟节点管理方法
   Layer get nextSibling => _nextSibling;
   Layer _nextSibling;
 
-  /// This layer's previous sibling in the parent layer's child list.
   Layer get previousSibling => _previousSibling;
   Layer _previousSibling;
 
+  /// 当添加或者移除孩子节点的是否需要 markNeedsAddToScene() 
   @override
   void dropChild(AbstractNode child) {
     if (!alwaysNeedsAddToScene) {
@@ -240,50 +186,30 @@ abstract class Layer extends AbstractNode with DiagnosticableTreeMixin {
     super.adoptChild(child);
   }
 
-  /// Removes this layer from its parent layer's child list.
-  ///
-  /// This has no effect if the layer's parent is already null.
+  /// 将这个层从它的父节点的孩子列表中移除.
   @mustCallSuper
   void remove() {
     parent?._removeChild(this);
   }
 
-  /// Search this layer and its subtree for annotations of type `S` at the
-  /// location described by `localPosition`.
+  /// 在这一层及其子树中搜索“localPosition”描述的位置的“S”类型的注释。
   ///
-  /// This method is called by the default implementation of [find] and
-  /// [findAllAnnotations]. Override this method to customize how the layer
-  /// should search for annotations, or if the layer has its own annotations to
-  /// add.
+  /// 此方法由[find]和[findAllAnnotations]的默认实现调用。重写此方法以自定义该层如何搜索注释，或者该
+  /// 层是否要添加自己的注释。
   ///
-  /// The default implementation simply returns `false`, which means neither
-  /// the layer nor its children has annotations, and the annotation search
-  /// is not absorbed either (see below for explanation).
+  /// 默认实现只返回“false”，这意味着该层及其子层都没有注释，并且注释搜索也不会被吸收(参见下面的解释)。
   ///
-  /// ## About layer annotations
+  /// ## 关于层注释
   ///
   /// {@template flutter.rendering.layer.findAnnotations.aboutAnnotations}
-  /// An annotation is an optional object of any type that can be carried with a
-  /// layer. An annotation can be found at a location as long as the owner layer
-  /// contains the location and is walked to.
+  /// 注释是任何类型的可选对象，可以与层一起携带。只要所有者层包含位置并被步行到该位置，就可以在该位置找到
+  /// 注释。
   ///
-  /// The annotations are searched by first visiting each child recursively,
-  /// then this layer, resulting in an order from visually front to back.
-  /// Annotations must meet the given restrictions, such as type and position.
+  /// 通过先递归地访问每个子元素，最后时本层来搜索注释，从而形成从前面到后面的顺序。
+  /// 注释必须满足给定的限制，比如类型和位置。
   ///
-  /// The common way for a value to be found here is by pushing an
-  /// [AnnotatedRegionLayer] into the layer tree, or by adding the desired
-  /// annotation by overriding [findAnnotations].
-  /// {@endtemplate}
-  ///
-  /// ## Parameters and return value
-  ///
-  /// The [result] parameter is where the method outputs the resulting
-  /// annotations. New annotations found during the walk are added to the tail.
-  ///
-  /// The [onlyFirst] parameter indicates that, if true, the search will stop
-  /// when it finds the first qualified annotation; otherwise, it will walk the
-  /// entire subtree.
+  /// 在这里找到一个值的常用方法是将[AnnotatedRegionLayer]加入层树，或者通过重载[findannotation]来
+  /// 添加所需的注释。
   ///
   /// 返回值指示此层及其子树在此位置的不透明度。如果返回true，那么这一层的父层应该跳过这一层后面的子层。换
   /// 句话说，它对这种类型的注释是不透明的，并且吸收了搜索，因此它后面的兄弟姐妹不会知道搜索。如果返回值为
@@ -342,79 +268,45 @@ abstract class Layer extends AbstractNode with DiagnosticableTreeMixin {
     return result.entries.map((AnnotationEntry<S> entry) => entry.annotation);
   }
 
-  /// Search this layer and its subtree for all annotations of type `S` under
-  /// the point described by `localPosition`.
-  ///
-  /// Returns a result with empty entries if no matching annotations are found.
-  ///
-  /// By default this method simply calls [findAnnotations] with `onlyFirst:
-  /// false` and returns the annotations of its result. Prefer overriding
-  /// [findAnnotations] instead of this method, because during an annotation
-  /// search, only [findAnnotations] is recursively called, while custom
-  /// behavior in this method is ignored.
-  ///
-  /// ## About layer annotations
-  ///
-  /// {@macro flutter.rendering.layer.findAnnotations.aboutAnnotations}
-  ///
-  /// See also:
-  ///
-  ///  * [find], which is similar but returns the first annotation found at the
-  ///    given position.
-  ///  * [AnnotatedRegionLayer], for placing values in the layer tree.
+  /// 搜索这一层和它的子树，在' localPosition '描述的点下查找所有类型为' S '的注释。
+  /// 如果没有找到匹配的注释，则返回一个带有空条目的结果。
+  /// 默认情况下，这个方法简单地调用带有' onlyFirst: false '的[findannotation]，并返回其结果的注
+  /// 释。最好重写[findannotation]而不是这个方法，因为在注释搜索期间，只递归调用[findannotation]，而
+  /// 忽略此方法中的自定义行为。
   AnnotationResult<S> findAllAnnotations<S>(Offset localPosition) {
     final AnnotationResult<S> result = AnnotationResult<S>();
     findAnnotations<S>(result, localPosition, onlyFirst: false);
     return result;
   }
 
-  /// Override this method to upload this layer to the engine.
+  /// 重载这一方法将本 layer 上传给引擎
   ///
-  /// Return the engine layer for retained rendering. When there's no
-  /// corresponding engine layer, null is returned.
+  /// 返回保留渲染结果的引擎层。当没有相应的引擎层时，返回null。
   @protected
   void addToScene(ui.SceneBuilder builder, [ Offset layerOffset = Offset.zero ]);
 
   void _addToSceneWithRetainedRendering(ui.SceneBuilder builder) {
-    // There can't be a loop by adding a retained layer subtree whose
-    // _needsAddToScene is false.
-    //
-    // Proof by contradiction:
-    //
-    // If we introduce a loop, this retained layer must be appended to one of
-    // its descendant layers, say A. That means the child structure of A has
-    // changed so A's _needsAddToScene is true. This contradicts
-    // _needsAddToScene being false.
+    // 不可能通过添加一个保留层子树的_needsAddToScene为假来实现循环。
+    // 反证法:
+    // 如果我们引入一个循环，这个保留的层必须被附加到它的一个子代层，比如a。这意味着a的子结构已经改变，所
+    // 以a 的_needsAddToScene是真的。这与“必须是假的”相矛盾。
     if (!_needsAddToScene && _engineLayer != null) {
       builder.addRetained(_engineLayer);
       return;
     }
     addToScene(builder);
-    // Clearing the flag _after_ calling `addToScene`, not _before_. This is
-    // because `addToScene` calls children's `addToScene` methods, which may
-    // mark this layer as dirty.
     _needsAddToScene = false;
   }
-
-  /// The object responsible for creating this layer.
-  ///
-  /// Defaults to the value of [RenderObject.debugCreator] for the render object
-  /// that created this layer. Used in debug messages.
-  dynamic debugCreator;
-
-  @override
-  String toStringShort() => '${super.toStringShort()}${ owner == null ? " DETACHED" : ""}';
-
 }
 
 ```
-## PictureLayer
+
+
+## 1.PictureLayer（图片层）
+
 ```dart
-/// A composited layer containing a [Picture].
-///
-/// Picture layers are always leaves in the layer tree.
+/// 包含了 [Picture] 的合成层，总是层树的叶子节点
 class PictureLayer extends Layer {
-  /// Creates a leaf layer for the layer tree.
   PictureLayer(this.canvasBounds);
 
   /// The bounds that were used for the canvas that drew this layer's [picture].
@@ -427,10 +319,7 @@ class PictureLayer extends Layer {
 
   /// The picture recorded for this layer.
   ///
-  /// The picture's coordinate system matches this layer's coordinate system.
-  ///
-  /// The scene must be explicitly recomposited after this property is changed
-  /// (as described at [Layer]).
+  /// picture 的坐标系统符合层的坐标系统
   ui.Picture get picture => _picture;
   ui.Picture _picture;
   set picture(ui.Picture picture) {
@@ -438,14 +327,9 @@ class PictureLayer extends Layer {
     _picture = picture;
   }
 
-  /// Hints that the painting in this layer is complex and would benefit from
-  /// caching.
+  /// 提示此层中的绘制是十分复杂的，并将受益于缓存。
   ///
-  /// If this hint is not set, the compositor will apply its own heuristics to
-  /// decide whether the this layer is complex enough to benefit from caching.
-  ///
-  /// The scene must be explicitly recomposited after this property is changed
-  /// (as described at [Layer]).
+  /// 如果未设置此提示，则组合程序将应用自己的启发式方法来确定此层是否足够复杂，以便从缓存中获益。
   bool get isComplexHint => _isComplexHint;
   bool _isComplexHint = false;
   set isComplexHint(bool value) {
@@ -455,15 +339,10 @@ class PictureLayer extends Layer {
     }
   }
 
-  /// Hints that the painting in this layer is likely to change next frame.
+  /// 暗示这一层的绘制可能会改变下一帧。
   ///
-  /// This hint tells the compositor not to cache this layer because the cache
-  /// will not be used in the future. If this hint is not set, the compositor
-  /// will apply its own heuristics to decide whether this layer is likely to be
-  /// reused in the future.
-  ///
-  /// The scene must be explicitly recomposited after this property is changed
-  /// (as described at [Layer]).
+  /// 这个提示告诉合成程序不要缓存这一层，因为缓存在将来不会被使用。
+  /// 如果未设置此提示，则组合程序将应用自己的启发式方法来决定将来是否可能重用此层。
   bool get willChangeHint => _willChangeHint;
   bool _willChangeHint = false;
   set willChangeHint(bool value) {
@@ -475,54 +354,42 @@ class PictureLayer extends Layer {
 
   @override
   void addToScene(ui.SceneBuilder builder, [ Offset layerOffset = Offset.zero ]) {
-    builder.addPicture(layerOffset, picture, isComplexHint: isComplexHint, willChangeHint: willChangeHint);
-  }
-
-  @override
-  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
-    super.debugFillProperties(properties);
-    properties.add(DiagnosticsProperty<Rect>('paint bounds', canvasBounds));
+    builder.addPicture(
+        layerOffset, 
+        picture, 
+        isComplexHint: isComplexHint, 
+        willChangeHint: willChangeHint
+    );
   }
 
   @override
   @protected
-  bool findAnnotations<S>(AnnotationResult<S> result, Offset localPosition, { @required bool onlyFirst }) {
+  bool findAnnotations<S>(AnnotationResult<S> result, Offset localPosition, { 
+      @required bool onlyFirst 
+  }) {
     return false;
   }
 }
 ```
-## TextureLayer
+
+
+## 2.TextureLayer（纹理层）
+
 ```dart
-/// A composited layer that maps a backend texture to a rectangle.
+/// 将后台纹理映射到矩形的合成层
 ///
-/// Backend textures are images that can be applied (mapped) to an area of the
-/// Flutter view. They are created, managed, and updated using a
-/// platform-specific texture registry. This is typically done by a plugin
-/// that integrates with host platform video player, camera, or OpenGL APIs,
-/// or similar image sources.
+/// 后台纹理是可以应用(映射)到Flutter视图区域的图像。它们是使用特定于平台的纹理注册表创建、管理和更新的。
+/// 这通常由与 主机平台视频播放器、摄像机或OpenGL api或类似的图像源 集成的插件完成。
 ///
-/// A texture layer refers to its backend texture using an integer ID. Texture
-/// IDs are obtained from the texture registry and are scoped to the Flutter
-/// view. Texture IDs may be reused after deregistration, at the discretion
-/// of the registry. The use of texture IDs currently unknown to the registry
-/// will silently result in a blank rectangle.
+/// 纹理层使用一个整数ID来表示它的后台纹理。纹理ID从纹理注册表中获得，作用域设置为Flutter视图。纹理ID可
+/// 以在销毁后重新使用，由注册表决定。使用当前不为注册表中纹理id将导致一个空白矩形。
 ///
-/// Once inserted into the layer tree, texture layers are repainted autonomously
-/// as dictated by the backend (e.g. on arrival of a video frame). Such
-/// repainting generally does not involve executing Dart code.
+/// 一旦插入到层树中，纹理层就会根据后台指令自动重新绘制(例如在到达视频帧时)。
+/// 这种重绘通常不涉及执行Dart代码。
 ///
-/// Texture layers are always leaves in the layer tree.
-///
-/// See also:
-///
-///  * <https://api.flutter.dev/javadoc/io/flutter/view/TextureRegistry.html>
-///    for how to create and manage backend textures on Android.
-///  * <https://api.flutter.dev/objcdoc/Protocols/FlutterTextureRegistry.html>
-///    for how to create and manage backend textures on iOS.
+/// 纹理层总是层树的叶子节点
+
 class TextureLayer extends Layer {
-  /// Creates a texture layer bounded by [rect] and with backend texture
-  /// identified by [textureId], if [freeze] is true new texture frames will not be
-  /// populated to the texture.
   TextureLayer({
     @required this.rect,
     @required this.textureId,
@@ -530,19 +397,17 @@ class TextureLayer extends Layer {
   }) : assert(rect != null),
        assert(textureId != null);
 
-  /// Bounding rectangle of this layer.
+  /// 这层纹理的边界
   final Rect rect;
 
-  /// The identity of the backend texture.
+  /// 纹理ID
   final int textureId;
 
-  /// When true the texture that will not be updated with new frames.
-  ///
-  /// This is used when resizing an embedded  Android views: When resizing there
-  /// is a short period during which the framework cannot tell if the newest
-  /// texture frame has the previous or new size, to workaround this the
-  /// framework "freezes" the texture just before resizing the Android view and
-  /// un-freezes it when it is certain that a frame with the new size is ready.
+  /// 当为 true 时，纹理将不会被更新为新的帧。
+ 
+  /// 在调整嵌入式Android视图大小的时候使用:当调整大小时框架有一个短的期间不能确认最新的纹理帧具有是否有
+  /// 先前的或新的大小,为了解决这个问题，框架在调整Android视图的大小之前冻结它，并且在当一个确切的大小被
+  /// 确定之后解冻
   final bool freeze;
 
   @override
@@ -559,31 +424,25 @@ class TextureLayer extends Layer {
 
   @override
   @protected
-  bool findAnnotations<S>(AnnotationResult<S> result, Offset localPosition, { @required bool onlyFirst }) {
+  bool findAnnotations<S>(AnnotationResult<S> result, Offset localPosition, { 
+      @required bool onlyFirst }) {
     return false;
   }
 }
 ```
-## PlatformViewLayer
+## 3.PlatformViewLayer（平台视图层）
 ```dart
-/// A layer that shows an embedded [UIView](https://developer.apple.com/documentation/uikit/uiview)
-/// on iOS.
+/// 用于呈现内嵌的平台视图的层
 class PlatformViewLayer extends Layer {
-  /// Creates a platform view layer.
-  ///
-  /// The `rect` and `viewId` parameters must not be null.
+
   PlatformViewLayer({
     @required this.rect,
     @required this.viewId,
   }) : assert(rect != null),
        assert(viewId != null);
 
-  /// Bounding rectangle of this layer in the global coordinate space.
   final Rect rect;
 
-  /// The unique identifier of the UIView displayed on this layer.
-  ///
-  /// A UIView with this identifier must have been created by [PlatformViewsServices.initUiKitView].
   final int viewId;
 
   @override
@@ -604,12 +463,8 @@ class PlatformViewLayer extends Layer {
   }
 }
 ```
-## PerformanceOverlayLayer
+## 4.PerformanceOverlayLayer（性能展示图层层）
 ```dart
-/// A layer that indicates to the compositor that it should display
-/// certain performance statistics within it.
-///
-/// Performance overlay layers are always leaves in the layer tree.
 class PerformanceOverlayLayer extends Layer {
   /// Creates a layer that displays a performance overlay.
   PerformanceOverlayLayer({
@@ -682,67 +537,33 @@ class PerformanceOverlayLayer extends Layer {
   }
 }
 ```
-## CountainerLayer
+## 5.CountainerLayer（容器层）
 ```dart
-/// A composited layer that has a list of children.
+/// 拥有孩子列表的合成层
 ///
-/// A [ContainerLayer] instance merely takes a list of children and inserts them
-/// into the composited rendering in order. There are subclasses of
-/// [ContainerLayer] which apply more elaborate effects in the process.
+/// 一个[ContainerLayer]实例仅仅获取一组子元素并将它们按顺序插入到合成渲染中。
+/// [ContainerLayer]的子类在这个过程中应用更复杂的效果。
 class ContainerLayer extends Layer {
-  /// The first composited layer in this layer's child list.
+  /// 以下提供链表的管理方式  
   Layer get firstChild => _firstChild;
   Layer _firstChild;
 
-  /// The last composited layer in this layer's child list.
   Layer get lastChild => _lastChild;
   Layer _lastChild;
 
   /// Returns whether this layer has at least one child layer.
   bool get hasChildren => _firstChild != null;
 
-  /// Consider this layer as the root and build a scene (a tree of layers)
-  /// in the engine.
-  // The reason this method is in the `ContainerLayer` class rather than
-  // `PipelineOwner` or other singleton level is because this method can be used
-  // both to render the whole layer tree (e.g. a normal application frame) and
-  // to render a subtree (e.g. `OffsetLayer.toImage`).
+  /// 考虑将这个层作为层树的根，并在引擎中构建一个场景(一个层树)。
+  /// 这个方法是在“ContainerLayer”类而不是“PipelineOwner”或其他单例级别的原因是：这个方法既可以用来
+  /// 渲染整个层树(例如一个普通的应用程序框架)，也可以用来渲染一棵子树(例如“OffsetLayer.toImage”)。
   ui.Scene buildScene(ui.SceneBuilder builder) {
     List<PictureLayer> temporaryLayers;
-    assert(() {
-      if (debugCheckElevationsEnabled) {
-        temporaryLayers = _debugCheckElevations();
-      }
-      return true;
-    }());
     updateSubtreeNeedsAddToScene();
     addToScene(builder);
-    // Clearing the flag _after_ calling `addToScene`, not _before_. This is
-    // because `addToScene` calls children's `addToScene` methods, which may
-    // mark this layer as dirty.
     _needsAddToScene = false;
     final ui.Scene scene = builder.build();
     return scene;
-  }
-
-  bool _debugUltimatePreviousSiblingOf(Layer child, { Layer equals }) {
-    assert(child.attached == attached);
-    while (child.previousSibling != null) {
-      assert(child.previousSibling != child);
-      child = child.previousSibling;
-      assert(child.attached == attached);
-    }
-    return child == equals;
-  }
-
-  bool _debugUltimateNextSiblingOf(Layer child, { Layer equals }) {
-    assert(child.attached == attached);
-    while (child._nextSibling != null) {
-      assert(child._nextSibling != child);
-      child = child._nextSibling;
-      assert(child.attached == attached);
-    }
-    return child == equals;
   }
 
   PictureLayer _highlightConflictingLayer(PhysicalModelLayer child) {
@@ -765,80 +586,14 @@ class ContainerLayer extends Layer {
   }
 
   List<PictureLayer> _processConflictingPhysicalLayers(PhysicalModelLayer predecessor, PhysicalModelLayer child) {
-    FlutterError.reportError(FlutterErrorDetails(
-      exception: FlutterError('Painting order is out of order with respect to elevation.\n'
-                              'See https://api.flutter.dev/flutter/rendering/debugCheckElevationsEnabled.html '
-                              'for more details.'),
-      library: 'rendering library',
-      context: ErrorDescription('during compositing'),
-      informationCollector: () {
-        return <DiagnosticsNode>[
-          child.toDiagnosticsNode(name: 'Attempted to composite layer', style: DiagnosticsTreeStyle.errorProperty),
-          predecessor.toDiagnosticsNode(name: 'after layer', style: DiagnosticsTreeStyle.errorProperty),
-          ErrorDescription('which occupies the same area at a higher elevation.'),
-        ];
-      },
-    ));
     return <PictureLayer>[
       _highlightConflictingLayer(predecessor),
       _highlightConflictingLayer(child),
     ];
   }
 
-  /// Checks that no [PhysicalModelLayer] would paint after another overlapping
-  /// [PhysicalModelLayer] that has a higher elevation.
-  ///
-  /// Returns a list of [PictureLayer] objects it added to the tree to highlight
-  /// bad nodes. These layers should be removed from the tree after building the
-  /// [Scene].
-  List<PictureLayer> _debugCheckElevations() {
-    final List<PhysicalModelLayer> physicalModelLayers = depthFirstIterateChildren().whereType<PhysicalModelLayer>().toList();
-    final List<PictureLayer> addedLayers = <PictureLayer>[];
-
-    for (int i = 0; i < physicalModelLayers.length; i++) {
-      final PhysicalModelLayer physicalModelLayer = physicalModelLayers[i];
-      assert(
-        physicalModelLayer.lastChild?.debugCreator != physicalModelLayer,
-        'debugCheckElevations has either already visited this layer or failed '
-        'to remove the added picture from it.',
-      );
-      double accumulatedElevation = physicalModelLayer.elevation;
-      Layer ancestor = physicalModelLayer.parent;
-      while (ancestor != null) {
-        if (ancestor is PhysicalModelLayer) {
-          accumulatedElevation += ancestor.elevation;
-        }
-        ancestor = ancestor.parent;
-      }
-      for (int j = 0; j <= i; j++) {
-        final PhysicalModelLayer predecessor = physicalModelLayers[j];
-        double predecessorAccumulatedElevation = predecessor.elevation;
-        ancestor = predecessor.parent;
-        while (ancestor != null) {
-          if (ancestor == predecessor) {
-            continue;
-          }
-          if (ancestor is PhysicalModelLayer) {
-            predecessorAccumulatedElevation += ancestor.elevation;
-          }
-          ancestor = ancestor.parent;
-        }
-        if (predecessorAccumulatedElevation <= accumulatedElevation) {
-          continue;
-        }
-        final Path intersection = Path.combine(
-          PathOperation.intersect,
-          predecessor._debugTransformedClipPath,
-          physicalModelLayer._debugTransformedClipPath,
-        );
-        if (intersection != null && intersection.computeMetrics().any((ui.PathMetric metric) => metric.length > 0)) {
-          addedLayers.addAll(_processConflictingPhysicalLayers(predecessor, physicalModelLayer));
-        }
-      }
-    }
-    return addedLayers;
-  }
-
+  /// 先递归调用孩子节点的 updateSubtreeNeedsAddToScene
+  /// 当任何一个孩子节点的的 _needsAddToScene 为 true 时，标记自身的 _needsAddToScene
   @override
   void updateSubtreeNeedsAddToScene() {
     super.updateSubtreeNeedsAddToScene();
@@ -852,9 +607,12 @@ class ContainerLayer extends Layer {
 
   @override
   @protected
-  bool findAnnotations<S>(AnnotationResult<S> result, Offset localPosition, { @required bool onlyFirst }) {
+  bool findAnnotations<S>(AnnotationResult<S> result, Offset localPosition, { 
+      @required bool onlyFirst 
+  }) {
     for (Layer child = lastChild; child != null; child = child.previousSibling) {
-      final bool isAbsorbed = child.findAnnotations<S>(result, localPosition, onlyFirst: onlyFirst);
+      final bool isAbsorbed = 
+          child.findAnnotations<S>(result, localPosition, onlyFirst: onlyFirst);
       if (isAbsorbed)
         return true;
       if (onlyFirst && result.entries.isNotEmpty)
@@ -883,22 +641,8 @@ class ContainerLayer extends Layer {
     }
   }
 
-  /// Adds the given layer to the end of this layer's child list.
+  /// 增添子节点  
   void append(Layer child) {
-    assert(child != this);
-    assert(child != firstChild);
-    assert(child != lastChild);
-    assert(child.parent == null);
-    assert(!child.attached);
-    assert(child.nextSibling == null);
-    assert(child.previousSibling == null);
-    assert(() {
-      Layer node = this;
-      while (node.parent != null)
-        node = node.parent;
-      assert(node != child); // indicates we are about to create a cycle
-      return true;
-    }());
     adoptChild(child);
     child._previousSibling = lastChild;
     if (lastChild != null)
@@ -908,36 +652,22 @@ class ContainerLayer extends Layer {
     assert(child.attached == attached);
   }
 
-  // Implementation of [Layer.remove].
   void _removeChild(Layer child) {
-    assert(child.parent == this);
-    assert(child.attached == attached);
-    assert(_debugUltimatePreviousSiblingOf(child, equals: firstChild));
-    assert(_debugUltimateNextSiblingOf(child, equals: lastChild));
     if (child._previousSibling == null) {
-      assert(_firstChild == child);
       _firstChild = child._nextSibling;
     } else {
       child._previousSibling._nextSibling = child.nextSibling;
     }
     if (child._nextSibling == null) {
-      assert(lastChild == child);
       _lastChild = child.previousSibling;
     } else {
       child.nextSibling._previousSibling = child.previousSibling;
     }
-    assert((firstChild == null) == (lastChild == null));
-    assert(firstChild == null || firstChild.attached == attached);
-    assert(lastChild == null || lastChild.attached == attached);
-    assert(firstChild == null || _debugUltimateNextSiblingOf(firstChild, equals: lastChild));
-    assert(lastChild == null || _debugUltimatePreviousSiblingOf(lastChild, equals: firstChild));
     child._previousSibling = null;
     child._nextSibling = null;
     dropChild(child);
-    assert(!child.attached);
   }
 
-  /// Removes all of this layer's children from its child list.
   void removeAllChildren() {
     Layer child = firstChild;
     while (child != null) {
@@ -1050,7 +780,7 @@ class ContainerLayer extends Layer {
 }
 ```
 
-## OffsetLayer
+## 6.OffsetLayer（偏移层）
 ```dart
 /// A layer that is displayed at an offset from its parent layer.
 ///
@@ -1151,7 +881,7 @@ class OffsetLayer extends ContainerLayer {
   }
 }
 ```
-## ClipRectLayer
+## 7.ClipRectLayer（直角裁剪层）
 ```dart
 /// A composite layer that clips its children using a rectangle.
 ///
@@ -1233,7 +963,7 @@ class ClipRectLayer extends ContainerLayer {
   }
 }
 ```
-## ClipRRectLayer
+## 8.ClipRRectLayer（圆角裁剪层）
 ```dart
 /// A composite layer that clips its children using a rounded rectangle.
 ///
@@ -1309,7 +1039,7 @@ class ClipRRectLayer extends ContainerLayer {
   }
 }
 ```
-## ClipPathLayer
+## 9.ClipPathLayer（路径裁剪层）
 ```dart
 /// A composite layer that clips its children using a path.
 ///
@@ -1385,7 +1115,7 @@ class ClipPathLayer extends ContainerLayer {
   }
 }
 ```
-## ColorFilterLayer
+## 10.ColorFilterLayer（颜色过滤层）
 ```dart
 /// A composite layer that applies a [ColorFilter] to its children.
 class ColorFilterLayer extends ContainerLayer {
@@ -1426,7 +1156,7 @@ class ColorFilterLayer extends ContainerLayer {
   }
 }
 ```
-## TransformLayer
+## 11.TransformLayer（变换层）
 ```dart
 /// A composited layer that applies a given transformation matrix to its
 /// children.
@@ -1523,7 +1253,7 @@ class TransformLayer extends OffsetLayer {
   }
 }
 ```
-## OpacityLayer
+## 12.OpacityLayer（透明度层）
 ```dart
 /// A composited layer that makes its children partially transparent.
 ///
@@ -1677,7 +1407,7 @@ class ShaderMaskLayer extends ContainerLayer {
   }
 }
 ```
-## BackdropFilterLayer
+## 13.BackdropFilterLayer（背景过滤层）
 ```dart
 /// A composited layer that applies a filter to the existing contents of the scene.
 class BackdropFilterLayer extends ContainerLayer {
@@ -1709,7 +1439,7 @@ class BackdropFilterLayer extends ContainerLayer {
   }
 }
 ```
-## PhysicalModelLayer
+## 14.PhysicalModelLayer（物理模型层）
 ```dart
 /// A composited layer that uses a physical model to producing lighting effects.
 ///
@@ -1883,7 +1613,7 @@ class LayerLink {
   String toString() => '${describeIdentity(this)}(${ _leader != null ? "<linked>" : "<dangling>" })';
 }
 ```
-## LeaderLayer
+## 15.LeaderLayer（领导层）
 ```dart
 /// A composited layer that can be followed by a [FollowerLayer].
 ///
@@ -1980,7 +1710,7 @@ class LeaderLayer extends ContainerLayer {
   }
 }
 ```
-## FollowerLayer
+## 16.FollowerLayer（跟随层）
 ```dart
 /// A composited layer that applies a transformation matrix to its children such
 /// that they are positioned to match a [LeaderLayer].
@@ -2222,7 +1952,7 @@ class FollowerLayer extends ContainerLayer {
   }
 }
 ```
-## AnnotatedRegionLayer
+## 17.AnnotatedRegionLayer（注解范围层）
 ```dart
 /// A composited layer which annotates its children with a value. Pushing this
 /// layer to the tree is the common way of adding an annotation.
