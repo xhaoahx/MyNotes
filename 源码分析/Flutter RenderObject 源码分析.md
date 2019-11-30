@@ -71,6 +71,422 @@ class AbstractNode {
 }
 ```
 
+## PaintContext
+
+```dart
+/// 一个用于绘制的上下文
+///
+/// [RenderObject]的绘制使用一个[PaintingContext]，而不是直接持有[Canvas]。
+/// PaintingContext 有一个[Canvas]，它接收单独的绘制操作，还具有绘画子渲染对象的函数。
+///
+/// 绘制子渲染对象时，由绘制上下文所保持的画布可能会改变。
+/// 因为在绘制子渲染对象之前和之后发出的绘制操作可能被记录在独立（不同的）的合成层中。因此，不要在绘制子呈
+/// 现对象的操作之间持有对画布的引用。
+///
+/// 使用[PaintingContext.repaintCompositedChild]和[pushLayer]时会自动创建新的
+/// [PaintingContext]对象。
+class PaintingContext extends ClipContext {
+
+  @protected
+  PaintingContext(this._containerLayer, this.estimatedBounds)
+    : assert(_containerLayer != null),
+      assert(estimatedBounds != null);
+
+  final ContainerLayer _containerLayer;
+
+  /// 一个预测的 Rect，[canvas]将会在这个范围内记录绘制操作
+  ///
+  /// 可以在画布之外进行操作
+  ///
+  /// [estimatedBounds] 处于 [canvas] 的坐标系内
+  final Rect estimatedBounds;
+
+  /// 重绘一个给定的渲染对象
+  ///
+  /// 给定的渲染对象必须挂载了一个[PipelineOwner]，必须有一个合成层，并且必须需要绘制。
+  /// 渲染对象的层(如果有的话)和子树中不需要重新绘制的任何层一起被重用。
+  ///
+  static void repaintCompositedChild(
+      RenderObject child, {
+      bool debugAlsoPaintedParent = false 
+  }) {
+    _repaintCompositedChild(
+      child,
+      debugAlsoPaintedParent: debugAlsoPaintedParent,
+    );
+  }
+
+  static void _repaintCompositedChild(
+    RenderObject child, {
+    bool debugAlsoPaintedParent = false,
+    PaintingContext childContext,
+  }) {
+    OffsetLayer childLayer = child._layer;
+    if (childLayer == null) {
+      child._layer = childLayer = OffsetLayer();
+    } else {
+      childLayer.removeAllChildren();
+    }
+    /// 如果 childContext 为 null，则会新建一个 PaintingContext  
+    childContext ??= PaintingContext(child._layer, child.paintBounds);
+    child._paintWithContext(childContext, Offset.zero);
+    childContext.stopRecordingIfNeeded();
+  }
+
+  /// Paint a child [RenderObject].
+  ///
+  /// 如果子节点有自己的复合层，则子节点将被复合到与该关联的层子树中。
+  /// 否则，child 将被绘制到当前[PaintContext]的 PictureLayer中。
+  void paintChild(RenderObject child, Offset offset) {
+
+    if (child.isRepaintBoundary) {
+      // 停止绘制操作的录制  
+      stopRecordingIfNeeded();
+      // 开始合成  
+      _compositeChild(child, offset);
+    } else {
+      child._paintWithContext(this, offset);
+    }
+  }
+
+  void _compositeChild(RenderObject child, Offset offset) {
+
+    // Create a layer for our child, and paint the child into it.
+    if (child._needsPaint) {
+      repaintCompositedChild(child, debugAlsoPaintedParent: true);
+    } else {
+      assert(...); 
+    }
+    final OffsetLayer childOffsetLayer = child._layer;
+    childOffsetLayer.offset = offset;
+    appendLayer(child._layer);
+  }
+
+  /// Adds a layer to the recording requiring that the recording is already
+  /// stopped.
+  ///
+  /// Do not call this function directly: call [addLayer] or [pushLayer]
+  /// instead. This function is called internally when all layers not
+  /// generated from the [canvas] are added.
+  ///
+  /// Subclasses that need to customize how layers are added should override
+  /// this method.
+  @protected
+  void appendLayer(Layer layer) {
+    assert(!_isRecording);
+    layer.remove();
+    _containerLayer.append(layer);
+  }
+
+  bool get _isRecording {
+    final bool hasCanvas = _canvas != null;
+    return hasCanvas;
+  }
+
+  // 绘制操作的录制状态
+  PictureLayer _currentLayer;
+  ui.PictureRecorder _recorder;
+  Canvas _canvas;
+
+  /// 用于绘制的 canvas
+  ///
+  /// 当使用这个[PaintContext]绘制一个孩子时，当前画布可能更改，这意味着保存此getter返回的 Canvas 的
+  /// 引用是很脆弱的。
+  @override
+  Canvas get canvas {
+    if (_canvas == null)
+      _startRecording();
+    return _canvas;
+  }
+
+  void _startRecording() {
+    _currentLayer = PictureLayer(estimatedBounds);
+    _recorder = ui.PictureRecorder();
+    _canvas = Canvas(_recorder);
+    _containerLayer.append(_currentLayer);
+  }
+
+  /// Stop recording to a canvas if recording has started.
+  ///
+  /// Do not call this function directly: functions in this class will call
+  /// this method as needed. This function is called internally to ensure that
+  /// recording is stopped before adding layers or finalizing the results of a
+  /// paint.
+  ///
+  /// Subclasses that need to customize how recording to a canvas is performed
+  /// should override this method to save the results of the custom canvas
+  /// recordings.
+  @protected
+  @mustCallSuper
+  void stopRecordingIfNeeded() {
+    if (!_isRecording)
+      return;
+    _currentLayer.picture = _recorder.endRecording();
+    _currentLayer = null;
+    _recorder = null;
+    _canvas = null;
+  }
+
+  /// Hints that the painting in the current layer is complex and would benefit
+  /// from caching.
+  ///
+  /// If this hint is not set, the compositor will apply its own heuristics to
+  /// decide whether the current layer is complex enough to benefit from
+  /// caching.
+  void setIsComplexHint() {
+    _currentLayer?.isComplexHint = true;
+  }
+
+  /// Hints that the painting in the current layer is likely to change next frame.
+  ///
+  /// This hint tells the compositor not to cache the current layer because the
+  /// cache will not be used in the future. If this hint is not set, the
+  /// compositor will apply its own heuristics to decide whether the current
+  /// layer is likely to be reused in the future.
+  void setWillChangeHint() {
+    _currentLayer?.willChangeHint = true;
+  }
+
+  /// Adds a composited leaf layer to the recording.
+  ///
+  /// After calling this function, the [canvas] property will change to refer to
+  /// a new [Canvas] that draws on top of the given layer.
+  ///
+  /// A [RenderObject] that uses this function is very likely to require its
+  /// [RenderObject.alwaysNeedsCompositing] property to return true. That informs
+  /// ancestor render objects that this render object will include a composited
+  /// layer, which, for example, causes them to use composited clips.
+  ///
+  /// See also:
+  ///
+  ///  * [pushLayer], for adding a layer and using its canvas to paint with that
+  ///    layer.
+  void addLayer(Layer layer) {
+    stopRecordingIfNeeded();
+    appendLayer(layer);
+  }
+
+  /// Appends the given layer to the recording, and calls the `painter` callback
+  /// with that layer, providing the `childPaintBounds` as the estimated paint
+  /// bounds of the child. The `childPaintBounds` can be used for debugging but
+  /// have no effect on painting.
+  ///
+  /// The given layer must be an unattached orphan. (Providing a newly created
+  /// object, rather than reusing an existing layer, satisfies that
+  /// requirement.)
+  ///
+  /// The `offset` is the offset to pass to the `painter`.
+  ///
+  /// If the `childPaintBounds` are not specified then the current layer's paint
+  /// bounds are used. This is appropriate if the child layer does not apply any
+  /// transformation or clipping to its contents. The `childPaintBounds`, if
+  /// specified, must be in the coordinate system of the new layer, and should
+  /// not go outside the current layer's paint bounds.
+  ///
+  /// See also:
+  ///
+  ///  * [addLayer], for pushing a leaf layer whose canvas is not used.
+  void pushLayer(ContainerLayer childLayer, PaintingContextCallback painter, Offset offset, { Rect childPaintBounds }) {
+    assert(painter != null);
+    // If a layer is being reused, it may already contain children. We remove
+    // them so that `painter` can add children that are relevant for this frame.
+    if (childLayer.hasChildren) {
+      childLayer.removeAllChildren();
+    }
+    stopRecordingIfNeeded();
+    appendLayer(childLayer);
+    final PaintingContext childContext = createChildContext(childLayer, childPaintBounds ?? estimatedBounds);
+    painter(childContext, offset);
+    childContext.stopRecordingIfNeeded();
+  }
+
+  /// Creates a compatible painting context to paint onto [childLayer].
+  @protected
+  PaintingContext createChildContext(ContainerLayer childLayer, Rect bounds) {
+    return PaintingContext(childLayer, bounds);
+  }
+
+  /// Clip further painting using a rectangle.
+  ///
+  /// {@template flutter.rendering.object.needsCompositing}
+  /// * `needsCompositing` is whether the child needs compositing. Typically
+  ///   matches the value of [RenderObject.needsCompositing] for the caller. If
+  ///   false, this method returns null, indicating that a layer is no longer
+  ///   necessary. If a render object calling this method stores the `oldLayer`
+  ///   in its [RenderObject.layer] field, it should set that field to null.
+  /// {@end template}
+  /// * `offset` is the offset from the origin of the canvas' coordinate system
+  ///   to the origin of the caller's coordinate system.
+  /// * `clipRect` is rectangle (in the caller's coordinate system) to use to
+  ///   clip the painting done by [painter].
+  /// * `painter` is a callback that will paint with the [clipRect] applied. This
+  ///   function calls the [painter] synchronously.
+  /// * `clipBehavior` controls how the rectangle is clipped.
+  /// {@template flutter.rendering.object.oldLayer}
+  /// * `oldLayer` is the layer created in the previous frame. Specifying the
+  ///   old layer gives the engine more information for performance
+  ///   optimizations. Typically this is the value of [RenderObject.layer] that
+  ///   a render object creates once, then reuses for all subsequent frames
+  ///   until a layer is no longer needed (e.g. the render object no longer
+  ///   needs compositing) or until the render object changes the type of the
+  ///   layer (e.g. from opacity layer to a clip rect layer).
+  /// {@end template}
+  ClipRectLayer pushClipRect(bool needsCompositing, Offset offset, Rect clipRect, PaintingContextCallback painter, { Clip clipBehavior = Clip.hardEdge, ClipRectLayer oldLayer }) {
+    final Rect offsetClipRect = clipRect.shift(offset);
+    if (needsCompositing) {
+      final ClipRectLayer layer = oldLayer ?? ClipRectLayer();
+      layer
+        ..clipRect = offsetClipRect
+        ..clipBehavior = clipBehavior;
+      pushLayer(layer, painter, offset, childPaintBounds: offsetClipRect);
+      return layer;
+    } else {
+      clipRectAndPaint(offsetClipRect, clipBehavior, offsetClipRect, () => painter(this, offset));
+      return null;
+    }
+  }
+
+  /// Clip further painting using a rounded rectangle.
+  ///
+  /// {@macro flutter.rendering.object.needsCompositing}
+  /// * `offset` is the offset from the origin of the canvas' coordinate system
+  ///   to the origin of the caller's coordinate system.
+  /// * `bounds` is the region of the canvas (in the caller's coordinate system)
+  ///   into which `painter` will paint in.
+  /// * `clipRRect` is the rounded-rectangle (in the caller's coordinate system)
+  ///   to use to clip the painting done by `painter`.
+  /// * `painter` is a callback that will paint with the `clipRRect` applied. This
+  ///   function calls the `painter` synchronously.
+  /// * `clipBehavior` controls how the path is clipped.
+  /// {@macro flutter.rendering.object.oldLayer}
+  ClipRRectLayer pushClipRRect(bool needsCompositing, Offset offset, Rect bounds, RRect clipRRect, PaintingContextCallback painter, { Clip clipBehavior = Clip.antiAlias, ClipRRectLayer oldLayer }) {
+    assert(clipBehavior != null);
+    final Rect offsetBounds = bounds.shift(offset);
+    final RRect offsetClipRRect = clipRRect.shift(offset);
+    if (needsCompositing) {
+      final ClipRRectLayer layer = oldLayer ?? ClipRRectLayer();
+      layer
+        ..clipRRect = offsetClipRRect
+        ..clipBehavior = clipBehavior;
+      pushLayer(layer, painter, offset, childPaintBounds: offsetBounds);
+      return layer;
+    } else {
+      clipRRectAndPaint(offsetClipRRect, clipBehavior, offsetBounds, () => painter(this, offset));
+      return null;
+    }
+  }
+
+  /// Clip further painting using a path.
+  ///
+  /// {@macro flutter.rendering.object.needsCompositing}
+  /// * `offset` is the offset from the origin of the canvas' coordinate system
+  ///   to the origin of the caller's coordinate system.
+  /// * `bounds` is the region of the canvas (in the caller's coordinate system)
+  ///   into which `painter` will paint in.
+  /// * `clipPath` is the path (in the coordinate system of the caller) to use to
+  ///   clip the painting done by `painter`.
+  /// * `painter` is a callback that will paint with the `clipPath` applied. This
+  ///   function calls the `painter` synchronously.
+  /// * `clipBehavior` controls how the rounded rectangle is clipped.
+  /// {@macro flutter.rendering.object.oldLayer}
+  ClipPathLayer pushClipPath(bool needsCompositing, Offset offset, Rect bounds, Path clipPath, PaintingContextCallback painter, { Clip clipBehavior = Clip.antiAlias, ClipPathLayer oldLayer }) {
+    assert(clipBehavior != null);
+    final Rect offsetBounds = bounds.shift(offset);
+    final Path offsetClipPath = clipPath.shift(offset);
+    if (needsCompositing) {
+      final ClipPathLayer layer = oldLayer ?? ClipPathLayer();
+      layer
+        ..clipPath = offsetClipPath
+        ..clipBehavior = clipBehavior;
+      pushLayer(layer, painter, offset, childPaintBounds: offsetBounds);
+      return layer;
+    } else {
+      clipPathAndPaint(offsetClipPath, clipBehavior, offsetBounds, () => painter(this, offset));
+      return null;
+    }
+  }
+
+  /// Blend further painting with a color filter.
+  ///
+  /// * `offset` is the offset from the origin of the canvas' coordinate system
+  ///   to the origin of the caller's coordinate system.
+  /// * `colorFilter` is the [ColorFilter] value to use when blending the
+  ///   painting done by `painter`.
+  /// * `painter` is a callback that will paint with the `colorFilter` applied.
+  ///   This function calls the `painter` synchronously.
+  /// {@macro flutter.rendering.object.oldLayer}
+  ///
+  /// A [RenderObject] that uses this function is very likely to require its
+  /// [RenderObject.alwaysNeedsCompositing] property to return true. That informs
+  /// ancestor render objects that this render object will include a composited
+  /// layer, which, for example, causes them to use composited clips.
+  ColorFilterLayer pushColorFilter(Offset offset, ColorFilter colorFilter, PaintingContextCallback painter, { ColorFilterLayer oldLayer }) {
+    assert(colorFilter != null);
+    final ColorFilterLayer layer = oldLayer ?? ColorFilterLayer();
+    layer.colorFilter = colorFilter;
+    pushLayer(layer, painter, offset);
+    return layer;
+  }
+
+  /// Transform further painting using a matrix.
+  ///
+  /// {@macro flutter.rendering.object.needsCompositing}
+  /// * `offset` is the offset from the origin of the canvas' coordinate system
+  ///   to the origin of the caller's coordinate system.
+  /// * `transform` is the matrix to apply to the painting done by `painter`.
+  /// * `painter` is a callback that will paint with the `transform` applied. This
+  ///   function calls the `painter` synchronously.
+  /// {@macro flutter.rendering.object.oldLayer}
+  TransformLayer pushTransform(bool needsCompositing, Offset offset, Matrix4 transform, PaintingContextCallback painter, { TransformLayer oldLayer }) {
+    final Matrix4 effectiveTransform = Matrix4.translationValues(offset.dx, offset.dy, 0.0)
+      ..multiply(transform)..translate(-offset.dx, -offset.dy);
+    if (needsCompositing) {
+      final TransformLayer layer = oldLayer ?? TransformLayer();
+      layer.transform = effectiveTransform;
+      pushLayer(
+        layer,
+        painter,
+        offset,
+        childPaintBounds: MatrixUtils.inverseTransformRect(effectiveTransform, estimatedBounds),
+      );
+      return layer;
+    } else {
+      canvas
+        ..save()
+        ..transform(effectiveTransform.storage);
+      painter(this, offset);
+      canvas
+        ..restore();
+      return null;
+    }
+  }
+
+  /// Blend further painting with an alpha value.
+  ///
+  /// * `offset` is the offset from the origin of the canvas' coordinate system
+  ///   to the origin of the caller's coordinate system.
+  /// * `alpha` is the alpha value to use when blending the painting done by
+  ///   `painter`. An alpha value of 0 means the painting is fully transparent
+  ///   and an alpha value of 255 means the painting is fully opaque.
+  /// * `painter` is a callback that will paint with the `alpha` applied. This
+  ///   function calls the `painter` synchronously.
+  /// {@macro flutter.rendering.object.oldLayer}
+  ///
+  /// A [RenderObject] that uses this function is very likely to require its
+  /// [RenderObject.alwaysNeedsCompositing] property to return true. That informs
+  /// ancestor render objects that this render object will include a composited
+  /// layer, which, for example, causes them to use composited clips.
+  OpacityLayer pushOpacity(Offset offset, int alpha, PaintingContextCallback painter, { OpacityLayer oldLayer }) {
+    final OpacityLayer layer = oldLayer ?? OpacityLayer();
+    layer
+      ..alpha = alpha
+      ..offset = offset;
+    pushLayer(layer, painter, Offset.zero);
+    return layer;
+  }
+}
+```
+
 
 
 ## RenderObject
@@ -332,58 +748,31 @@ abstract class RenderObject
     }
     /// 更新 constraint  
     _constraints = constraints;
+    /// 如果 _relayoutBoundary 发生了变化，需要清空孩子节点的 _relayoutBoundary，并标记它们需要重
+    /// 新布局，之后它们的[layout]会设置自身的 _relayoutBoundary 
     if (_relayoutBoundary != null && relayoutBoundary != _relayoutBoundary) {
-      // The local relayout boundary has changed, must notify children in case
-      // they also need updating. Otherwise, they will be confused about what
-      // their actual relayout boundary is later.
       visitChildren((RenderObject child) {
         child._cleanRelayoutBoundary();
       });
     }
     _relayoutBoundary = relayoutBoundary;
+    /// 自身大小由父级决定  
     if (sizedByParent) {
-      assert(() {
-        _debugDoingThisResize = true;
-        return true;
-      }());
       try {
         performResize();
-        assert(() {
-          debugAssertDoesMeetConstraints();
-          return true;
-        }());
       } catch (e, stack) {
         _debugReportException('performResize', e, stack);
       }
-      assert(() {
-        _debugDoingThisResize = false;
-        return true;
-      }());
     }
-    RenderObject debugPreviousActiveLayout;
-    assert(() {
-      _debugDoingThisLayout = true;
-      debugPreviousActiveLayout = _debugActiveLayout;
-      _debugActiveLayout = this;
-      return true;
-    }());
     try {
+      /// 调用到 performLayout 进行实际的布局操作
       performLayout();
       markNeedsSemanticsUpdate();
-      assert(() {
-        debugAssertDoesMeetConstraints();
-        return true;
-      }());
     } catch (e, stack) {
       _debugReportException('performLayout', e, stack);
     }
-    assert(() {
-      _debugActiveLayout = debugPreviousActiveLayout;
-      _debugDoingThisLayout = false;
-      _debugMutationsLocked = false;
-      return true;
-    }());
     _needsLayout = false;
+    /// 标记需要绘制
     markNeedsPaint();
   }
 
@@ -394,20 +783,40 @@ abstract class RenderObject
   @protected
   bool get sizedByParent => false;
 
-  /// 只用constraint来更新渲染对象
+  /// 只用 constraint 来更新渲染对象
   ///
-  /// 子类设置[sizedByParent]为true，一定重载这个方法来计算他们的大小
+  /// 子类设置 [sizedByParent] 为 true，一定重载这个方法来计算他们的大小
   ///
-  /// 只在[sizedByParent]为true时调用这个方法
+  /// 只在 [sizedByParent] 为 true 时调用这个方法
     
   @protected
   void performResize();
 
-  /// 布局。必须在这个方法里调用所有孩子的layout（）
+  /// 完成这个节点的布局。
+  /// 如果[sizedByParent]为 true，那么这个函数不应该改变这个渲染对象的尺寸。相反，这些工作应该由
+  /// [performResize]来完成。
+  /// 如果[sizedByParent]是 false 的，那么这个函数应该改变渲染对象的尺寸，并命令它的子对象进行布局。
   @protected
   void performLayout();
 
-  ... /// 未实现的屏幕旋转
+ /// 允许对该对象的子列表(以及任何后代)以及渲染树中任何其他的 被与该相同的[PipelineOwner]所持有的 拥有 
+ /// 标记为 dirty 的节点进行更改。“callback” 函数是同步调用的，并且只允许在执行回调期间进行更改。
+ /// 
+ /// 它的存在是为了允许在布局过程中按需构建子列表(例如，基于对象的大小)，并允许节点在树中移动(例如，处理
+ /// [GlobalKey]重排序)，同时仍然确保任何特定节点在每一帧中只布局一次。
+ ///
+ /// 调用这个方法会禁用一些 debug 流程，因此，通常不建议调用这个方法
+ /// 这个方法只能在布局的时候被调用 
+ @protected
+  void invokeLayoutCallback<T extends Constraints>(LayoutCallback<T> callback) {
+    _doingThisLayoutWithCallback = true;
+    try {
+      owner._enableMutationsToDirtySubtrees(() { callback(constraints); });
+    } finally {
+      _doingThisLayoutWithCallback = false;
+    }
+  }
+  ... /// 未实现的渲染对象旋转
 ```
 
 ### Paint
@@ -416,35 +825,35 @@ abstract class RenderObject
 
   /// render object 是否与其父节点分开重绘
   ///
-  /// 设为true时，这个属性将会应用于这个节点及其所有后代
+  /// 在子类中重载它，用来说明子类的实例应该独立重新绘制。
+  /// 例如，频繁需要重新绘制的渲染对象可能希望自己重新绘制时不请求父节点的重新绘制。
+  /// 
+  /// 如果这个getter返回true， [paintBounds]将应用于这个对象和所有的后代。框架自动创建一个
+  /// [OffsetLayer] 并将其赋值给[layer]字段。
+  /// 将自身声明为重绘边界的渲染对象绝对不能替换框架创建的[OffsetLayer]，即不能修改[layer]。
   bool get isRepaintBoundary => false;
 
   /// 这个渲染对象是否总是需要合成。
   ///
-  /// 在子类中重写这个函数，表示终使用paint函数创建至少一个复合层。
-  /// 例如，视频如果使用硬件解码器，应该返回ture
+  /// 在子类中重写它，以表示 paint 函数始终创建至少一个合成层。
+  /// 例如，如果使用硬件解码器，应该返回true。
   ///
-  /// 如果这个getter的值被修改，必须调用[markNeedsCompositingBitsUpdate]，
+  /// 如果这个getter的值被修改，必须调用[markNeedsCompositingBitsUpdate]
   @protected
   bool get alwaysNeedsCompositing => false;
 
-  /// The compositing layer that this render object uses to repaint.
+  /// 这个渲染对象由于重绘的合成层
   ///
-  /// If this render object is not a repaint boundary, it is the responsibility
-  /// of the [paint] method to populate this field. If [needsCompositing] is
-  /// true, this field may be populated with the root-most layer used by the
-  /// render object implementation. When repainting, instead of creating a new
-  /// layer the render object may update the layer stored in this field for better
-  /// performance. It is also OK to leave this field as null and create a new
-  /// layer on every repaint, but without the performance benefit. If
-  /// [needsCompositing] is false, this field must be set to null either by
-  /// never populating this field, or by setting it to null when the value of
-  /// [needsCompositing] changes from true to false.
+  /// 如果此呈现对象不是重绘边界，则[paint]方法负责填充此字段。
+  /// 
+  /// 如果[needsCompositing]为 true，那么这个字段可能由渲染对象的实现使用的最靠近树的根的层来填充。重
+  /// 新绘制时，渲染对象可能会更新存储在该字段中的层，而不是创建新层，以获得更好的性能。将该字段保留为 
+  /// null 并在每次重绘时创建一个新层也是可行的，但是没有性能上的收益。
+  /// 如果[needsCompositing]为 false，则必须将该字段设置为 null。方法是永远不填充该字段，或者在
+  /// [needsCompositing]的值从 true 变为 false 时将其设置为 null。
   ///
-  /// If this render object is a repaint boundary, the framework automatically
-  /// creates an [OffsetLayer] and populates this field prior to calling the
-  /// [paint] method. The [paint] method must not replace the value of this
-  /// field.
+  /// 如果这个渲染对象不是一个重绘边界，那么框架会自动创建一个[OffsetLayer]并在调用[paint]方法之前填充
+  /// 这个字段。paint方法不能替换该字段的值。
   @protected
   ContainerLayer get layer {
     assert(!isRepaintBoundary || (_layer == null || _layer is OffsetLayer));
@@ -461,25 +870,21 @@ abstract class RenderObject
     );
     _layer = newLayer;
   }
+  /// 只能是 ContainerLayer
   ContainerLayer _layer;
 
-  bool _needsCompositingBitsUpdate = false; // set to true when a child is added
-  /// Mark the compositing state for this render object as dirty.
+  bool _needsCompositingBitsUpdate = false; // 当一个孩子被添加的时候设置为 true
+
+  /// 标记这个渲染对象的合成状态为 dirty
   ///
-  /// This is called to indicate that the value for [needsCompositing] needs to
-  /// be recomputed during the next [PipelineOwner.flushCompositingBits] engine
-  /// phase.
+  /// 调用它是为了指示需要在下一个[needsCompositing]需要在下一次
+  /// [PipelineOwner.flushCompositingBits]期间重新计算。
   ///
-  /// When the subtree is mutated, we need to recompute our
-  /// [needsCompositing] bit, and some of our ancestors need to do the
-  /// same (in case ours changed in a way that will change theirs). To
-  /// this end, [adoptChild] and [dropChild] call this method, and, as
-  /// necessary, this method calls the parent's, etc, walking up the
-  /// tree to mark all the nodes that need updating.
+  /// 当子树发生变化时，我们需要重新计算[needsCompositing]位，一些祖先也需要做同样的事情(以防变化会改
+  /// 变他们的状态)。为此，[adoptChild]和[dropChild]会调用这个方法。
+  /// 必要时，这个方法调用父节点的这个方法，等等，遍历树以标记所有需要更新的节点。
   ///
-  /// This method does not schedule a rendering frame, because since
-  /// it cannot be the case that _only_ the compositing bits changed,
-  /// something else will have scheduled a frame for us.
+  /// 这个方法不调度渲染帧，因为它不能只改变合成位，其他的实现会为调度一个帧。
   void markNeedsCompositingBitsUpdate() {
     if (_needsCompositingBitsUpdate)
       return;
@@ -488,28 +893,34 @@ abstract class RenderObject
       final RenderObject parent = this.parent;
       if (parent._needsCompositingBitsUpdate)
         return;
+      // 如果自身不是重绘边界或者父节点不是重绘边界，则需要调用父节点的 
+      // markNeedsCompositingBitsUpdate
       if (!isRepaintBoundary && !parent.isRepaintBoundary) {
         parent.markNeedsCompositingBitsUpdate();
         return;
       }
     }
-    // parent is fine (or there isn't one), but we are dirty
+    // 把自身加入 owner 的 _nodesNeedingCompositingBitsUpdate 中
     if (owner != null)
       owner._nodesNeedingCompositingBitsUpdate.add(this);
   }
 
-  bool _needsCompositing; // initialized in the constructor
+  // 构造函数中 _needsCompositing = isRepaintBoundary || alwaysNeedsCompositing;
+  // 即当自身是重绘边界或者总是需要合成（至少创建一个合成层）的时候，在首次构建即为true
+  bool _needsCompositing; 
   /// Whether we or one of our descendants has a compositing layer.
   ///
   /// If this node needs compositing as indicated by this bit, then all ancestor
   /// nodes will also need compositing.
   ///
-  /// Only legal to call after [PipelineOwner.flushLayout] and
-  /// [PipelineOwner.flushCompositingBits] have been called.
+  /// 只在 [PipelineOwner.flushLayout] 和 [PipelineOwner.flushCompositingBits] 被调用后有效
   bool get needsCompositing {
     return _needsCompositing;
   }
 
+  /// PipelineOwner 通过调用其 _nodesneedsCompositingBitsUpdate 列表内的每个渲染对象的
+  /// _updateCompositingBits 来检查那个渲染对象和它的子树是否需要合成。当需要合成的时候，会调用渲染对
+  /// 象的 markNeedsPaint
   void _updateCompositingBits() {
     if (!_needsCompositingBitsUpdate)
       return;
@@ -526,137 +937,77 @@ abstract class RenderObject
       markNeedsPaint();
     _needsCompositingBitsUpdate = false;
   }
-
-  bool _needsPaint = true;
   
-  /// 初始标记为true  
+  /// 初始标记为 true  
   bool _needsPaint = true;
 
-  /// Mark this render object as having changed its visual appearance.
+  /// 标记这个渲染对象改变了他的视觉外观
   ///
-  /// Rather than eagerly updating this render object's display list
-  /// in response to writes, we instead mark the render object as needing to
-  /// paint, which schedules a visual update. As part of the visual update, the
-  /// rendering pipeline will give this render object an opportunity to update
-  /// its display list.
-  ///
-  /// This mechanism batches the painting work so that multiple sequential
-  /// writes are coalesced, removing redundant computation.
-  ///
-  /// Once [markNeedsPaint] has been called on a render object,
-  /// [debugNeedsPaint] returns true for that render object until just after
-  /// the pipeline owner has called [paint] on the render object.
-  ///
-  /// See also:
-  ///
-  ///  * [RepaintBoundary], to scope a subtree of render objects to their own
-  ///    layer, thus limiting the number of nodes that [markNeedsPaint] must mark
-  ///    dirty.
+  /// 同 [markNeedsLayout]，这个方法是一种懒作用的。
   void markNeedsPaint() {
-    assert(owner == null || !owner.debugDoingPaint);
     if (_needsPaint)
       return;
     _needsPaint = true;
+    // 如果自身是重绘边界的话，把自身加入到 PipelineOwner 的 _nodesNeedingPaint 列表中
+    // 并请求一次视觉更新  
     if (isRepaintBoundary) {
       if (owner != null) {
         owner._nodesNeedingPaint.add(this);
         owner.requestVisualUpdate();
       }
+    // 否则，如果父级是渲染对象（即不是根节点的话），调用父节点 markNeedsPaint() 
     } else if (parent is RenderObject) {
-      // We don't have our own layer; one of our ancestors will take
-      // care of updating the layer we're in and when they do that
-      // we'll get our paint() method called.
+      // 这个渲染对象没有自己的图层;它的的一个祖先会负责更新这个渲染对象所在的层
+      // 当他们这样做时，这个渲染对象会调用 paint 方法。
       assert(_layer == null);
       final RenderObject parent = this.parent;
       parent.markNeedsPaint();
       assert(parent == this.parent);
     } else {
-      // If we're the root of the render tree (probably a RenderView),
-      // then we have to paint ourselves, since nobody else can paint
-      // us. We don't add ourselves to _nodesNeedingPaint in this
-      // case, because the root is always told to paint regardless.
+      // 这里是渲染对象树的根节点(可能是一个 renderView)，因此这个渲染对象的paint总是会被调用
+      // 把自身加入到 PipelineOwner 的 _nodesNeedingPaint 列表中  
       if (owner != null)
         owner.requestVisualUpdate();
     }
   }
 
-  // Called when flushPaint() tries to make us paint but our layer is detached.
-  // To make sure that our subtree is repainted when it's finally reattached,
-  // even in the case where some ancestor layer is itself never marked dirty, we
-  // have to mark our entire detached subtree as dirty and needing to be
-  // repainted. That way, we'll eventually be repainted.
+  /// 调用时，flushPaint 试图绘制这个节点，但图层还没有被装载。
+  /// 为了确保我们的子树在最后重新连接时被重新绘制，即使在某些祖先层本身没有被标记为dirty的情况下，我们也
+  /// 必须将整个分离的子树标记为脏的，并且需要重新绘制。那样的话，我们最终会被重新绘制
   void _skippedPaintingOnLayer() {
-    assert(attached);
-    assert(isRepaintBoundary);
-    assert(_needsPaint);
-    assert(_layer != null);
-    assert(!_layer.attached);
     AbstractNode ancestor = parent;
     while (ancestor is RenderObject) {
       final RenderObject node = ancestor;
       if (node.isRepaintBoundary) {
         if (node._layer == null)
-          break; // looks like the subtree here has never been painted. let it handle itself.
+          break; 
         if (node._layer.attached)
-          break; // it's the one that detached us, so it's the one that will decide to repaint us.
+          break; 
+        /// 将绘制边界的 _needsPaint 设置为 true，则其子树会被重绘   
         node._needsPaint = true;
       }
       ancestor = node.parent;
     }
   }
 
-  /// Bootstrap the rendering pipeline by scheduling the very first paint.
-  ///
-  /// Requires that this render object is attached, is the root of the render
-  /// tree, and has a composited layer.
-  ///
-  /// See [RenderView] for an example of how this function is used.
+  /// 通过调度第一次绘制来引导渲染流水线。
+  /// 需要这个渲染对象满足： 1.已经挂载 2.是渲染树的根 3.并且有一个合成层。
   void scheduleInitialPaint(ContainerLayer rootLayer) {
-    assert(rootLayer.attached);
-    assert(attached);
-    assert(parent is! RenderObject);
-    assert(!owner._debugDoingPaint);
-    assert(isRepaintBoundary);
-    assert(_layer == null);
     _layer = rootLayer;
-    assert(_needsPaint);
     owner._nodesNeedingPaint.add(this);
   }
 
-  /// Replace the layer. This is only valid for the root of a render
-  /// object subtree (whatever object [scheduleInitialPaint] was
-  /// called on).
+  /// 替换合成层，
   ///
-  /// This might be called if, e.g., the device pixel ratio changed.
+  /// 可能在设备像素比发生变化的时候调用
   void replaceRootLayer(OffsetLayer rootLayer) {
-    assert(rootLayer.attached);
-    assert(attached);
-    assert(parent is! RenderObject);
-    assert(!owner._debugDoingPaint);
-    assert(isRepaintBoundary);
-    assert(_layer != null); // use scheduleInitialPaint the first time
     _layer.detach();
     _layer = rootLayer;
     markNeedsPaint();
   }
 
+  /// 这个方法会调用paint方法
   void _paintWithContext(PaintingContext context, Offset offset) {
-    assert(() {
-      if (_debugDoingThisPaint) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('Tried to paint a RenderObject reentrantly.'),
-          describeForError(
-            'The following RenderObject was already being painted when it was '
-            'painted again'
-          ),
-          ErrorDescription(
-            'Since this typically indicates an infinite recursion, it is '
-            'disallowed.'
-          )
-        ]);
-      }
-      return true;
-    }());
     // If we still need layout, then that means that we were skipped in the
     // layout phase and therefore don't need painting. We might not know that
     // yet (that is, our layer might not have been detached yet), because the
@@ -666,51 +1017,13 @@ abstract class RenderObject
     // a different layer, because there's a repaint boundary between us.
     if (_needsLayout)
       return;
-    assert(() {
-      if (_needsCompositingBitsUpdate) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary(
-            'Tried to paint a RenderObject before its compositing bits were '
-            'updated.'
-          ),
-          describeForError(
-            'The following RenderObject was marked as having dirty compositing '
-            'bits at the time that it was painted',
-          ),
-          ErrorDescription(
-            'A RenderObject that still has dirty compositing bits cannot be '
-            'painted because this indicates that the tree has not yet been '
-            'properly configured for creating the layer tree.'
-          ),
-          ErrorHint(
-            'This usually indicates an error in the Flutter framework itself.'
-          )
-        ]);
-      }
-      return true;
-    }());
     RenderObject debugLastActivePaint;
-    assert(() {
-      _debugDoingThisPaint = true;
-      debugLastActivePaint = _debugActivePaint;
-      _debugActivePaint = this;
-      assert(!isRepaintBoundary || _layer != null);
-      return true;
-    }());
     _needsPaint = false;
     try {
       paint(context, offset);
-      assert(!_needsLayout); // check that the paint() method didn't mark us dirty again
-      assert(!_needsPaint); // check that the paint() method didn't mark us dirty again
     } catch (e, stack) {
       _debugReportException('paint', e, stack);
     }
-    assert(() {
-      debugPaint(context, offset);
-      _debugActivePaint = debugLastActivePaint;
-      _debugDoingThisPaint = false;
-      return true;
-    }());
   }
 
   /// An estimate of the bounds within which this render object will paint.
@@ -723,23 +1036,16 @@ abstract class RenderObject
   /// Override this method to paint debugging information.
   void debugPaint(PaintingContext context, Offset offset) { }
 
-  /// Paint this render object into the given context at the given offset.
+  /// 以给定的偏移量将此渲染对象绘制到给定的上下文中。
   ///
-  /// Subclasses should override this method to provide a visual appearance
-  /// for themselves. The render object's local coordinate system is
-  /// axis-aligned with the coordinate system of the context's canvas and the
-  /// render object's local origin (i.e, x=0 and y=0) is placed at the given
-  /// offset in the context's canvas.
+  /// 子类应该重载这个方法来展现它们的视觉外观
   ///
-  /// Do not call this function directly. If you wish to paint yourself, call
-  /// [markNeedsPaint] instead to schedule a call to this function. If you wish
-  /// to paint one of your children, call [PaintingContext.paintChild] on the
-  /// given `context`.
+  /// 这个方法不应该被直接调用
+  /// 如果需要绘制自身，调用 [markNeedsPaint]
+  /// 如果需要绘制孩子，调用 [PaintingContext.paintChild]
   ///
-  /// When painting one of your children (via a paint child function on the
-  /// given context), the current canvas held by the context might change
-  /// because draw operations before and after painting children might need to
-  /// be recorded on separate compositing layers.
+  /// 当绘制一个孩子(通过给定上下文中的paint child函数)时，当前由上下文中持有的画布可能会改变。
+  /// 因为绘制前后的绘制操作可能需要在单独的合成层上记录
   void paint(PaintingContext context, Offset offset) { }
 
   /// Applies the transform that would be applied when painting the given child
@@ -764,7 +1070,6 @@ abstract class RenderObject
   /// logical pixels. To get physical pixels, use [applyPaintTransform] from the
   /// [RenderView] to further transform the coordinate.
   Matrix4 getTransformTo(RenderObject ancestor) {
-    assert(attached);
     if (ancestor == null) {
       final AbstractNode rootNode = owner.rootNode;
       if (rootNode is RenderObject)
@@ -772,7 +1077,6 @@ abstract class RenderObject
     }
     final List<RenderObject> renderers = <RenderObject>[];
     for (RenderObject renderer = this; renderer != ancestor; renderer = renderer.parent) {
-      assert(renderer != null); // Failed to find ancestor in parent chain.
       renderers.add(renderer);
     }
     final Matrix4 transform = Matrix4.identity();
@@ -814,7 +1118,9 @@ abstract class RenderObject
   /// the viewport scrolls implicitly when moving the accessibility focus from
   /// a the last visible node in the viewport to the first hidden one.
   Rect describeSemanticsClip(covariant RenderObject child) => null;
-
+```
+### Semantics
+```dart
   // SEMANTICS
 
   /// Bootstrap the semantics reporting mechanism by marking this node
@@ -1155,22 +1461,23 @@ abstract class RenderObject
     assert(node == _semantics);
     node.updateWith(config: config, childrenInInversePaintOrder: children);
   }
-
+```
+### Event
+```dart
   // EVENTS
 
-  /// Override this method to handle pointer events that hit this render object.
+  /// 重载这个方法来处理点击在这个渲染对象上的点击事件
   @override
   void handleEvent(PointerEvent event, covariant HitTestEntry entry) { }
-
-
+```
+### Hit Testing
+```dart
   // HIT TESTING
 
-  // RenderObject subclasses are expected to have a method like the following
-  // (with the signature being whatever passes for coordinates for this
-  // particular class):
+  // 渲染对象子类应该实现如下和方法：
   //
   // bool hitTest(HitTestResult result, { Offset position }) {
-  //   // If the given position is not inside this node, then return false.
+  //   // 如果给定的 position 不在 这个渲染对象节点之内，返回 false.
   //   // Otherwise:
   //   // For each child that intersects the position, in z-order starting from
   //   // the top, call hitTest() for that child, passing it /result/, and the
@@ -1181,113 +1488,12 @@ abstract class RenderObject
   //
   // If you add yourself to /result/ and still return false, then that means you
   // will see events but so will objects below you.
-
-
-  /// Returns a human understandable name.
-  @override
-  String toStringShort() {
-    String header = describeIdentity(this);
-    if (_relayoutBoundary != null && _relayoutBoundary != this) {
-      int count = 1;
-      RenderObject target = parent;
-      while (target != null && target != _relayoutBoundary) {
-        target = target.parent;
-        count += 1;
-      }
-      header += ' relayoutBoundary=up$count';
-    }
-    if (_needsLayout)
-      header += ' NEEDS-LAYOUT';
-    if (_needsPaint)
-      header += ' NEEDS-PAINT';
-    if (_needsCompositingBitsUpdate)
-      header += ' NEEDS-COMPOSITING-BITS-UPDATE';
-    if (!attached)
-      header += ' DETACHED';
-    return header;
-  }
-
-  @override
-  String toString({ DiagnosticLevel minLevel = DiagnosticLevel.debug }) => toStringShort();
-
-  /// Returns a description of the tree rooted at this node.
-  /// If the prefix argument is provided, then every line in the output
-  /// will be prefixed by that string.
-  @override
-  String toStringDeep({
-    String prefixLineOne = '',
-    String prefixOtherLines = '',
-    DiagnosticLevel minLevel = DiagnosticLevel.debug,
-  }) {
-    RenderObject debugPreviousActiveLayout;
-    assert(() {
-      debugPreviousActiveLayout = _debugActiveLayout;
-      _debugActiveLayout = null;
-      return true;
-    }());
-    final String result = super.toStringDeep(
-      prefixLineOne: prefixLineOne,
-      prefixOtherLines: prefixOtherLines,
-      minLevel: minLevel,
-    );
-    assert(() {
-      _debugActiveLayout = debugPreviousActiveLayout;
-      return true;
-    }());
-    return result;
-  }
-
-  /// Returns a one-line detailed description of the render object.
-  /// This description is often somewhat long.
+```
+### Other
+```dart
+  /// 尝试让这个或者部分后代 [RenderObject] 节点出现在屏幕上
   ///
-  /// This includes the same information for this RenderObject as given by
-  /// [toStringDeep], but does not recurse to any children.
-  @override
-  String toStringShallow({
-    String joiner = ', ',
-    DiagnosticLevel minLevel = DiagnosticLevel.debug,
-  }) {
-    RenderObject debugPreviousActiveLayout;
-    assert(() {
-      debugPreviousActiveLayout = _debugActiveLayout;
-      _debugActiveLayout = null;
-      return true;
-    }());
-    final String result = super.toStringShallow(joiner: joiner, minLevel: minLevel);
-    assert(() {
-      _debugActiveLayout = debugPreviousActiveLayout;
-      return true;
-    }());
-    return result;
-  }
-
-  @protected
-  @override
-  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
-    super.debugFillProperties(properties);
-    properties.add(FlagProperty('needsCompositing', value: _needsCompositing, ifTrue: 'needs compositing'));
-    properties.add(DiagnosticsProperty<dynamic>('creator', debugCreator, defaultValue: null, level: DiagnosticLevel.debug));
-    properties.add(DiagnosticsProperty<ParentData>('parentData', parentData, tooltip: _debugCanParentUseSize == true ? 'can use size' : null, missingIfNull: true));
-    properties.add(DiagnosticsProperty<Constraints>('constraints', constraints, missingIfNull: true));
-    // don't access it via the "layer" getter since that's only valid when we don't need paint
-    properties.add(DiagnosticsProperty<OffsetLayer>('layer', _layer, defaultValue: null));
-    properties.add(DiagnosticsProperty<SemanticsNode>('semantics node', _semantics, defaultValue: null));
-    properties.add(FlagProperty(
-      'isBlockingSemanticsOfPreviouslyPaintedNodes',
-      value: _semanticsConfiguration.isBlockingSemanticsOfPreviouslyPaintedNodes,
-      ifTrue: 'blocks semantics of earlier render objects below the common boundary',
-    ));
-    properties.add(FlagProperty('isSemanticBoundary', value: _semanticsConfiguration.isSemanticBoundary, ifTrue: 'semantic boundary'));
-  }
-
-  @override
-  List<DiagnosticsNode> debugDescribeChildren() => <DiagnosticsNode>[];
-
-  /// Attempt to make (a portion of) this or a descendant [RenderObject] visible
-  /// on screen.
-  ///
-  /// If `descendant` is provided, that [RenderObject] is made visible. If
-  /// `descendant` is omitted, this [RenderObject] is made visible.
+  /// 如果提供了 `descendant`，那么让它可视化，否则让这个渲染对象可视化
   ///
   /// The optional `rect` parameter describes which area of that [RenderObject]
   /// should be shown on screen. If `rect` is null, the entire
@@ -1313,19 +1519,6 @@ abstract class RenderObject
         curve: curve,
       );
     }
-  }
-
-  /// Adds a debug representation of a [RenderObject] optimized for including in
-  /// error messages.
-  ///
-  /// The default [style] of [DiagnosticsTreeStyle.shallow] ensures that all of
-  /// the properties of the render object are included in the error output but
-  /// none of the children of the object are.
-  ///
-  /// You should always include a RenderObject in an error message if it is the
-  /// [RenderObject] causing the failure or contract violation of the error.
-  DiagnosticsNode describeForError(String name, { DiagnosticsTreeStyle style = DiagnosticsTreeStyle.shallow }) {
-    return toDiagnosticsNode(name: name, style: style);
   }
 }
 ```
