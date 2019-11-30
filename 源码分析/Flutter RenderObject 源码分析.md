@@ -88,9 +88,7 @@ class AbstractNode {
 class PaintingContext extends ClipContext {
 
   @protected
-  PaintingContext(this._containerLayer, this.estimatedBounds)
-    : assert(_containerLayer != null),
-      assert(estimatedBounds != null);
+  PaintingContext(this._containerLayer, this.estimatedBounds);
 
   final ContainerLayer _containerLayer;
 
@@ -1048,38 +1046,42 @@ abstract class RenderObject
   /// 因为绘制前后的绘制操作可能需要在单独的合成层上记录
   void paint(PaintingContext context, Offset offset) { }
 
-  /// Applies the transform that would be applied when painting the given child
-  /// to the given matrix.
+  /// 应用将在将给定子元素绘制到给定矩阵时应用的转换。
   ///
-  /// Used by coordinate conversion functions to translate coordinates local to
-  /// one render object into coordinates local to another render object.
+  /// 坐标转换函数用于将一个渲染对象的本地坐标转换为另一个渲染对象的本地坐标。
   void applyPaintTransform(covariant RenderObject child, Matrix4 transform) {
     assert(child.parent == this);
   }
 
-  /// Applies the paint transform up the tree to `ancestor`.
+  /// 获取从这个渲染对象到给定的RenderObject（先祖）的矩阵变换
   ///
-  /// Returns a matrix that maps the local paint coordinate system to the
-  /// coordinate system of `ancestor`.
+  /// 返回一个矩阵，该矩阵将本地绘制坐标系统映射到“祖先”的坐标系统。
   ///
-  /// If `ancestor` is null, this method returns a matrix that maps from the
-  /// local paint coordinate system to the coordinate system of the
-  /// [PipelineOwner.rootNode]. For the render tree owner by the
-  /// [RendererBinding] (i.e. for the main render tree displayed on the device)
-  /// this means that this method maps to the global coordinate system in
-  /// logical pixels. To get physical pixels, use [applyPaintTransform] from the
-  /// [RenderView] to further transform the coordinate.
+  /// 如果‘祖先’为空，则此方法返回一个矩阵，该矩阵将从本地绘制坐标系统映射到[PipelineOwner.rootNode] 
+  /// （渲染对象树的根节点）的坐标系统。
+  /// 对于被[RendererBinding]所持有的渲染树，(即对于设备上显示的主要渲染树)，该方法映射到全局逻辑像素
+  /// 坐标系统
+  /// 要获取物理像素，从[RenderView]中使用[applyPaintTransform]来进一步转换坐标。
   Matrix4 getTransformTo(RenderObject ancestor) {
+    /// 如果 ancestor == null，则默认为根节点
     if (ancestor == null) {
       final AbstractNode rootNode = owner.rootNode;
       if (rootNode is RenderObject)
         ancestor = rootNode;
     }
     final List<RenderObject> renderers = <RenderObject>[];
-    for (RenderObject renderer = this; renderer != ancestor; renderer = renderer.parent) {
+    /// 向上遍历每一个渲染对象直到根节点，添加到列表中 
+    for (
+        RenderObject renderer = this; 
+        renderer != ancestor; 
+        renderer = renderer.parent
+    ) {
       renderers.add(renderer);
     }
+    /// 单位矩阵  
     final Matrix4 transform = Matrix4.identity();
+    /// 对列表中的每一个渲染对象，调用其.applyPaintTransform，这会修改 transform
+    /// 当遍历完成之后，就得到了从这个渲染对象到目标对象的矩阵变换  
     for (int index = renderers.length - 1; index > 0; index -= 1) {
       renderers[index].applyPaintTransform(renderers[index - 1], transform);
     }

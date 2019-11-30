@@ -1,51 +1,48 @@
 # Flutter RenderBox 源码分析
 
+## BoxParentData
+
+```dart
+class BoxParentData extends ParentData {
+  /// The offset at which to paint the child in the parent's coordinate system.
+  Offset offset = Offset.zero;
+
+  @override
+  String toString() => 'offset=$offset';
+}
+```
+
 
 
 ## RenderBox
 
 ```dart
-/// A render object in a 2D Cartesian coordinate system.
+/// 位于 2D 笛卡尔坐标系中的渲染对象
 ///
-/// The [size] of each box is expressed as a width and a height. Each box has
-/// its own coordinate system in which its upper left corner is placed at (0,
-/// 0). The lower right corner of the box is therefore at (width, height). The
-/// box contains all the points including the upper left corner and extending
-/// to, but not including, the lower right corner.
+/// 每个框的[尺寸]表示为一个宽度和一个高度。每个盒子都有自己的坐标系，其左上角在(0,0)处，因此盒子的右下角
+/// 在(宽，高)处。该框包含所有点，包括左上角和延伸到右下角，但不包括右下角。
 ///
-/// Box layout is performed by passing a [BoxConstraints] object down the tree.
-/// The box constraints establish a min and max value for the child's width and
-/// height. In determining its size, the child must respect the constraints
-/// given to it by its parent.
+/// 通过向树下传递一个[BoxConstraints]对象来执行盒子布局。
+/// 盒约束为子节点的宽度和高度确定了一个最小值和最大值。在确定其大小时，子接待了必须遵守父节点给它的约束。
 ///
-/// This protocol is sufficient for expressing a number of common box layout
-/// data flows. For example, to implement a width-in-height-out data flow, call
-/// your child's [layout] function with a set of box constraints with a tight
-/// width value (and pass true for parentUsesSize). After the child determines
-/// its height, use the child's height to determine your size.
+/// 此协议足以表示许多公共盒布局数据流。例如，要实现宽度加高的数据流，请使用一组具有窄宽度值的框约束调用子
+/// [layout]函数(并为parentUsesSize传递true)。在孩子确定它的高度之后，使用孩子的高度来确定自身的大小。
 ///
 /// ## Writing a RenderBox subclass
 ///
-/// One would implement a new [RenderBox] subclass to describe a new layout
-/// model, new paint model, new hit-testing model, or new semantics model, while
-/// remaining in the Cartesian space defined by the [RenderBox] protocol.
+/// 可以实现一个新的[RenderBox]子类来描述一个新的布局模型，新的绘制模型，新的点击测试模型，或者新的语义
+/// 模型，同时保持在由[RenderBox]协议定义的笛卡尔坐标系
 ///
-/// To create a new protocol, consider subclassing [RenderObject] instead.
+/// 为了创建一个新的协议，继承[RenderObject]
 ///
-/// ### Constructors and properties of a new RenderBox subclass
+/// ### [RenderBox]子类的构造函数和属性
 ///
-/// The constructor will typically take a named argument for each property of
-/// the class. The value is then passed to a private field of the class and the
-/// constructor asserts its correctness (e.g. if it should not be null, it
-/// asserts it's not null).
-///
-/// Properties have the form of a getter/setter/field group like the following:
+/// 每个属性都有如下的 getter / setter格式：
 ///
 /// ```dart
 /// AxisDirection get axis => _axis;
 /// AxisDirection _axis;
 /// set axis(AxisDirection value) {
-///   assert(value != null); // same check as in the constructor
 ///   if (value == _axis)
 ///     return;
 ///   _axis = value;
@@ -53,88 +50,60 @@
 /// }
 /// ```
 ///
-/// The setter will typically finish with either a call to [markNeedsLayout], if
-/// the layout uses this property, or [markNeedsPaint], if only the painter
-/// function does. (No need to call both, [markNeedsLayout] implies
-/// [markNeedsPaint].)
+/// 如果布局使用了这个属性，setter通常会以调用[markNeedsLayout]结束，或者[markNeedsPaint]，如果只有
+/// 绘制使用了这个属性。(不需要两者都调用，[markNeedsLayout]意味着[markNeedsPaint]。)
 ///
-/// Consider layout and paint to be expensive; be conservative about calling
-/// [markNeedsLayout] or [markNeedsPaint]. They should only be called if the
-/// layout (or paint, respectively) has actually changed.
+/// 考虑到布局和绘制是相对昂贵的;对于调用[markNeedsLayout]或[markNeedsPaint]要保守。只有在布局(或绘
+/// 制)实际发生变化时才应该调用它们。
 ///
-/// ### Children
+/// ### 子节点
 ///
-/// If a render object is a leaf, that is, it cannot have any children, then
-/// ignore this section. (Examples of leaf render objects are [RenderImage] and
-/// [RenderParagraph].)
+/// 如果一个渲染对象是一个叶子，也就是说，它不能有任何子对象，那么忽略这个部分。(叶子渲染对象的例子是
+/// [RenderImage]和[RenderParagraph]。)
 ///
-/// For render objects with children, there are four possible scenarios:
+/// 对于带有子对象的渲染对象，有四种可能的场景:
 ///
-/// * A single [RenderBox] child. In this scenario, consider inheriting from
-///   [RenderProxyBox] (if the render object sizes itself to match the child) or
-///   [RenderShiftedBox] (if the child will be smaller than the box and the box
-///   will align the child inside itself).
+/// 1.只有一个单独的[RenderBox]子元素。在这个场景中，可以考虑从[RenderProxyBox](这个渲染通过改变它自
+///   身的大小来适配孩子节点)或[RenderShiftedBox](如果子节点比盒子小，并且盒子内部会对齐子节点)继承。
 ///
-/// * A single child, but it isn't a [RenderBox]. Use the
-///   [RenderObjectWithChildMixin] mixin.
+/// 2.只有一个单一的子节点，但不是[RenderBox]。使用[RenderObjectWithChildMixin] mixin.
 ///
-/// * A single list of children. Use the [ContainerRenderObjectMixin] mixin.
+/// 3.一组孩子列表，使用[ContainerRenderObjectMixin] mixin.
 ///
-/// * A more complicated child model.
+/// 4.更加复杂的模型
 ///
-/// #### Using RenderProxyBox
+/// #### 使用 RenderProxyBox
 ///
-/// By default, a [RenderProxyBox] render object sizes itself to fit its child, or
-/// to be as small as possible if there is no child; it passes all hit testing
-/// and painting on to the child, and intrinsic dimensions and baseline
-/// measurements similarly are proxied to the child.
+/// 默认情况下，[RenderProxyBox]渲染对象的改变自身的大小来适配它的孩子，或者在没有子节点的时候尽可能小;
+/// 它将所有的点击测试和绘制工作委任传递给子节点，类似地固有维度和基线的测量方式也同样委任给孩子。
 ///
-/// A subclass of [RenderProxyBox] just needs to override the parts of the
-/// [RenderBox] protocol that matter. For example, [RenderOpacity] just
-/// overrides the paint method (and [alwaysNeedsCompositing] to reflect what the
-/// paint method does, and the [visitChildrenForSemantics] method so that the
-/// child is hidden from accessibility tools when it's invisible), and adds an
-/// [RenderOpacity.opacity] field.
+/// [RenderProxyBox]的子类只需要重载[RenderBox]协议中重要的部分。
+/// 例如，[render]只是重载了 paint 方法和[alwaysNeedsCompositing]，并添
+/// 加了一个[renderOpacity.opacity]域)。
 ///
-/// [RenderProxyBox] assumes that the child is the size of the parent and
-/// positioned at 0,0. If this is not true, then use [RenderShiftedBox] instead.
+/// [RenderProxyBox] 假设直接当放置在 0,0 的位置，否则使用 [RenderShiftedBox]
 ///
-/// See
-/// [proxy_box.dart](https://github.com/flutter/flutter/blob/master/packages/flutter/lib/src/rendering/proxy_box.dart)
-/// for examples of inheriting from [RenderProxyBox].
+/// #### 使用 RenderShiftedBox
 ///
-/// #### Using RenderShiftedBox
+/// 默认情况下，[RenderShiftedBox]的行为与[RenderProxyBox]很相似，但是没有假设子节点的位置是0,0(而
+/// 是使用子节点的[parentData]字段中记录的实际偏移位置)，也没有提供默认的布局算法。
 ///
-/// By default, a [RenderShiftedBox] acts much like a [RenderProxyBox] but
-/// without assuming that the child is positioned at 0,0 (the actual position
-/// recorded in the child's [parentData] field is used), and without providing a
-/// default layout algorithm.
+/// #### 多个子节点
 ///
-/// See
-/// [shifted_box.dart](https://github.com/flutter/flutter/blob/master/packages/flutter/lib/src/rendering/shifted_box.dart)
-/// for examples of inheriting from [RenderShiftedBox].
+/// 一个[RenderBox]的子节点不一定为[RenderBox]，可以将[RenderObject]的子类作为[RenderBox]的孩子
 ///
-/// #### Kinds of children and child-specific data
+/// 子节点可以拥有被父节点持有的额外数据，这届数据必须存储在子节点的[parentData]域上。
+/// 用于储存该数据的类必须继承自[ParentData]。[setupParentData]方法用于在挂载子节点时初始化该子节点的
+/// 的[parentData]字段。
 ///
-/// A [RenderBox] doesn't have to have [RenderBox] children. One can use another
-/// subclass of [RenderObject] for a [RenderBox]'s children. See the discussion
-/// at [RenderObject].
-///
-/// Children can have additional data owned by the parent but stored on the
-/// child using the [parentData] field. The class used for that data must
-/// inherit from [ParentData]. The [setupParentData] method is used to
-/// initialize the [parentData] field of a child when the child is attached.
-///
-/// By convention, [RenderBox] objects that have [RenderBox] children use the
-/// [BoxParentData] class, which has a [BoxParentData.offset] field to store the
-/// position of the child relative to the parent. ([RenderProxyBox] does not
-/// need this offset and therefore is an exception to this rule.)
+/// 按照惯例，具有[RenderBox]子节点的[RenderBox]让其孩子使用[BoxParentData]类，该类有一个
+/// [BoxParentData.offset]字段来存储子元素相对于父元素的位置。([RenderProxyBox]不需要这个偏移量，因
+/// 此是这个规则的一个例外。)
 ///
 /// #### Using RenderObjectWithChildMixin
 ///
-/// If a render object has a single child but it isn't a [RenderBox], then the
-/// [RenderObjectWithChildMixin] class, which is a mixin that will handle the
-/// boilerplate of managing a child, will be useful.
+/// 如果一个渲染对象有一个单独的子节点，但是它不是一个[RenderBox]，那么可以使用
+/// [RenderObjectWithChildMixin]，它是用于管理子对象的模板
 ///
 /// It's a generic class with one type argument, the type of the child. For
 /// example, if you are building a `RenderFoo` class which takes a single
@@ -384,15 +353,6 @@
 ///
 /// Hit testing cannot rely on painting having happened.
 ///
-/// ### Semantics
-///
-/// For a render box to be accessible, implement the
-/// [describeApproximatePaintClip] and [visitChildrenForSemantics] methods, and
-/// the [semanticsAnnotator] getter. The default implementations are sufficient
-/// for objects that only affect layout, but nodes that represent interactive
-/// components or information (diagrams, text, images, etc) should provide more
-/// complete implementations. For more information, see the documentation for
-/// these members.
 ///
 /// ### Intrinsics and Baselines
 ///
@@ -889,81 +849,8 @@ abstract class RenderBox extends RenderObject {
     }());
   }
 
-  /// Claims ownership of the given [Size].
-  ///
-  /// In debug mode, the [RenderBox] class verifies that [Size] objects obtained
-  /// from other [RenderBox] objects are only used according to the semantics of
-  /// the [RenderBox] protocol, namely that a [Size] from a [RenderBox] can only
-  /// be used by its parent, and then only if `parentUsesSize` was set.
-  ///
-  /// Sometimes, a [Size] that can validly be used ends up no longer being valid
-  /// over time. The common example is a [Size] taken from a child that is later
-  /// removed from the parent. In such cases, this method can be called to first
-  /// check whether the size can legitimately be used, and if so, to then create
-  /// a new [Size] that can be used going forward, regardless of what happens to
-  /// the original owner.
-  Size debugAdoptSize(Size value) {
-    Size result = value;
-    assert(() {
-      if (value is _DebugSize) {
-        if (value._owner != this) {
-          if (value._owner.parent != this) {
-            throw FlutterError.fromParts(<DiagnosticsNode>[
-              ErrorSummary('The size property was assigned a size inappropriately.'),
-              describeForError('The following render object'),
-              value._owner.describeForError('...was assigned a size obtained from'),
-              ErrorDescription(
-                'However, this second render object is not, or is no longer, a '
-                'child of the first, and it is therefore a violation of the '
-                'RenderBox layout protocol to use that size in the layout of the '
-                'first render object.'
-              ),
-              ErrorHint(
-                'If the size was obtained at a time where it was valid to read '
-                'the size (because the second render object above was a child '
-                'of the first at the time), then it should be adopted using '
-                'debugAdoptSize at that time.'
-              ),
-              ErrorHint(
-                'If the size comes from a grandchild or a render object from an '
-                'entirely different part of the render tree, then there is no '
-                'way to be notified when the size changes and therefore attempts '
-                'to read that size are almost certainly a source of bugs. A different '
-                'approach should be used.'
-              ),
-            ]);
-          }
-          if (!value._canBeUsedByParent) {
-            throw FlutterError.fromParts(<DiagnosticsNode>[
-              ErrorSummary('A child\'s size was used without setting parentUsesSize.'),
-              describeForError('The following render object'),
-              value._owner.describeForError('...was assigned a size obtained from its child'),
-              ErrorDescription(
-                'However, when the child was laid out, the parentUsesSize argument '
-                'was not set or set to false. Subsequently this transpired to be '
-                'inaccurate: the size was nonetheless used by the parent.\n'
-                'It is important to tell the framework if the size will be used or not '
-                'as several important performance optimizations can be made if the '
-                'size will not be used by the parent.'
-              ),
-            ]);
-          }
-        }
-      }
-      result = _DebugSize(value, this, debugCanParentUseSize);
-      return true;
-    }());
-    return result;
-  }
-
   @override
   Rect get semanticBounds => Offset.zero & size;
-
-  @override
-  void debugResetSize() {
-    // updates the value of size._canBeUsedByParent if necessary
-    size = size;
-  }
 
   Map<TextBaseline, double> _cachedBaselines;
   static bool _debugDoingBaseline = false;
@@ -1058,119 +945,6 @@ abstract class RenderBox extends RenderObject {
   BoxConstraints get constraints => super.constraints;
 
   @override
-  void debugAssertDoesMeetConstraints() {
-    assert(constraints != null);
-    assert(() {
-      if (!hasSize) {
-        assert(!debugNeedsLayout); // this is called in the size= setter during layout, but in that case we have a size
-        DiagnosticsNode contract;
-        if (sizedByParent)
-          contract = ErrorDescription('Because this RenderBox has sizedByParent set to true, it must set its size in performResize().');
-        else
-          contract = ErrorDescription('Because this RenderBox has sizedByParent set to false, it must set its size in performLayout().');
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('RenderBox did not set its size during layout.'),
-          contract,
-          ErrorDescription('It appears that this did not happen; layout completed, but the size property is still null.'),
-          DiagnosticsProperty<RenderBox>('The RenderBox in question is', this, style: DiagnosticsTreeStyle.errorProperty),
-        ]);
-      }
-      // verify that the size is not infinite
-      if (!_size.isFinite) {
-        final List<DiagnosticsNode> information = <DiagnosticsNode>[
-          ErrorSummary('$runtimeType object was given an infinite size during layout.'),
-          ErrorDescription(
-            'This probably means that it is a render object that tries to be '
-            'as big as possible, but it was put inside another render object '
-            'that allows its children to pick their own size.'
-          ),
-        ];
-        if (!constraints.hasBoundedWidth) {
-          RenderBox node = this;
-          while (!node.constraints.hasBoundedWidth && node.parent is RenderBox)
-            node = node.parent;
-
-          information.add(node.describeForError('The nearest ancestor providing an unbounded width constraint is'));
-        }
-        if (!constraints.hasBoundedHeight) {
-          RenderBox node = this;
-          while (!node.constraints.hasBoundedHeight && node.parent is RenderBox)
-            node = node.parent;
-
-          information.add(node.describeForError('The nearest ancestor providing an unbounded height constraint is'));
-        }
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ...information,
-          DiagnosticsProperty<BoxConstraints>('The constraints that applied to the $runtimeType were', constraints, style: DiagnosticsTreeStyle.errorProperty),
-          DiagnosticsProperty<Size>('The exact size it was given was', _size, style: DiagnosticsTreeStyle.errorProperty),
-          ErrorHint('See https://flutter.dev/docs/development/ui/layout/box-constraints for more information.'),
-        ]);
-     }
-      // verify that the size is within the constraints
-      if (!constraints.isSatisfiedBy(_size)) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('$runtimeType does not meet its constraints.'),
-          DiagnosticsProperty<BoxConstraints>('Constraints', constraints, style: DiagnosticsTreeStyle.errorProperty),
-          DiagnosticsProperty<Size>('Size', _size, style: DiagnosticsTreeStyle.errorProperty),
-          ErrorHint(
-            'If you are not writing your own RenderBox subclass, then this is not '
-            'your fault. Contact support: https://github.com/flutter/flutter/issues/new?template=BUG.md'
-          ),
-        ]);
-      }
-      if (debugCheckIntrinsicSizes) {
-        // verify that the intrinsics are sane
-        assert(!RenderObject.debugCheckingIntrinsics);
-        RenderObject.debugCheckingIntrinsics = true;
-        final List<DiagnosticsNode> failures = <DiagnosticsNode>[];
-
-        double testIntrinsic(double function(double extent), String name, double constraint) {
-          final double result = function(constraint);
-          if (result < 0) {
-            failures.add(ErrorDescription(' * $name($constraint) returned a negative value: $result'));
-          }
-          if (!result.isFinite) {
-            failures.add(ErrorDescription(' * $name($constraint) returned a non-finite value: $result'));
-          }
-          return result;
-        }
-
-        void testIntrinsicsForValues(double getMin(double extent), double getMax(double extent), String name, double constraint) {
-          final double min = testIntrinsic(getMin, 'getMinIntrinsic$name', constraint);
-          final double max = testIntrinsic(getMax, 'getMaxIntrinsic$name', constraint);
-          if (min > max) {
-            failures.add(ErrorDescription(' * getMinIntrinsic$name($constraint) returned a larger value ($min) than getMaxIntrinsic$name($constraint) ($max)'));
-          }
-        }
-
-        testIntrinsicsForValues(getMinIntrinsicWidth, getMaxIntrinsicWidth, 'Width', double.infinity);
-        testIntrinsicsForValues(getMinIntrinsicHeight, getMaxIntrinsicHeight, 'Height', double.infinity);
-        if (constraints.hasBoundedWidth)
-          testIntrinsicsForValues(getMinIntrinsicWidth, getMaxIntrinsicWidth, 'Width', constraints.maxHeight);
-        if (constraints.hasBoundedHeight)
-          testIntrinsicsForValues(getMinIntrinsicHeight, getMaxIntrinsicHeight, 'Height', constraints.maxWidth);
-
-        // TODO(ianh): Test that values are internally consistent in more ways than the above.
-
-        RenderObject.debugCheckingIntrinsics = false;
-        if (failures.isNotEmpty) {
-          // TODO(jacobr): consider nesting the failures object so it is collapsible.
-          throw FlutterError.fromParts(<DiagnosticsNode>[
-            ErrorSummary('The intrinsic dimension methods of the $runtimeType class returned values that violate the intrinsic protocol contract.'),
-            ErrorDescription('The following ${failures.length > 1 ? "failures" : "failure"} was detected:'), // should this be tagged as an error or not?
-            ...failures,
-            ErrorHint(
-              'If you are not writing your own RenderBox subclass, then this is not\n'
-              'your fault. Contact support: https://github.com/flutter/flutter/issues/new?template=BUG.md'
-            ),
-          ]);
-        }
-      }
-      return true;
-    }());
-  }
-
-  @override
   void markNeedsLayout() {
     if ((_cachedBaselines != null && _cachedBaselines.isNotEmpty) ||
         (_cachedIntrinsicDimensions != null && _cachedIntrinsicDimensions.isNotEmpty)) {
@@ -1198,19 +972,6 @@ abstract class RenderBox extends RenderObject {
 
   @override
   void performLayout() {
-    assert(() {
-      if (!sizedByParent) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('$runtimeType did not implement performLayout().'),
-          ErrorHint(
-            'RenderBox subclasses need to either override performLayout() to '
-            'set a size and lay out any children, or, set sizedByParent to true '
-            'so that performResize() sizes the render object.'
-          ),
-        ]);
-      }
-      return true;
-    }());
   }
 
   /// Determines the set of render objects located at the given position.
@@ -1238,41 +999,6 @@ abstract class RenderBox extends RenderObject {
   /// object, which calls [hitTest] on its children when its opacity is zero
   /// even through it does not [paint] its children.
   bool hitTest(BoxHitTestResult result, { @required Offset position }) {
-    assert(() {
-      if (!hasSize) {
-        if (debugNeedsLayout) {
-          throw FlutterError.fromParts(<DiagnosticsNode>[
-            ErrorSummary('Cannot hit test a render box that has never been laid out.'),
-            describeForError('The hitTest() method was called on this RenderBox'),
-            ErrorDescription(
-              'Unfortunately, this object\'s geometry is not known at this time, '
-              'probably because it has never been laid out. '
-              'This means it cannot be accurately hit-tested.'
-            ),
-            ErrorHint(
-              'If you are trying '
-              'to perform a hit test during the layout phase itself, make sure '
-              'you only hit test nodes that have completed layout (e.g. the node\'s '
-              'children, after their layout() method has been called).'
-            ),
-          ]);
-        }
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('Cannot hit test a render box with no size.'),
-          describeForError('The hitTest() method was called on this RenderBox'),
-          ErrorDescription(
-            'Although this node is not marked as needing layout, '
-            'its size is not set.'
-          ),
-          ErrorHint(
-            'A RenderBox object must have an '
-            'explicit size before it can be hit-tested. Make sure '
-            'that the RenderBox in question sets its size during layout.'
-          ),
-        ]);
-      }
-      return true;
-    }());
     if (_size.contains(position)) {
       if (hitTestChildren(result, position: position) || hitTestSelf(position)) {
         result.add(BoxHitTestEntry(this, position));
@@ -1330,26 +1056,6 @@ abstract class RenderBox extends RenderObject {
   /// child's [parentData] in the [BoxParentData.offset] field.
   @override
   void applyPaintTransform(RenderObject child, Matrix4 transform) {
-    assert(child != null);
-    assert(child.parent == this);
-    assert(() {
-      if (child.parentData is! BoxParentData) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('$runtimeType does not implement applyPaintTransform.'),
-          describeForError('The following $runtimeType object'),
-          child.describeForError('...did not use a BoxParentData class for the parentData field of the following child'),
-          ErrorDescription('The $runtimeType class inherits from RenderBox.'),
-          ErrorHint(
-            'The default applyPaintTransform implementation provided by RenderBox assumes that the '
-            'children all use BoxParentData objects for their parentData field. '
-            'Since $runtimeType does not in fact use that ParentData class for its children, it must '
-            'provide an implementation of applyPaintTransform that supports the specific ParentData '
-            'subclass used by its children (which apparently is ${child.parentData.runtimeType}).'
-          ),
-        ]);
-      }
-      return true;
-    }());
     final BoxParentData childParentData = child.parentData;
     final Offset offset = childParentData.offset;
     transform.translate(offset.dx, offset.dy);
@@ -1442,123 +1148,118 @@ abstract class RenderBox extends RenderObject {
   void handleEvent(PointerEvent event, BoxHitTestEntry entry) {
     super.handleEvent(event, entry);
   }
-
-  int _debugActivePointers = 0;
-
-  /// Implements the [debugPaintPointersEnabled] debugging feature.
-  ///
-  /// [RenderBox] subclasses that implement [handleEvent] should call
-  /// [debugHandleEvent] from their [handleEvent] method, as follows:
-  ///
-  /// ```dart
-  /// @override
-  /// void handleEvent(PointerEvent event, HitTestEntry entry) {
-  ///   assert(debugHandleEvent(event, entry));
-  ///   // ... handle the event ...
-  /// }
-  /// ```
-  ///
-  /// If you call this for a [PointerDownEvent], make sure you also call it for
-  /// the corresponding [PointerUpEvent] or [PointerCancelEvent].
-  bool debugHandleEvent(PointerEvent event, HitTestEntry entry) {
-    assert(() {
-      if (debugPaintPointersEnabled) {
-        if (event is PointerDownEvent) {
-          _debugActivePointers += 1;
-        } else if (event is PointerUpEvent || event is PointerCancelEvent) {
-          _debugActivePointers -= 1;
-        }
-        markNeedsPaint();
-      }
-      return true;
-    }());
-    return true;
-  }
-
-  @override
-  void debugPaint(PaintingContext context, Offset offset) {
-    assert(() {
-      if (debugPaintSizeEnabled)
-        debugPaintSize(context, offset);
-      if (debugPaintBaselinesEnabled)
-        debugPaintBaselines(context, offset);
-      if (debugPaintPointersEnabled)
-        debugPaintPointers(context, offset);
-      return true;
-    }());
-  }
-
-  /// In debug mode, paints a border around this render box.
-  ///
-  /// Called for every [RenderBox] when [debugPaintSizeEnabled] is true.
-  @protected
-  void debugPaintSize(PaintingContext context, Offset offset) {
-    assert(() {
-      final Paint paint = Paint()
-       ..style = PaintingStyle.stroke
-       ..strokeWidth = 1.0
-       ..color = const Color(0xFF00FFFF);
-      context.canvas.drawRect((offset & size).deflate(0.5), paint);
-      return true;
-    }());
-  }
-
-  /// In debug mode, paints a line for each baseline.
-  ///
-  /// Called for every [RenderBox] when [debugPaintBaselinesEnabled] is true.
-  @protected
-  void debugPaintBaselines(PaintingContext context, Offset offset) {
-    assert(() {
-      final Paint paint = Paint()
-       ..style = PaintingStyle.stroke
-       ..strokeWidth = 0.25;
-      Path path;
-      // ideographic baseline
-      final double baselineI = getDistanceToBaseline(TextBaseline.ideographic, onlyReal: true);
-      if (baselineI != null) {
-        paint.color = const Color(0xFFFFD000);
-        path = Path();
-        path.moveTo(offset.dx, offset.dy + baselineI);
-        path.lineTo(offset.dx + size.width, offset.dy + baselineI);
-        context.canvas.drawPath(path, paint);
-      }
-      // alphabetic baseline
-      final double baselineA = getDistanceToBaseline(TextBaseline.alphabetic, onlyReal: true);
-      if (baselineA != null) {
-        paint.color = const Color(0xFF00FF00);
-        path = Path();
-        path.moveTo(offset.dx, offset.dy + baselineA);
-        path.lineTo(offset.dx + size.width, offset.dy + baselineA);
-        context.canvas.drawPath(path, paint);
-      }
-      return true;
-    }());
-  }
-
-  /// In debug mode, paints a rectangle if this render box has counted more
-  /// pointer downs than pointer up events.
-  ///
-  /// Called for every [RenderBox] when [debugPaintPointersEnabled] is true.
-  ///
-  /// By default, events are not counted. For details on how to ensure that
-  /// events are counted for your class, see [debugHandleEvent].
-  @protected
-  void debugPaintPointers(PaintingContext context, Offset offset) {
-    assert(() {
-      if (_debugActivePointers > 0) {
-        final Paint paint = Paint()
-         ..color = Color(0x00BBBB | ((0x04000000 * depth) & 0xFF000000));
-        context.canvas.drawRect(offset & size, paint);
-      }
-      return true;
-    }());
-  }
-
-  @override
-  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
-    super.debugFillProperties(properties);
-    properties.add(DiagnosticsProperty<Size>('size', _size, missingIfNull: true));
-  }
 }
 
 ```
+
+
+
+## RenderBoxContainerDefaultsMixin
+
+```dart
+mixin RenderBoxContainerDefaultsMixin
+  <ChildType extends RenderBox, 
+   ParentDataType extends ContainerBoxParentData<ChildType>> 
+  implements ContainerRenderObjectMixin<ChildType, ParentDataType> {
+  /// Returns the baseline of the first child with a baseline.
+  ///
+  /// Useful when the children are displayed vertically in the same order they
+  /// appear in the child list.
+  double defaultComputeDistanceToFirstActualBaseline(TextBaseline baseline) {
+    assert(!debugNeedsLayout);
+    ChildType child = firstChild;
+    while (child != null) {
+      final ParentDataType childParentData = child.parentData;
+      final double result = child.getDistanceToActualBaseline(baseline);
+      if (result != null)
+        return result + childParentData.offset.dy;
+      child = childParentData.nextSibling;
+    }
+    return null;
+  }
+
+  /// Returns the minimum baseline value among every child.
+  ///
+  /// Useful when the vertical position of the children isn't determined by the
+  /// order in the child list.
+  double defaultComputeDistanceToHighestActualBaseline(TextBaseline baseline) {
+    assert(!debugNeedsLayout);
+    double result;
+    ChildType child = firstChild;
+    while (child != null) {
+      final ParentDataType childParentData = child.parentData;
+      double candidate = child.getDistanceToActualBaseline(baseline);
+      if (candidate != null) {
+        candidate += childParentData.offset.dy;
+        if (result != null)
+          result = math.min(result, candidate);
+        else
+          result = candidate;
+      }
+      child = childParentData.nextSibling;
+    }
+    return result;
+  }
+
+  /// Performs a hit test on each child by walking the child list backwards.
+  ///
+  /// Stops walking once after the first child reports that it contains the
+  /// given point. Returns whether any children contain the given point.
+  ///
+  /// See also:
+  ///
+  ///  * [defaultPaint], which paints the children appropriate for this
+  ///    hit-testing strategy.
+  bool defaultHitTestChildren(BoxHitTestResult result, { Offset position }) {
+    // the x, y parameters have the top left of the node's box as the origin
+    ChildType child = lastChild;
+    while (child != null) {
+      final ParentDataType childParentData = child.parentData;
+      final bool isHit = result.addWithPaintOffset(
+        offset: childParentData.offset,
+        position: position,
+        hitTest: (BoxHitTestResult result, Offset transformed) {
+          assert(transformed == position - childParentData.offset);
+          return child.hitTest(result, position: transformed);
+        },
+      );
+      if (isHit)
+        return true;
+      child = childParentData.previousSibling;
+    }
+    return false;
+  }
+
+  /// Paints each child by walking the child list forwards.
+  ///
+  /// See also:
+  ///
+  ///  * [defaultHitTestChildren], which implements hit-testing of the children
+  ///    in a manner appropriate for this painting strategy.
+  void defaultPaint(PaintingContext context, Offset offset) {
+    ChildType child = firstChild;
+    while (child != null) {
+      final ParentDataType childParentData = child.parentData;
+      context.paintChild(child, childParentData.offset + offset);
+      child = childParentData.nextSibling;
+    }
+  }
+
+  /// Returns a list containing the children of this render object.
+  ///
+  /// This function is useful when you need random-access to the children of
+  /// this render object. If you're accessing the children in order, consider
+  /// walking the child list directly.
+  List<ChildType> getChildrenAsList() {
+    final List<ChildType> result = <ChildType>[];
+    RenderBox child = firstChild;
+    while (child != null) {
+      final ParentDataType childParentData = child.parentData;
+      result.add(child);
+      child = childParentData.nextSibling;
+    }
+    return result;
+  }
+}
+```
+
