@@ -100,125 +100,36 @@ class BoxParentData extends ParentData {
 /// [BoxParentData.offset]字段来存储子元素相对于父元素的位置。([RenderProxyBox]不需要这个偏移量，因
 /// 此是这个规则的一个例外。)
 ///
-/// #### Using RenderObjectWithChildMixin
+/// #### 更复杂的模型
 ///
-/// 如果一个渲染对象有一个单独的子节点，但是它不是一个[RenderBox]，那么可以使用
-/// [RenderObjectWithChildMixin]，它是用于管理子对象的模板
+/// 渲染对象可以有更复杂的模型，例如以enum为key值的子节点的映射，或者高效随机访问的子节点的2D网格，或者多
+/// 个子节点列表，等等。如果一个渲染对象的模型不能被上面的mixin处理，它必须实现[RenderObject]的协议，如
+/// 下所示:
 ///
-/// It's a generic class with one type argument, the type of the child. For
-/// example, if you are building a `RenderFoo` class which takes a single
-/// `RenderBar` child, you would use the mixin as follows:
+/// 1.任何时候移除一个孩子, 调用 [dropChild]
 ///
-/// ```dart
-/// class RenderFoo extends RenderBox
-///   with RenderObjectWithChildMixin<RenderBar> {
-///   // ...
-/// }
-/// ```
+/// 2.任何时候添加一个孩子，调用 [adoptChild]
 ///
-/// Since the `RenderFoo` class itself is still a [RenderBox] in this case, you
-/// still have to implement the [RenderBox] layout algorithm, as well as
-/// features like intrinsics and baselines, painting, and hit testing.
+/// 3.实现在每一个子节点上调用的 [attach] 方法
 ///
-/// #### Using ContainerRenderObjectMixin
+/// 4.实现在每一个子节点上调用的 [unattach] 方法
 ///
-/// If a render box can have multiple children, then the
-/// [ContainerRenderObjectMixin] mixin can be used to handle the boilerplate. It
-/// uses a linked list to model the children in a manner that is easy to mutate
-/// dynamically and that can be walked efficiently. Random access is not
-/// efficient in this model; if you need random access to the children consider
-/// the next section on more complicated child models.
+/// 5.实现[redepthChildren] 方法调用每一个孩子的 [redepthChild]
 ///
-/// The [ContainerRenderObjectMixin] class has two type arguments. The first is
-/// the type of the child objects. The second is the type for their
-/// [parentData]. The class used for [parentData] must itself have the
-/// [ContainerParentDataMixin] class mixed into it; this is where
-/// [ContainerRenderObjectMixin] stores the linked list. A [ParentData] class
-/// can extend [ContainerBoxParentData]; this is essentially
-/// [BoxParentData] mixed with [ContainerParentDataMixin]. For example, if a
-/// `RenderFoo` class wanted to have a linked list of [RenderBox] children, one
-/// might create a `FooParentData` class as follows:
+/// 6.实现 [visitChildren] 方法它的每一个孩子, 通常以绘制的顺序：(从后到前).
 ///
-/// ```dart
-/// class FooParentData extends ContainerBoxParentData<RenderBox> {
-///   // (any fields you might need for these children)
-/// }
-/// ```
+/// 实现这这些要点实际上就是前面提到的两个mixin所做的全部工作。
 ///
-/// When using [ContainerRenderObjectMixin] in a [RenderBox], consider mixing in
-/// [RenderBoxContainerDefaultsMixin], which provides a collection of utility
-/// methods that implement common parts of the [RenderBox] protocol (such as
-/// painting the children).
+/// ### 布局
 ///
-/// The declaration of the `RenderFoo` class itself would thus look like this:
+/// [RenderBox] 类实现了布局算法。它们有一组提供给它的约束，它根据这些约束和它们可能拥有的任何其他输入
+/// (例如，它们的子节点或属性)来调整自己的大小。
 ///
-/// ```dart
-/// class RenderFoo extends RenderBox with
-///   ContainerRenderObjectMixin<RenderBox, FooParentData>,
-///   RenderBoxContainerDefaultsMixin<RenderBox, FooParentData> {
-///   // ...
-/// }
-/// ```
+/// 在实现[RenderBox]子类时，必须做出选择：它只根据约束来调整自身的大小，或者使用其他信息来调整自身的大
+/// 小。纯基于约束的大小调整的一个例子是扩展以适应父级。
 ///
-/// When walking the children (e.g. during layout), the following pattern is
-/// commonly used (in this case assuming that the children are all [RenderBox]
-/// objects and that this render object uses `FooParentData` objects for its
-/// children's [parentData] fields):
-///
-/// ```dart
-/// RenderBox child = firstChild;
-/// while (child != null) {
-///   final FooParentData childParentData = child.parentData;
-///   // ...operate on child and childParentData...
-///   assert(child.parentData == childParentData);
-///   child = childParentData.nextSibling;
-/// }
-/// ```
-///
-/// #### More complicated child models
-///
-/// Render objects can have more complicated models, for example a map of
-/// children keyed on an enum, or a 2D grid of efficiently randomly-accessible
-/// children, or multiple lists of children, etc. If a render object has a model
-/// that can't be handled by the mixins above, it must implement the
-/// [RenderObject] child protocol, as follows:
-///
-/// * Any time a child is removed, call [dropChild] with the child.
-///
-/// * Any time a child is added, call [adoptChild] with the child.
-///
-/// * Implement the [attach] method such that it calls [attach] on each child.
-///
-/// * Implement the [detach] method such that it calls [detach] on each child.
-///
-/// * Implement the [redepthChildren] method such that it calls [redepthChild]
-///   on each child.
-///
-/// * Implement the [visitChildren] method such that it calls its argument for
-///   each child, typically in paint order (back-most to front-most).
-///
-/// * Implement [debugDescribeChildren] such that it outputs a [DiagnosticsNode]
-///   for each child.
-///
-/// Implementing these seven bullet points is essentially all that the two
-/// aforementioned mixins do.
-///
-/// ### Layout
-///
-/// [RenderBox] classes implement a layout algorithm. They have a set of
-/// constraints provided to them, and they size themselves based on those
-/// constraints and whatever other inputs they may have (for example, their
-/// children or properties).
-///
-/// When implementing a [RenderBox] subclass, one must make a choice. Does it
-/// size itself exclusively based on the constraints, or does it use any other
-/// information in sizing itself? An example of sizing purely based on the
-/// constraints would be growing to fit the parent.
-///
-/// Sizing purely based on the constraints allows the system to make some
-/// significant optimizations. Classes that use this approach should override
-/// [sizedByParent] to return true, and then override [performResize] to set the
-/// [size] using nothing but the constraints, e.g.:
+/// 纯基于约束的大小调整允许系统进行一些重要的优化。使用这种方法的类应该重载[sizedByParent]来返回 
+/// true，然后重载[performResize]来设置[size]，只使用约束，例如:
 ///
 /// ```dart
 /// @override
@@ -230,77 +141,31 @@ class BoxParentData extends ParentData {
 /// }
 /// ```
 ///
-/// Otherwise, the size is set in the [performLayout] function.
+/// 否则，其大小在[performLayout]里设定
 ///
-/// The [performLayout] function is where render boxes decide, if they are not
-/// [sizedByParent], what [size] they should be, and also where they decide
-/// where their children should be.
-///
-/// #### Layout of RenderBox children
-///
-/// The [performLayout] function should call the [layout] function of each (box)
-/// child, passing it a [BoxConstraints] object describing the constraints
-/// within which the child can render. Passing tight constraints (see
-/// [BoxConstraints.isTight]) to the child will allow the rendering library to
-/// apply some optimizations, as it knows that if the constraints are tight, the
-/// child's dimensions cannot change even if the layout of the child itself
-/// changes.
-///
-/// If the [performLayout] function will use the child's size to affect other
-/// aspects of the layout, for example if the render box sizes itself around the
-/// child, or positions several children based on the size of those children,
-/// then it must specify the `parentUsesSize` argument to the child's [layout]
-/// function, setting it to true.
-///
-/// This flag turns off some optimizations; algorithms that do not rely on the
-/// children's sizes will be more efficient. (In particular, relying on the
-/// child's [size] means that if the child is marked dirty for layout, the
-/// parent will probably also be marked dirty for layout, unless the
-/// [constraints] given by the parent to the child were tight constraints.)
-///
-/// For [RenderBox] classes that do not inherit from [RenderProxyBox], once they
-/// have laid out their children, they should also position them, by setting the
-/// [BoxParentData.offset] field of each child's [parentData] object.
-///
-/// #### Layout of non-RenderBox children
-///
-/// The children of a [RenderBox] do not have to be [RenderBox]es themselves. If
-/// they use another protocol (as discussed at [RenderObject]), then instead of
-/// [BoxConstraints], the parent would pass in the appropriate [Constraints]
-/// subclass, and instead of reading the child's size, the parent would read
-/// whatever the output of [layout] is for that layout protocol. The
-/// `parentUsesSize` flag is still used to indicate whether the parent is going
-/// to read that output, and optimizations still kick in if the child has tight
-/// constraints (as defined by [Constraints.isTight]).
+/// [performLayout]函数是盒子用于决定，假如它们不是[sizedByParent]，那么它们的大小应该如何，并且决定
+/// 它的子节点应该放置在哪里
 ///
 /// ### Painting
 ///
-/// To describe how a render box paints, implement the [paint] method. It is
-/// given a [PaintingContext] object and an [Offset]. The painting context
-/// provides methods to affect the layer tree as well as a
-/// [PaintingContext.canvas] which can be used to add drawing commands. The
-/// canvas object should not be cached across calls to the [PaintingContext]'s
-/// methods; every time a method on [PaintingContext] is called, there is a
-/// chance that the canvas will change identity. The offset specifies the
-/// position of the top left corner of the box in the coordinate system of the
-/// [PaintingContext.canvas].
+/// 要描述渲染框如何绘制，请实现[paint]方法。它有一个[PaintingContext]对象和一个[Offset]。
+/// [PaintingContext]提 供了能够影响图层树的方法，比如[PaintingContext.canvas],可用于添加绘图命
+/// 令。canvas对象不应该在调用 [PaintingContext]的方法时被缓存;每次调用[PaintingContext]上的方法
+/// 时，画布都有可能改变标识。偏移 量指定了框的左上角在[PaintingContext.canvas]的坐标系统中的位置。
 ///
-/// To draw text on a canvas, use a [TextPainter].
+/// 使用[TextPainter]来绘制文字
 ///
-/// To draw an image to a canvas, use the [paintImage] method.
+/// 使用[paintImage]来绘制图片
 ///
-/// A [RenderBox] that uses methods on [PaintingContext] that introduce new
-/// layers should override the [alwaysNeedsCompositing] getter and set it to
-/// true. If the object sometimes does and sometimes does not, it can have that
-/// getter return true in some cases and false in others. In that case, whenever
-/// the return value would change, call [markNeedsCompositingBitsUpdate]. (This
-/// is done automatically when a child is added or removed, so you don't have to
-/// call it explicitly if the [alwaysNeedsCompositing] getter only changes value
-/// based on the presence or absence of children.)
+/// 一个[RenderBox]在[PaintingContext]上使用引入新层的方法时应该重载[alwaysNeedsCompositing] 
+/// getter并将它设置为true。
+/// 如果对象有时做，有时不做，那么在某些情况下，它可以让getter返回true，而在另一些情况下返回false。在这
+/// 种情况下，只要返回值发生变化，就调用[markNeedsCompositingBitsUpdate]。(这会在添加或删除子元素时
+/// 自动完成，因此如果[alwaysNeedsCompositing] getter只根据子元素的存在或不存在来更改值，则不必显式
+/// 地调用它。
 ///
-/// Anytime anything changes on the object that would cause the [paint] method
-/// to paint something different (but would not cause the layout to change),
-/// the object should call [markNeedsPaint].
+/// 任何时候，如果有任何变化会导致[paint]方法绘制一些不同的东西(但不会导致布局改变),应该调用
+/// [markNeedsPaint]方法
 ///
 /// #### Painting children
 ///
@@ -309,88 +174,63 @@ class BoxParentData extends ParentData {
 /// should be given a reference to the child, and an [Offset] giving the
 /// position of the child relative to the parent.
 ///
-/// If the [paint] method applies a transform to the painting context before
-/// painting children (or generally applies an additional offset beyond the
-/// offset it was itself given as an argument), then the [applyPaintTransform]
-/// method should also be overridden. That method must adjust the matrix that it
-/// is given in the same manner as it transformed the painting context and
-/// offset before painting the given child. This is used by the [globalToLocal]
-/// and [localToGlobal] methods.
+/// 如果[paint]方法在绘制子元素之前对[PaintingContext]应用变换(或者通常应用一个额外的的偏移量，除了作
+/// 为参数给出的偏移量)，那么[applyPaintTransform]方法也应该被覆盖。该方法必须调整其给定的矩阵，其方式
+/// 与在绘制给定子元素之前转换[PaintingContext]和偏移量的方式相同。
+/// 这个方法是被[globalToLocal]和[localToGlobal]方法使用的。
 ///
 /// #### Hit Tests
 ///
-/// Hit testing for render boxes is implemented by the [hitTest] method. The
-/// default implementation of this method defers to [hitTestSelf] and
-/// [hitTestChildren]. When implementing hit testing, you can either override
-/// these latter two methods, or ignore them and just override [hitTest].
+/// 渲染盒子的点击测试是通过[hitTest]方法实现的。此方法的默认实现被推迟给于[hitTestSelf]和
+/// [hitTestChildren]。在实现点击测试时，可以重载后两个方法，或者忽略它们，直接重载[hitTest]。
 ///
-/// The [hitTest] method itself is given an [Offset], and must return true if the
-/// object or one of its children has absorbed the hit (preventing objects below
-/// this one from being hit), or false if the hit can continue to other objects
-/// below this one.
+/// [hitTest]方法本身有一个[偏移量]，如果对象或它的一个子对象已经吸收了点击(防止下面的对象被点击)，
+/// 那么它必须返回true;如果点击可以继续作用于下面的其他对象，则返回false。
 ///
-/// For each child [RenderBox], the [hitTest] method on the child should be
-/// called with the same [HitTestResult] argument and with the point transformed
-/// into the child's coordinate space (in the same manner that the
-/// [applyPaintTransform] method would). The default implementation defers to
-/// [hitTestChildren] to call the children. [RenderBoxContainerDefaultsMixin]
-/// provides a [RenderBoxContainerDefaultsMixin.defaultHitTestChildren] method
-/// that does this assuming that the children are axis-aligned, not transformed,
-/// and positioned according to the [BoxParentData.offset] field of the
-/// [parentData]; more elaborate boxes can override [hitTestChildren]
-/// accordingly.
+/// 对于每个子[RenderBox]，应该使用相同的[HitTestResult]参数调用的[hitTest]方法，并将该点转换为子坐
+/// 标空间(与[applyPaintTransform]方法相同)。默认的实现延迟给[hitTestChildren]。
+/// [RenderBoxContainerDefaultsMixin]提供了一个
+/// [RenderBoxContainerDefaultsMixin.defaulthittestchildren]方法，该方法假设子元素是轴向对齐
+/// 的，没有被变换的，并且是根据[parentData]字段中[BoxParentData.offset]定位的。更复杂的盒子可以相应
+/// 地重载[hitTestChildren]。
 ///
-/// If the object is hit, then it should also add itself to the [HitTestResult]
-/// object that is given as an argument to the [hitTest] method, using
-/// [HitTestResult.add]. The default implementation defers to [hitTestSelf] to
-/// determine if the box is hit. If the object adds itself before the children
-/// can add themselves, then it will be as if the object was above the children.
-/// If it adds itself after the children, then it will be as if it was below the
-/// children. Entries added to the [HitTestResult] object should use the
-/// [BoxHitTestEntry] class. The entries are subsequently walked by the system
-/// in the order they were added, and for each entry, the target's [handleEvent]
-/// method is called, passing in the [HitTestEntry] object.
-///
-/// Hit testing cannot rely on painting having happened.
+/// 如果对象被命中，那么它也应该使用[HitTestResult.add]将自己添加到[HitTestResult]对象中。该对象是
+/// [hitTest]方法的一个参数。
+/// 默认实现依赖于[hitTestSelf]来确定是否击中了该框。如果对象在子对象添加自己之前添加自己，那么就它就处
+/// 于子对象之上。如果它加在子元素之后添加自己，那么它就子对象之下。
+/// 添加到[HitTestResult]对象的entry应该使用[BoxHitTestEntry]类。然后，系统按照它们被添加的顺序遍历
+/// 这些条目，并为每个条目调用目标的[handleEvent]方法，传入[HitTestEntry]对象。
 ///
 ///
 /// ### Intrinsics and Baselines
 ///
-/// The layout, painting, hit testing, and semantics protocols are common to all
-/// render objects. [RenderBox] objects must implement two additional protocols:
-/// intrinsic sizing and baseline measurements.
+/// 布局、绘图、命中测试和语义协议对所有渲染对象都是通用的。对象必须实现两个附加协议:固有大小和基线测量。
 ///
-/// There are four methods to implement for intrinsic sizing, to compute the
-/// minimum and maximum intrinsic width and height of the box. The documentation
-/// for these methods discusses the protocol in detail:
+/// 有四个方法来计算固有大小，通过它们来计算最大最小的固有宽高：
 /// [computeMinIntrinsicWidth], [computeMaxIntrinsicWidth],
 /// [computeMinIntrinsicHeight], [computeMaxIntrinsicHeight].
 ///
-/// In addition, if the box has any children, it must implement
-/// [computeDistanceToActualBaseline]. [RenderProxyBox] provides a simple
-/// implementation that forwards to the child; [RenderShiftedBox] provides an
-/// implementation that offsets the child's baseline information by the position
-/// of the child relative to the parent. If you do not inherited from either of
-/// these classes, however, you must implement the algorithm yourself.
+/// 此外，如果一个盒子有任何的子对象，那么它必须实现[computeDistanceToActualBaseline]. 
+/// [RenderProxyBox] 它提供了一个简单的实现，可以转发给子节点;
+/// [RenderShiftedBox]提供了一个实现，它通过子元素相对于父元素的位置来抵消子元素的基线信息。
+/// 如果里没有继承这两个类，则必须自己实现算法
 abstract class RenderBox extends RenderObject {
+  /// 为孩子建立 BoxParentData  
   @override
   void setupParentData(covariant RenderObject child) {
     if (child.parentData is! BoxParentData)
       child.parentData = BoxParentData();
   }
 
+  /// 固有宽高计算结果的缓存
   Map<_IntrinsicDimensionsCacheEntry, double> _cachedIntrinsicDimensions;
 
-  double _computeIntrinsicDimension(_IntrinsicDimension dimension, double argument, double computer(double argument)) {
-    assert(RenderObject.debugCheckingIntrinsics || !debugDoingThisResize); // performResize should not depend on anything except the incoming constraints
+  double _computeIntrinsicDimension(
+      _IntrinsicDimension dimension, 
+      double argument, 
+      double computer(double argument)
+  ) {
     bool shouldCache = true;
-    assert(() {
-      // we don't want the checked-mode intrinsic tests to affect
-      // who gets marked dirty, etc.
-      if (RenderObject.debugCheckingIntrinsics)
-        shouldCache = false;
-      return true;
-    }());
     if (shouldCache) {
       _cachedIntrinsicDimensions ??= <_IntrinsicDimensionsCacheEntry, double>{};
       return _cachedIntrinsicDimensions.putIfAbsent(
@@ -401,66 +241,32 @@ abstract class RenderBox extends RenderObject {
     return computer(argument);
   }
 
-  /// Returns the minimum width that this box could be without failing to
-  /// correctly paint its contents within itself, without clipping.
+  /// 返回这个盒子在不剪裁，能够成功绘制内容的最小宽度
   ///
-  /// The height argument may give a specific height to assume. The given height
-  /// can be infinite, meaning that the intrinsic width in an unconstrained
-  /// environment is being requested. The given height should never be negative
-  /// or null.
+  /// height参数可以给出一个特定的高度。给定的高度可以是无限的，这意味着在无约束的环境中要求固有宽度。
+  /// 给定的高度不应该是负数或null。
   ///
-  /// This function should only be called on one's children. Calling this
-  /// function couples the child with the parent so that when the child's layout
-  /// changes, the parent is notified (via [markNeedsLayout]).
+  /// 这个函数只能在自己的孩子身上调用。调用这个函数将子节点和父节点连接起来，这样当子节点的布局改变时，父
+  /// 节点就会收到通知(通过[markNeedsLayout])。
   ///
-  /// Calling this function is expensive and as it can result in O(N^2)
-  /// behavior.
+  /// 这个函数的事件复杂度是 O(N^2)
   ///
-  /// Do not override this method. Instead, implement [computeMinIntrinsicWidth].
+  /// 不要重载这个函数，而是实现[computeMinIntrinsicWidth].
   @mustCallSuper
   double getMinIntrinsicWidth(double height) {
-    assert(() {
-      if (height == null) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('The height argument to getMinIntrinsicWidth was null.'),
-          ErrorDescription('The argument to getMinIntrinsicWidth must not be negative or null.'),
-          ErrorHint('If you do not have a specific height in mind, then pass double.infinity instead.'),
-        ]);
-      }
-      if (height < 0.0) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('The height argument to getMinIntrinsicWidth was negative.'),
-          ErrorDescription('The argument to getMinIntrinsicWidth must not be negative or null.'),
-          ErrorHint(
-            'If you perform computations on another height before passing it to '
-            'getMinIntrinsicWidth, consider using math.max() or double.clamp() '
-            'to force the value into the valid range.'
-          ),
-        ]);
-      }
-      return true;
-    }());
-    return _computeIntrinsicDimension(_IntrinsicDimension.minWidth, height, computeMinIntrinsicWidth);
+    return _computeIntrinsicDimension(
+        _IntrinsicDimension.minWidth, 
+        height, 
+        computeMinIntrinsicWidth
+    );
   }
 
-  /// Computes the value returned by [getMinIntrinsicWidth]. Do not call this
-  /// function directly, instead, call [getMinIntrinsicWidth].
+  /// 计算[getMinIntrinsicWidth]的返回值
   ///
-  /// Override in subclasses that implement [performLayout]. This method should
-  /// return the minimum width that this box could be without failing to
-  /// correctly paint its contents within itself, without clipping.
+  /// 在实现了[performLayout]的子类里面重载
+  /// 这个方法应该返回这个盒子在不剪裁，能够成功绘制内容的最小宽度
   ///
-  /// If the layout algorithm is independent of the context (e.g. it always
-  /// tries to be a particular size), or if the layout algorithm is
-  /// width-in-height-out, or if the layout algorithm uses both the incoming
-  /// width and height constraints (e.g. it always sizes itself to
-  /// [BoxConstraints.biggest]), then the `height` argument should be ignored.
-  ///
-  /// If the layout algorithm is strictly height-in-width-out, or is
-  /// height-in-width-out when the width is unconstrained, then the height
-  /// argument is the height to use.
-  ///
-  /// The `height` argument will never be negative or null. It may be infinite.
+  /// 如果布局算法是严格的高入宽出，或者是宽入高出，当宽度是无约束的，那么高度参数是使用的高度。
   ///
   /// If this algorithm depends on the intrinsic dimensions of a child, the
   /// intrinsic dimensions of that child should be obtained using the functions
@@ -540,324 +346,67 @@ abstract class RenderBox extends RenderObject {
     return 0.0;
   }
 
-  /// Returns the smallest width beyond which increasing the width never
-  /// decreases the preferred height. The preferred height is the value that
-  /// would be returned by [getMinIntrinsicHeight] for that width.
-  ///
-  /// The height argument may give a specific height to assume. The given height
-  /// can be infinite, meaning that the intrinsic width in an unconstrained
-  /// environment is being requested. The given height should never be negative
-  /// or null.
-  ///
-  /// This function should only be called on one's children. Calling this
-  /// function couples the child with the parent so that when the child's layout
-  /// changes, the parent is notified (via [markNeedsLayout]).
-  ///
-  /// Calling this function is expensive and as it can result in O(N^2)
-  /// behavior.
-  ///
-  /// Do not override this method. Instead, implement
-  /// [computeMaxIntrinsicWidth].
+  /// 返回一个最小宽度，超过此最小宽度时，增加宽度不会降低首选高度。
+  /// 首选的高度是[getminininsicheight]为该宽度返回的值。
   @mustCallSuper
   double getMaxIntrinsicWidth(double height) {
-    assert(() {
-      if (height == null) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('The height argument to getMaxIntrinsicWidth was null.'),
-          ErrorDescription('The argument to getMaxIntrinsicWidth must not be negative or null.'),
-          ErrorHint('If you do not have a specific height in mind, then pass double.infinity instead.'),
-        ]);
-      }
-      if (height < 0.0) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('The height argument to getMaxIntrinsicWidth was negative.'),
-          ErrorDescription('The argument to getMaxIntrinsicWidth must not be negative or null.'),
-          ErrorHint(
-            'If you perform computations on another height before passing it to '
-            'getMaxIntrinsicWidth, consider using math.max() or double.clamp() '
-            'to force the value into the valid range.'
-          ),
-        ]);
-      }
-      return true;
-    }());
-    return _computeIntrinsicDimension(_IntrinsicDimension.maxWidth, height, computeMaxIntrinsicWidth);
+    return _computeIntrinsicDimension(
+        _IntrinsicDimension.maxWidth, 
+        height, 
+        computeMaxIntrinsicWidth
+    );
   }
 
-  /// Computes the value returned by [getMaxIntrinsicWidth]. Do not call this
-  /// function directly, instead, call [getMaxIntrinsicWidth].
-  ///
-  /// Override in subclasses that implement [performLayout]. This should return
-  /// the smallest width beyond which increasing the width never decreases the
-  /// preferred height. The preferred height is the value that would be returned
-  /// by [computeMinIntrinsicHeight] for that width.
-  ///
-  /// If the layout algorithm is strictly height-in-width-out, or is
-  /// height-in-width-out when the width is unconstrained, then this should
-  /// return the same value as [computeMinIntrinsicWidth] for the same height.
-  ///
-  /// Otherwise, the height argument should be ignored, and the returned value
-  /// should be equal to or bigger than the value returned by
-  /// [computeMinIntrinsicWidth].
-  ///
-  /// The `height` argument will never be negative or null. It may be infinite.
-  ///
-  /// The value returned by this method might not match the size that the object
-  /// would actually take. For example, a [RenderBox] subclass that always
-  /// exactly sizes itself using [BoxConstraints.biggest] might well size itself
-  /// bigger than its max intrinsic size.
-  ///
-  /// If this algorithm depends on the intrinsic dimensions of a child, the
-  /// intrinsic dimensions of that child should be obtained using the functions
-  /// whose names start with `get`, not `compute`.
-  ///
-  /// This function should never return a negative or infinite value.
-  ///
-  /// See also examples in the definition of [computeMinIntrinsicWidth].
   @protected
   double computeMaxIntrinsicWidth(double height) {
     return 0.0;
   }
 
-  /// Returns the minimum height that this box could be without failing to
-  /// correctly paint its contents within itself, without clipping.
-  ///
-  /// The width argument may give a specific width to assume. The given width
-  /// can be infinite, meaning that the intrinsic height in an unconstrained
-  /// environment is being requested. The given width should never be negative
-  /// or null.
-  ///
-  /// This function should only be called on one's children. Calling this
-  /// function couples the child with the parent so that when the child's layout
-  /// changes, the parent is notified (via [markNeedsLayout]).
-  ///
-  /// Calling this function is expensive and as it can result in O(N^2)
-  /// behavior.
-  ///
-  /// Do not override this method. Instead, implement
-  /// [computeMinIntrinsicHeight].
   @mustCallSuper
   double getMinIntrinsicHeight(double width) {
-    assert(() {
-      if (width == null) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('The width argument to getMinIntrinsicHeight was null.'),
-          ErrorDescription('The argument to getMinIntrinsicHeight must not be negative or null.'),
-          ErrorHint('If you do not have a specific width in mind, then pass double.infinity instead.'),
-        ]);
-      }
-      if (width < 0.0) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('The width argument to getMinIntrinsicHeight was negative.'),
-          ErrorDescription('The argument to getMinIntrinsicHeight must not be negative or null.'),
-          ErrorHint(
-            'If you perform computations on another width before passing it to '
-            'getMinIntrinsicHeight, consider using math.max() or double.clamp() '
-            'to force the value into the valid range.'
-          ),
-        ]);
-      }
-      return true;
-    }());
-    return _computeIntrinsicDimension(_IntrinsicDimension.minHeight, width, computeMinIntrinsicHeight);
+    return _computeIntrinsicDimension(
+        _IntrinsicDimension.minHeight, 
+        width, 
+        computeMinIntrinsicHeight
+    );
   }
 
-  /// Computes the value returned by [getMinIntrinsicHeight]. Do not call this
-  /// function directly, instead, call [getMinIntrinsicHeight].
-  ///
-  /// Override in subclasses that implement [performLayout]. Should return the
-  /// minimum height that this box could be without failing to correctly paint
-  /// its contents within itself, without clipping.
-  ///
-  /// If the layout algorithm is independent of the context (e.g. it always
-  /// tries to be a particular size), or if the layout algorithm is
-  /// height-in-width-out, or if the layout algorithm uses both the incoming
-  /// height and width constraints (e.g. it always sizes itself to
-  /// [BoxConstraints.biggest]), then the `width` argument should be ignored.
-  ///
-  /// If the layout algorithm is strictly width-in-height-out, or is
-  /// width-in-height-out when the height is unconstrained, then the width
-  /// argument is the width to use.
-  ///
-  /// The `width` argument will never be negative or null. It may be infinite.
-  ///
-  /// If this algorithm depends on the intrinsic dimensions of a child, the
-  /// intrinsic dimensions of that child should be obtained using the functions
-  /// whose names start with `get`, not `compute`.
-  ///
-  /// This function should never return a negative or infinite value.
-  ///
-  /// See also examples in the definition of [computeMinIntrinsicWidth].
   @protected
   double computeMinIntrinsicHeight(double width) {
     return 0.0;
   }
 
-  /// Returns the smallest height beyond which increasing the height never
-  /// decreases the preferred width. The preferred width is the value that
-  /// would be returned by [getMinIntrinsicWidth] for that height.
-  ///
-  /// The width argument may give a specific width to assume. The given width
-  /// can be infinite, meaning that the intrinsic height in an unconstrained
-  /// environment is being requested. The given width should never be negative
-  /// or null.
-  ///
-  /// This function should only be called on one's children. Calling this
-  /// function couples the child with the parent so that when the child's layout
-  /// changes, the parent is notified (via [markNeedsLayout]).
-  ///
-  /// Calling this function is expensive and as it can result in O(N^2)
-  /// behavior.
-  ///
-  /// Do not override this method. Instead, implement
-  /// [computeMaxIntrinsicHeight].
   @mustCallSuper
   double getMaxIntrinsicHeight(double width) {
-    assert(() {
-      if (width == null) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('The width argument to getMaxIntrinsicHeight was null.'),
-          ErrorDescription('The argument to getMaxIntrinsicHeight must not be negative or null.'),
-          ErrorHint('If you do not have a specific width in mind, then pass double.infinity instead.'),
-        ]);
-      }
-      if (width < 0.0) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('The width argument to getMaxIntrinsicHeight was negative.'),
-          ErrorDescription('The argument to getMaxIntrinsicHeight must not be negative or null.'),
-          ErrorHint(
-            'If you perform computations on another width before passing it to '
-            'getMaxIntrinsicHeight, consider using math.max() or double.clamp() '
-            'to force the value into the valid range.'
-          ),
-        ]);
-      }
-      return true;
-    }());
-    return _computeIntrinsicDimension(_IntrinsicDimension.maxHeight, width, computeMaxIntrinsicHeight);
+    return _computeIntrinsicDimension(
+        _IntrinsicDimension.maxHeight, 
+        width, 
+        computeMaxIntrinsicHeight
+    );
   }
 
-  /// Computes the value returned by [getMaxIntrinsicHeight]. Do not call this
-  /// function directly, instead, call [getMaxIntrinsicHeight].
-  ///
-  /// Override in subclasses that implement [performLayout]. Should return the
-  /// smallest height beyond which increasing the height never decreases the
-  /// preferred width. The preferred width is the value that would be returned
-  /// by [computeMinIntrinsicWidth] for that height.
-  ///
-  /// If the layout algorithm is strictly width-in-height-out, or is
-  /// width-in-height-out when the height is unconstrained, then this should
-  /// return the same value as [computeMinIntrinsicHeight] for the same width.
-  ///
-  /// Otherwise, the width argument should be ignored, and the returned value
-  /// should be equal to or bigger than the value returned by
-  /// [computeMinIntrinsicHeight].
-  ///
-  /// The `width` argument will never be negative or null. It may be infinite.
-  ///
-  /// The value returned by this method might not match the size that the object
-  /// would actually take. For example, a [RenderBox] subclass that always
-  /// exactly sizes itself using [BoxConstraints.biggest] might well size itself
-  /// bigger than its max intrinsic size.
-  ///
-  /// If this algorithm depends on the intrinsic dimensions of a child, the
-  /// intrinsic dimensions of that child should be obtained using the functions
-  /// whose names start with `get`, not `compute`.
-  ///
-  /// This function should never return a negative or infinite value.
-  ///
-  /// See also examples in the definition of [computeMinIntrinsicWidth].
   @protected
   double computeMaxIntrinsicHeight(double width) {
     return 0.0;
   }
 
-  /// Whether this render object has undergone layout and has a [size].
+  /// 这个盒子是否已经布局，并且拥有[size].
   bool get hasSize => _size != null;
 
-  /// The size of this render box computed during layout.
-  ///
-  /// This value is stale whenever this object is marked as needing layout.
-  /// During [performLayout], do not read the size of a child unless you pass
-  /// true for parentUsesSize when calling the child's [layout] function.
-  ///
-  /// The size of a box should be set only during the box's [performLayout] or
-  /// [performResize] functions. If you wish to change the size of a box outside
-  /// of those functions, call [markNeedsLayout] instead to schedule a layout of
-  /// the box.
   Size get size {
-    assert(hasSize, 'RenderBox was not laid out: ${toString()}');
-    assert(() {
-      if (_size is _DebugSize) {
-        final _DebugSize _size = this._size;
-        assert(_size._owner == this);
-        if (RenderObject.debugActiveLayout != null) {
-          // We are always allowed to access our own size (for print debugging
-          // and asserts if nothing else). Other than us, the only object that's
-          // allowed to read our size is our parent, if they've said they will.
-          // If you hit this assert trying to access a child's size, pass
-          // "parentUsesSize: true" to that child's layout().
-          assert(debugDoingThisResize || debugDoingThisLayout ||
-                 (RenderObject.debugActiveLayout == parent && _size._canBeUsedByParent));
-        }
-        assert(_size == this._size);
-      }
-      return true;
-    }());
     return _size;
   }
   Size _size;
-  /// Setting the size, in checked mode, triggers some analysis of the render box,
-  /// as implemented by [debugAssertDoesMeetConstraints], including calling the intrinsic
-  /// sizing methods and checking that they meet certain invariants.
+    
   @protected
   set size(Size value) {
-    assert(!(debugDoingThisResize && debugDoingThisLayout));
-    assert(sizedByParent || !debugDoingThisResize);
-    assert(() {
-      if ((sizedByParent && debugDoingThisResize) ||
-          (!sizedByParent && debugDoingThisLayout))
-        return true;
-      assert(!debugDoingThisResize);
-      final List<DiagnosticsNode> information = <DiagnosticsNode>[
-        ErrorSummary('RenderBox size setter called incorrectly.'),
-      ];
-      if (debugDoingThisLayout) {
-        assert(sizedByParent);
-        information.add(ErrorDescription('It appears that the size setter was called from performLayout().'));
-      } else {
-        information.add(ErrorDescription(
-          'The size setter was called from outside layout (neither performResize() nor performLayout() were being run for this object).'
-        ));
-        if (owner != null && owner.debugDoingLayout)
-          information.add(ErrorDescription('Only the object itself can set its size. It is a contract violation for other objects to set it.'));
-      }
-      if (sizedByParent)
-        information.add(ErrorDescription('Because this RenderBox has sizedByParent set to true, it must set its size in performResize().'));
-      else
-        information.add(ErrorDescription('Because this RenderBox has sizedByParent set to false, it must set its size in performLayout().'));
-      throw FlutterError.fromParts(information);
-    }());
-    assert(() {
-      value = debugAdoptSize(value);
-      return true;
-    }());
     _size = value;
-    assert(() {
-      debugAssertDoesMeetConstraints();
-      return true;
-    }());
   }
 
   @override
   Rect get semanticBounds => Offset.zero & size;
 
   Map<TextBaseline, double> _cachedBaselines;
-  static bool _debugDoingBaseline = false;
-  static bool _debugSetDoingBaseline(bool value) {
-    _debugDoingBaseline = value;
-    return true;
-  }
 
   /// Returns the distance from the y-coordinate of the position of the box to
   /// the y-coordinate of the first given baseline in the box's contents.
@@ -876,21 +425,7 @@ abstract class RenderBox extends RenderObject {
   /// When implementing a [RenderBox] subclass, to override the baseline
   /// computation, override [computeDistanceToActualBaseline].
   double getDistanceToBaseline(TextBaseline baseline, { bool onlyReal = false }) {
-    assert(!_debugDoingBaseline, 'Please see the documentation for computeDistanceToActualBaseline for the required calling conventions of this method.');
-    assert(!debugNeedsLayout);
-    assert(() {
-      final RenderObject parent = this.parent;
-      if (owner.debugDoingLayout)
-        return (RenderObject.debugActiveLayout == parent) && parent.debugDoingThisLayout;
-      if (owner.debugDoingPaint)
-        return ((RenderObject.debugActivePaint == parent) && parent.debugDoingThisPaint) ||
-               ((RenderObject.debugActivePaint == this) && debugDoingThisPaint);
-      assert(parent == this.parent);
-      return false;
-    }());
-    assert(_debugSetDoingBaseline(true));
     final double result = getDistanceToActualBaseline(baseline);
-    assert(_debugSetDoingBaseline(false));
     if (result == null && !onlyReal)
       return size.height;
     return result;
@@ -904,9 +439,11 @@ abstract class RenderBox extends RenderObject {
   @protected
   @mustCallSuper
   double getDistanceToActualBaseline(TextBaseline baseline) {
-    assert(_debugDoingBaseline, 'Please see the documentation for computeDistanceToActualBaseline for the required calling conventions of this method.');
     _cachedBaselines ??= <TextBaseline, double>{};
-    _cachedBaselines.putIfAbsent(baseline, () => computeDistanceToActualBaseline(baseline));
+    _cachedBaselines.putIfAbsent(
+        baseline, 
+        () => computeDistanceToActualBaseline(baseline)
+    );
     return _cachedBaselines[baseline];
   }
 
@@ -936,7 +473,6 @@ abstract class RenderBox extends RenderObject {
   ///    [getDistanceToBaseline], the public entry point for this API).
   @protected
   double computeDistanceToActualBaseline(TextBaseline baseline) {
-    assert(_debugDoingBaseline, 'Please see the documentation for computeDistanceToActualBaseline for the required calling conventions of this method.');
     return null;
   }
 
@@ -948,11 +484,6 @@ abstract class RenderBox extends RenderObject {
   void markNeedsLayout() {
     if ((_cachedBaselines != null && _cachedBaselines.isNotEmpty) ||
         (_cachedIntrinsicDimensions != null && _cachedIntrinsicDimensions.isNotEmpty)) {
-      // If we have cached data, then someone must have used our data.
-      // Since the parent will shortly be marked dirty, we can forget that they
-      // used the baseline and/or intrinsic dimensions. If they use them again,
-      // then we'll fill the cache again, and if we get dirty again, we'll
-      // notify them again.
       _cachedBaselines?.clear();
       _cachedIntrinsicDimensions?.clear();
       if (parent is RenderObject) {
@@ -1157,16 +688,15 @@ abstract class RenderBox extends RenderObject {
 ## RenderBoxContainerDefaultsMixin
 
 ```dart
+/// 为包含由[ContainerRenderObjectMixin] mixin管理的子元素的盒子提供有用的默认行为的 mixin。
+/// 按照惯例，这个类不覆盖超类的任何成员。相反，它提供了有用的函数，子类可以适当地调用这些函数。
 mixin RenderBoxContainerDefaultsMixin
   <ChildType extends RenderBox, 
    ParentDataType extends ContainerBoxParentData<ChildType>> 
   implements ContainerRenderObjectMixin<ChildType, ParentDataType> {
-  /// Returns the baseline of the first child with a baseline.
-  ///
-  /// Useful when the children are displayed vertically in the same order they
-  /// appear in the child list.
+  /// 返回带有基线的第一个孩子的基线。
+  /// 当子元素以它们在子列表中出现的顺序垂直显示时非常有用。
   double defaultComputeDistanceToFirstActualBaseline(TextBaseline baseline) {
-    assert(!debugNeedsLayout);
     ChildType child = firstChild;
     while (child != null) {
       final ParentDataType childParentData = child.parentData;
@@ -1178,12 +708,10 @@ mixin RenderBoxContainerDefaultsMixin
     return null;
   }
 
-  /// Returns the minimum baseline value among every child.
+  /// 返回所有孩子的最小基线
   ///
-  /// Useful when the vertical position of the children isn't determined by the
-  /// order in the child list.
+  /// 当子列表的垂直位置不是由子列表中的顺序决定时，此选项非常有用。
   double defaultComputeDistanceToHighestActualBaseline(TextBaseline baseline) {
-    assert(!debugNeedsLayout);
     double result;
     ChildType child = firstChild;
     while (child != null) {
@@ -1219,7 +747,6 @@ mixin RenderBoxContainerDefaultsMixin
         offset: childParentData.offset,
         position: position,
         hitTest: (BoxHitTestResult result, Offset transformed) {
-          assert(transformed == position - childParentData.offset);
           return child.hitTest(result, position: transformed);
         },
       );
@@ -1230,12 +757,8 @@ mixin RenderBoxContainerDefaultsMixin
     return false;
   }
 
-  /// Paints each child by walking the child list forwards.
-  ///
-  /// See also:
-  ///
-  ///  * [defaultHitTestChildren], which implements hit-testing of the children
-  ///    in a manner appropriate for this painting strategy.
+  /// 默认绘制方法
+  /// 以给定的 offset 来绘制每一个孩子     
   void defaultPaint(PaintingContext context, Offset offset) {
     ChildType child = firstChild;
     while (child != null) {
@@ -1245,11 +768,7 @@ mixin RenderBoxContainerDefaultsMixin
     }
   }
 
-  /// Returns a list containing the children of this render object.
-  ///
-  /// This function is useful when you need random-access to the children of
-  /// this render object. If you're accessing the children in order, consider
-  /// walking the child list directly.
+  /// 获取孩子列表
   List<ChildType> getChildrenAsList() {
     final List<ChildType> result = <ChildType>[];
     RenderBox child = firstChild;
