@@ -2,11 +2,24 @@
 
 [TOC]
 
+## SingleChildCloneableWidget 
+
+```dart
+abstract class SingleChildCloneableWidget implements Widget {
+  /// 用一个新[child]来克隆当前的 Provider
+  ///
+  /// 实现要求：包含[Key]和其他必须的值域
+  SingleChildCloneableWidget cloneWithChild(Widget child);
+}
+```
+
+
+
 ## InheritedProvider
 
 ```dart
 class InheritedProvider<T> extends InheritedWidget {
-    /// 允许自定义UpdateShouldNotify
+    /// 允许自定义 UpdateShouldNotify
     const InheritedProvider({
         Key key,
         @required T value,
@@ -14,10 +27,9 @@ class InheritedProvider<T> extends InheritedWidget {
         Widget child,
     })  : _value = value,
     _updateShouldNotify = updateShouldNotify,
-    super(key: key, child: child);
 
-    /// 向后代暴露的值
-    /// 后代可通过 [Provider.of] 来获取这个值
+    /// 向后代暴露的值，[Provider.of] 来获取这个值
+    /// 避免修改这个值。如果修改是必须的，需要新建一个ProviderWidget来替换原有的Widget
     final T _value;
     final UpdateShouldNotify<T> _updateShouldNotify;
 
@@ -36,7 +48,7 @@ class InheritedProvider<T> extends InheritedWidget {
 ## MultiProvider 
 
 ```dart
-/// 方便实现 同时部署多个 Provider
+/// 方便同时部署多个 Provider
 class MultiProvider extends StatelessWidget
     implements SingleChildCloneableWidget {
   const MultiProvider({
@@ -87,16 +99,20 @@ class MultiProvider extends StatelessWidget
 ## StateDelegate
 
 ```dart
-/// 用于控制State的状态
-/// 持有State的Context和SetState方法
+typedef ValueBuilder<T> = T Function(BuildContext context);
+
+/// 用于销毁[T]释放内存的函数回调
+typedef Disposer<T> = void Function(BuildContext context, T value);
+
+
+/// 用于控制 State 的状态
+/// 持有 State 的 Context 和 SetState 方法
 abstract class StateDelegate {
   BuildContext _context;
 
-  /// The location in the tree where this widget builds.
-  ///
-  /// See also [State.context].
   BuildContext get context => _context;
 
+  /// 持有 [StatefulWidget]对应的 State 的 setState 方法，刷新状态，触发重建  
   StateSetter _setState;
 
   /// Notify the framework that the internal state of this object has changed.
@@ -105,12 +121,12 @@ abstract class StateDelegate {
   @protected
   StateSetter get setState => _setState;
 
-  /// 在initState中被调用，初始化Delegate
+  /// 在 initState 中被调用，初始化 Delegate
   @protected
   @mustCallSuper
   void initDelegate() {}
 
-  /// 无论何时[State.didUpdateWidget]被调用时，调用这个方法
+  /// 无论何时 [State.didUpdateWidget] 被调用时，调用这个方法
   @protected
   @mustCallSuper
   void didUpdateDelegate(covariant StateDelegate old) {}
@@ -130,14 +146,13 @@ abstract class DelegateWidget extends StatefulWidget {
   const DelegateWidget({
     Key key,
     @required this.delegate,
-  })  : assert(delegate != null),
-        super(key: key);
+  });
 
-  /// 当前[DelegateWidget]的State
+  /// 当前 [DelegateWidget] 的 State
   @protected
   final StateDelegate delegate;
 
-  /// 
+  /// 要求实现的 build 方法，这个方法被 State.build 调用
   @protected
   Widget build(BuildContext context);
 
@@ -161,14 +176,14 @@ class _DelegateWidgetState extends State<DelegateWidget> {
     widget.delegate.initDelegate();
   }
 
-  /// 使Delegate持有setState方法和context    
+  /// 使 Delegate 持有 setState方法 和 context    
   void _mountDelegate() {
     widget.delegate
       .._context = context
       .._setState = setState;
   }
 
-  /// 使Delegate解除持有setState方法和context     
+  /// 解除 widget.delegate 持有 setState 方法和 context     
   void _unmountDelegate(StateDelegate delegate) {
     delegate
       .._context = null
@@ -178,8 +193,10 @@ class _DelegateWidgetState extends State<DelegateWidget> {
   @override
   void didUpdateWidget(DelegateWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    /// 当 Widget 发生改变的时候，如果 delegate 的应用发生变化，需要解除oldWidget的delegate的引用 
     if (widget.delegate != oldWidget.delegate) {
       _mountDelegate();
+      /// 更甚，当 delegate 的类型改变的时候，旧的delegate会被销毁，并初始化新的 delegate  
       if (widget.delegate.runtimeType != oldWidget.delegate.runtimeType) {
         oldWidget.delegate.dispose();
         _initDelegate();
@@ -190,7 +207,7 @@ class _DelegateWidgetState extends State<DelegateWidget> {
     }
   }
 
-  /// 返回widget的build方法  
+  /// 调用widget.build方法
   @override
   Widget build(BuildContext context) => widget.build(context);
 
@@ -235,7 +252,7 @@ abstract class ValueStateDelegate<T> extends StateDelegate {
 ### SingleValueDelegate & BuilderStateDelegate
 
 ```dart
-/// 适用于Value模式，储存已有的value
+/// 适用于 Value 模式，储存已有的 value
 class SingleValueDelegate<T> extends ValueStateDelegate<T> {
   SingleValueDelegate(this.value);
   @override
@@ -250,15 +267,15 @@ class BuilderStateDelegate<T> extends ValueStateDelegate<T> {
     ) : assert(_builder != null),
     _dispose = dispose;
 
-    /// 用于创建value的回调
     final ValueBuilder<T> _builder;
     final Disposer<T> _dispose;
 
     T _value;
+    
     @override
     T get value => _value;
 
-    /// 实例化value
+    /// _value在此时被构建
     @override
     void initDelegate() {
         super.initDelegate();
@@ -286,7 +303,7 @@ class BuilderStateDelegate<T> extends ValueStateDelegate<T> {
 ## ValueDelegateWidget
 
 ```dart
-/// 将delegate对外暴露
+/// 将 delegate 对外暴露
 abstract class ValueDelegateWidget<T> extends DelegateWidget {
     ValueDelegateWidget({
         Key key,
@@ -316,6 +333,7 @@ class Provider<T>
         Widget child,
     }) : this._(
         key: key,
+        /// 采用builder模式的delegate
         delegate: BuilderStateDelegate<T>(builder, dispose: dispose),
         updateShouldNotify: null,
         child: child,
@@ -329,6 +347,7 @@ class Provider<T>
         Widget child,
     }) : this._(
         key: key,
+        /// 直接提供值的delegate
         delegate: SingleValueDelegate<T>(value),
         updateShouldNotify: updateShouldNotify,
         child: child,
@@ -417,7 +436,7 @@ InheritedProvider								                              InheritedElement
 ## ListenableProvider 
 
 ```dart
-/// 可监听Provider
+/// 可监听 Provider
 class ListenableProvider<T extends Listenable> 
     extends ValueDelegateWidget<T>
     implements SingleChildCloneableWidget 
@@ -563,6 +582,8 @@ mixin _ListenableDelegateMixin<T extends Listenable> on ValueStateDelegate<T> {
         updateShouldNotify = delegate.updateShouldNotify;
     }
 
+    /// 向 listenable 中添加一个listener，每当listenable的notifyListeners 被调用的时候，执行
+    /// setState，当这个delegate被销毁的时候，移除listener
     void startListening(T listenable, {bool rebuild = false}) {
         var buildCount = 0;
         final setState = this.setState;
@@ -884,10 +905,10 @@ class ChangeNotifier implements Listenable {
         final List<VoidCallback> localListeners = List<VoidCallback>.from(_listeners);
         for (VoidCallback listener in localListeners) {
           // 这里采用了一个O(n^2)的算法
-          // 在flutter源码里，通常采用一个 HashSet 来储存被移除的 listener
-          // 通过if(!_removedListener.contains(listener)) 来判断  
+          // 在 flutter 源码里，通常采用一个 HashSet 来储存被移除的 listener
+          // 通过 if(!_removedListener.contains(listener)) 来判断  
           // 查找时间复杂度O(1)  
-          // 在listener不多的情况下，其实没有太大的差别 
+          // 在 listener 不多的情况下，其实没有太大的差别 
           try {
             if (_listeners.contains(listener))
               listener();
