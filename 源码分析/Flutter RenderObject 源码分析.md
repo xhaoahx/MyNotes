@@ -71,6 +71,100 @@ class AbstractNode {
 }
 ```
 
+
+
+## ClipContext
+
+```dart
+/// 提供了部分裁剪方法的上下文，是绘制上下文的父类
+abstract class ClipContext {
+  Canvas get canvas;
+
+  void _clipAndPaint(
+      void canvasClipCall(bool doAntiAlias), 
+      Clip clipBehavior, 
+      Rect bounds, void painter()
+  ) {
+    assert(canvasClipCall != null);
+    /// 保存画布状态，并运用提供的剪裁函数来进行一次剪裁并绘制，之后再恢复状态  
+    canvas.save();
+    switch (clipBehavior) {
+      case Clip.none:
+        break;
+      case Clip.hardEdge:
+        canvasClipCall(false);
+        break;
+      case Clip.antiAlias:
+        canvasClipCall(true);
+        break;
+      case Clip.antiAliasWithSaveLayer:
+        canvasClipCall(true);
+        /// 调用 Native 方法，这会导致 canvas.save()，故须两次 restore  
+        canvas.saveLayer(bounds, Paint());
+        break;
+    }
+    painter();
+    if (clipBehavior == Clip.antiAliasWithSaveLayer) {
+      canvas.restore();
+    }
+    canvas.restore();
+  }
+
+  /// 被 PaintContext.pushXXXClipLayer 调用的方法,用于裁剪canvas  
+  /// 以下方法按照给定的裁剪方式提供了'void canvasClipCall(bool doAntiAlias)'函数，并调用
+  /// _clipAndPaint方法对canvas完成了一次裁剪  
+  void clipPathAndPaint(
+      Path path, 
+      Clip clipBehavior, 
+      Rect bounds, 
+      void painter()
+  ) {
+    _clipAndPaint(
+     (bool doAntiAias) => canvas.clipPath(
+         path, 
+         doAntiAlias: doAntiAias
+     ), 
+     clipBehavior, 
+     bounds, 
+     painter);
+  }
+
+  void clipRRectAndPaint(
+      RRect rrect, 
+      Clip clipBehavior, 
+      Rect bounds, 
+      void painter()
+  ) {
+    _clipAndPaint(
+      (bool doAntiAias) => canvas.clipRRect(
+          rrect, 
+          doAntiAlias: doAntiAias
+      ), 
+      clipBehavior,
+      bounds, 
+      painter);
+  }
+
+  void clipRectAndPaint(
+      Rect rect, 
+      Clip clipBehavior, 
+      Rect bounds, 
+      void painter()
+  ) {
+    _clipAndPaint((bool doAntiAias) => canvas.clipRect(
+        rect, 
+        doAntiAlias: doAntiAias
+    ), 
+      clipBehavior, 
+      bounds
+      painter
+    );
+  }
+}
+```
+
+
+
 ## PaintContext
 
 ```dart
@@ -99,9 +193,10 @@ class PaintingContext extends ClipContext {
   /// [estimatedBounds] 处于 [canvas] 的坐标系内
   final Rect estimatedBounds;
 
-  /// 重绘一个给定的渲染对象
+  /// 重绘一个给定的渲染对象（通常这个渲染对象是重绘边界）
   ///
-  /// 给定的渲染对象必须挂载了一个[PipelineOwner]，必须有一个合成层，并且必须需要绘制。
+  /// 给定的渲染对象必须挂载了一个[PipelineOwner]（可以说是这个给定的渲染对象节点已经被挂载了），必须有
+  /// 一个合成层，并且必须需要绘制。
   /// 渲染对象的层(如果有的话)和子树中不需要重新绘制的任何层一起被重用。
   ///
   static void repaintCompositedChild(
@@ -114,42 +209,54 @@ class PaintingContext extends ClipContext {
     );
   }
 
+  /// 绘制当前节点  
   static void _repaintCompositedChild(
     RenderObject child, {
     bool debugAlsoPaintedParent = false,
     PaintingContext childContext,
   }) {
+    /// 在_compositeChild方法中也会调用_repaintCompositedChild，所以child.Layer可能为null  
     OffsetLayer childLayer = child._layer;
+    /// 如果child.layer == null，就为其新建一个OffsetLayer  
     if (childLayer == null) {
       child._layer = childLayer = OffsetLayer();
     } else {
+      /// 这意味这个层会被重用，首先需要移除它所有的孩子节点  
       childLayer.removeAllChildren();
-    }
+    } 
+      
     /// 如果 childContext 为 null，则会新建一个 PaintingContext  
     childContext ??= PaintingContext(child._layer, child.paintBounds);
+      
+    /// 这里调用到RenderObejct._paintWithContext,然后是RenderObejct.paint方法完成绘制
+    /// 注：通常在paint方法里，会调用context.paintChild来完成子节点的绘制  
     child._paintWithContext(childContext, Offset.zero);
+      
+    /// 结束canvas录制  
     childContext.stopRecordingIfNeeded();
   }
 
-  /// Paint a child [RenderObject].
+  /// 绘制子[RenderObject].
   ///
   /// 如果子节点有自己的复合层，则子节点将被复合到与该关联的层子树中。
   /// 否则，child 将被绘制到当前[PaintContext]的 PictureLayer 中。
   void paintChild(RenderObject child, Offset offset) {
-
+    /// 如果子节点是重绘边界
     if (child.isRepaintBoundary) {
       // 停止绘制操作的录制  
       stopRecordingIfNeeded();
       // 开始合成  
       _compositeChild(child, offset);
     } else {
+      // 否则继续使用context绘制，canvas没有改变，即_currenrtLayer也没有变化  
       child._paintWithContext(this, offset);
     }
   }
 
   void _compositeChild(RenderObject child, Offset offset) {
 
-    // Create a layer for our child, and paint the child into it.
+    /// 重绘（由于绘制是从下往上的，子节点通常已经被绘制过了，这里再次调用了绘制方法，所以叫重绘）子节点
+    /// （这个子节点通常是重绘边界）
     if (child._needsPaint) {
       repaintCompositedChild(child, debugAlsoPaintedParent: true);
     } else {
@@ -157,18 +264,10 @@ class PaintingContext extends ClipContext {
     }
     final OffsetLayer childOffsetLayer = child._layer;
     childOffsetLayer.offset = offset;
+    /// 把 child.layer 作为 _containerLayer 的子层  
     appendLayer(child._layer);
   }
 
-  /// Adds a layer to the recording requiring that the recording is already
-  /// stopped.
-  ///
-  /// Do not call this function directly: call [addLayer] or [pushLayer]
-  /// instead. This function is called internally when all layers not
-  /// generated from the [canvas] are added.
-  ///
-  /// Subclasses that need to customize how layers are added should override
-  /// this method.
   @protected
   void appendLayer(Layer layer) {
     assert(!_isRecording);
@@ -188,8 +287,11 @@ class PaintingContext extends ClipContext {
 
   /// 用于绘制的 canvas
   ///
-  /// 当使用这个[PaintContext]绘制一个孩子时，当前画布可能更改，这意味着保存此getter返回的 Canvas 的
-  /// 引用是很脆弱的。
+  /// 当使用这个[PaintContext]绘制一个孩子时，当前画布可能被更改
+  /// 这意味着保存此 getter 返回的 Canvas 的引用是很脆弱的
+  /// 仅当 canvas == null 时会调用_startRecording，也就是说，每次录制期间只有一个canvas，直到录制停
+  /// 止。在 paintChild 方法中，如果孩子是重绘边界，则停止绘制并合成，否则接着使用已经保存的canvas
+  /// 在 pushLayer 和 addLayer 方法中也会停止录制  
   @override
   Canvas get canvas {
     if (_canvas == null)
@@ -201,6 +303,8 @@ class PaintingContext extends ClipContext {
     _currentLayer = PictureLayer(estimatedBounds);
     _recorder = ui.PictureRecorder();
     _canvas = Canvas(_recorder);
+    /// 把 _pictureLayer 作为 _containerLayer 的孩子，可以把 containerLayer 的变化效果作用在
+    /// Picture上  
     _containerLayer.append(_currentLayer);
   }
 
@@ -215,6 +319,8 @@ class PaintingContext extends ClipContext {
   void stopRecordingIfNeeded() {
     if (!_isRecording)
       return;
+    /// 设置 picture 会调用 PictureLayer.markNeedsAddToScene 方法，把 Layer.needsAddToScene 
+    /// 标为 true，随后 addToScene 被调用的时候，会用 picture 来构建 Scence  
     _currentLayer.picture = _recorder.endRecording();
     _currentLayer = null;
     _recorder = null;
@@ -241,12 +347,12 @@ class PaintingContext extends ClipContext {
     appendLayer(layer);
   }
 
-  /// 将给定的层添加到记录中，并使用该层调用“painter”回调，提供“childPaintBounds”作为孩子的预测绘制界
-  /// 限。“childPaintBounds”可以用于调试，但对绘制没有影响。
+  /// 将给定的层添加到containerLyaer的孩子列表中，并使用该层调用“painter”回调，提
+  /// 供“childPaintBounds”作为孩子的预测绘制边界
   ///
   /// 给定的层必须是没有被挂载的（即提供一个新建的对象）
   ///
-  /// 如果没有指定“childPaintBounds”，则使用当前层的paint bounds。
+  /// 如果没有指定“childPaintBounds”，则使用当前层的 paint bounds。
   /// 如果子层没有对其内容应用任何转换或剪切，那么以上约定是合适的。
   /// 如果指定了“childPaintBounds”，那么它必须在新图层的坐标系统中，并且不能超出当前图层的绘制边界。
   ///
@@ -262,7 +368,11 @@ class PaintingContext extends ClipContext {
       childLayer.removeAllChildren();
     }
     stopRecordingIfNeeded();
+    /// 把 childLayer 作为 containerLayer 的子节点 
     appendLayer(childLayer);
+    /// 利用 childLayer 新建一个 childContext，并回调painter方法
+    /// 即 painter 方法的绘制不是发生在本 PaintContext 上，而是 childContext，于是 Layer 的变换效
+    /// 果会作用给 painter 方法  
     final PaintingContext childContext = createChildContext(
         childLayer, 
         childPaintBounds ?? estimatedBounds
@@ -276,7 +386,6 @@ class PaintingContext extends ClipContext {
     return PaintingContext(childLayer, bounds);
   }
 
-    
   /// 以下方法被各个 RenderObject 子类的 paint 方法调用，用于设置其 _layer 字段  
   ClipRectLayer pushClipRect(
       bool needsCompositing, 
@@ -456,7 +565,7 @@ abstract class RenderObject
   }
 ```
 
-### Layout
+### 1.Layout
 ```dart
   // LAYOUT 布局
 
@@ -568,7 +677,6 @@ abstract class RenderObject
     
   /// 如果[sizedByParent]发生改变，调用
   /// [markNeedsLayoutForSizedByParentChange]而不是[markNeedsLayout].
-    
   void markNeedsLayout() {
     /// 如果已经标记，返回
     if (_needsLayout) {
@@ -761,7 +869,7 @@ abstract class RenderObject
   ... /// 未实现的渲染对象旋转
 ```
 
-### Paint
+### 2.Paint
 ```dart
   // PAINTING 绘制
 
@@ -913,11 +1021,15 @@ abstract class RenderObject
     }
   }
 
-  /// 调用时，flushPaint 试图绘制这个节点，但图层还没有被装载。
-  /// 为了确保我们的子树在最后重新连接时被重新绘制，即使在某些祖先层本身没有被标记为dirty的情况下，我们也
-  /// 必须将整个分离的子树标记为脏的，并且需要重新绘制。那样的话，我们最终会被重新绘制
+  /// 调用时，flushPaint 试图绘制这个节点，但图层还没有被挂载。
+  /// 为了确保我们的子树在最后重新连接时被重新绘制，即使在某些祖先层本身没有被标记为 dirty 的情况下，我们
+  /// 也必须将整个未挂载的子树标记 dirty，并且需要重新绘制。那样的话，我们最终会被重新绘制
   void _skippedPaintingOnLayer() {
     AbstractNode ancestor = parent;
+    /// 向上查找所有的RenderObject的layer还没有被挂载的重绘边界，并标记为 dirty
+    /// 注：在PipelineOwner的flushPaint方法中，对dirty节点的排序是深度大的在前，故会对树中较为底层的
+    /// 节点优先进行重绘。因此，当发现一个底层的节点还没有被挂载时，可以向上查找并标记所有还未挂载的节点，
+    /// 标记dirty。之后，在对父节点进行重绘的时候，会重新向下绘制标记了dirty的子节点  
     while (ancestor is RenderObject) {
       final RenderObject node = ancestor;
       if (node.isRepaintBoundary) {
@@ -939,7 +1051,7 @@ abstract class RenderObject
     owner._nodesNeedingPaint.add(this);
   }
 
-  /// 替换合成层，
+  /// 替换根合成层，这个方法被 RenderView 调用
   ///
   /// 可能在设备像素比发生变化的时候调用
   void replaceRootLayer(OffsetLayer rootLayer) {
@@ -950,13 +1062,6 @@ abstract class RenderObject
 
   /// 这个方法会调用paint方法
   void _paintWithContext(PaintingContext context, Offset offset) {
-    // If we still need layout, then that means that we were skipped in the
-    // layout phase and therefore don't need painting. We might not know that
-    // yet (that is, our layer might not have been detached yet), because the
-    // same node that skipped us in layout is above us in the tree (obviously)
-    // and therefore may not have had a chance to paint yet (since the tree
-    // paints in reverse order). In particular this will happen if they have
-    // a different layer, because there's a repaint boundary between us.
     if (_needsLayout)
       return;
     RenderObject debugLastActivePaint;
@@ -974,9 +1079,6 @@ abstract class RenderObject
   /// These are also the bounds used by [showOnScreen] to make a [RenderObject]
   /// visible on screen.
   Rect get paintBounds;
-
-  /// Override this method to paint debugging information.
-  void debugPaint(PaintingContext context, Offset offset) { }
 
   /// 以给定的偏移量将此渲染对象绘制到给定的上下文中。
   ///
@@ -1065,7 +1167,7 @@ abstract class RenderObject
   /// a the last visible node in the viewport to the first hidden one.
   Rect describeSemanticsClip(covariant RenderObject child) => null;
 ```
-### Semantics
+### 3.Semantics（语义部分略过）
 ```dart
   // SEMANTICS
 
@@ -1408,7 +1510,7 @@ abstract class RenderObject
     node.updateWith(config: config, childrenInInversePaintOrder: children);
   }
 ```
-### Event
+### 4.Event
 ```dart
   // EVENTS
 
@@ -1416,7 +1518,7 @@ abstract class RenderObject
   @override
   void handleEvent(PointerEvent event, covariant HitTestEntry entry) { }
 ```
-### Hit Testing
+### 5.Hit Testing
 ```dart
   // HIT TESTING
 
@@ -1435,7 +1537,7 @@ abstract class RenderObject
   // If you add yourself to /result/ and still return false, then that means you
   // will see events but so will objects below you.
 ```
-### Other
+### 6.Other
 ```dart
   /// 尝试让这个或者部分后代 [RenderObject] 节点出现在屏幕上
   ///
