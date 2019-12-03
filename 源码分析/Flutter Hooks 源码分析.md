@@ -143,7 +143,7 @@ class HookElement extends StatefulElement {
   @override
   Widget build() {
     /// 初始化迭代器和索引  
-    /// 在首次 build 时，_hooks 是null，直到第一次调用 Hook.use方法
+    /// 在首次 build 时，_hooks 是 null，直到第一次调用 Hook.use方法
     _currentHook = _hooks?.iterator;
     _currentHook?.moveNext();
     _hookIndex = 0;
@@ -155,6 +155,7 @@ class HookElement extends StatefulElement {
     /// Widget build() => state.build(this); 
     /// 在 HookWidgetState 中  
     /// Widget build(BuildContext context) => widget.build(context); 
+    /// 而在 Widget.build 中，我们使用了 useHook，进而调用了到 [_use] 方法  
     final result = super.build();
       
     /// 设置 Buildcontext  
@@ -176,10 +177,11 @@ class HookElement extends StatefulElement {
       Type targetType,
       {Object aspect}) 
   {
-    assert(!_debugIsInitHook);
     return super.inheritFromWidgetOfExactType(targetType, aspect: aspect);
   }
 
+  /// buildScope 会调用标记了 dirty 节点的 rebuild 方法，然后是 performRebuild 方法  
+  /// ComponentElement 对 performRebuild 的实现调用了 build
   /// 在 build 之后会立刻调用 updateChild，这时候会调用到 hook 的 didBuild  
   /// try {
   ///    built = build();
@@ -239,7 +241,6 @@ class HookElement extends StatefulElement {
     HookState<R, Hook<R>> hookState;
     /// 首次构建 Widget，_hooks 为 null，所以 _currentHook == null  
     if (_currentHook == null) {
-      assert(_debugDidReassemble || !_didFinishBuildOnce);  
       hookState = _createHookState(hook);
       /// 初始化 _hooks  
       _hooks ??= [];  
@@ -342,8 +343,6 @@ class _HookWidgetState extends State<HookWidget> {
 
 /// 获取 BuildContext
 BuildContext useContext() {
-  assert(HookElement._currentContext != null,
-      '`useContext` can only be called from the build method of HookWidget');
   return HookElement._currentContext;
 }
 
