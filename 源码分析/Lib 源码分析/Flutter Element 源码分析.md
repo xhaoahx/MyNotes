@@ -7,44 +7,45 @@
 ```dart
 /// Element的生命周期如下:
 ///
-/// *框架通过调用[Widget.createElement]创建一个使用该widget作为初始配置的element
+/// *框架通过调用 [Widget.createElement] 创建一个使用该 widget 作为初始配置的 element
 ///
-/// *框架调用[mount]将新创建的element添加到树上一个指定的父节点上的一个指定位置。[mount]方法负责扩展任
-///  何子部件并调用其[attachRenderObject]，将任何关联的的RenderObject附加到渲染树上。
+/// *框架调用 [mount] 将新创建的 element 添加到树上一个指定的父节点上的一个指定位置(slot)。
+///  [mount]方法负责扩展任何子 element（即递归地构建子树）并调用其[attachRenderObject]，将任何关联/
+///  的 RenderObject 附加到渲染对象树上。
 ///
 /// *此时，element被认为是“Active”，并且可能会出现在屏幕上
 ///
-/// *在某个时候，父节点可能会决定更改配置此element的widget，例如因为父节点重新构建状态。当这种情况发生的
-///  时，框架将调用新widget的[update]。新widget将始终具有与旧wiedget相同的[runtimeType]和[key]。
-///  如果父节点希望更改[runtimeType]或[key]或这个widget在树中的位置，它可以通过卸载这个elemtent来实
-///  现，并在此位置扩展一个新的widget
+/// *在某个时候，父节点可能会决定更改配置此 element 的 widget，例如因为父节点重新构建状态。当这种情况发
+///  生的时侯，框架将调用新 widget 的 [update]。新 widget 将始终具有与旧 wiedget 相同的 
+///  [runtimeType] 和 [key]。 如果父节点希望更改 [runtimeType] 或 [key] 或这个 widget 在树中的位
+///  置，它可以通过卸载这个elemtent 来实现，并在此位置将一个新的 widget 扩展成 element
 ///
-/// *在某个时候，祖先可能会决定删除某个element(或者中间祖先)，该祖先通过在自身调用[deactiveChild]来完
-///  成。将中间祖先deactive会从渲染树中删除该element的RenderObject并添加这个element到[owner]的非活
-///  动元素列表，从而导致框架对该element调用[deactive]
+/// *在某个时候，祖先可能会决定删除某个 elemen t(或者中间祖先)，该祖先通过在自身调用[deactiveChild]来
+///  完成卸载。将中间祖先 deactive 会从渲染对象树中删除该 element 的 RenderObject 并添加这个 
+///  element 到[BuildOwner]的非活动元素列表，从而导致框架对该 element 调用 [deactive]
 ///
-/// *此时，element被认为是“非活动的”，且不会出现屏幕上。元素能保持在非活动状态，直到当前动画帧的结束。在
-///  动画的最后帧，任何仍然不活动的元素将被unmount
+/// *此时，element 被认为是“非活动的”，且不会出现屏幕上。一个 element 能保持在非活动状态，直到当前动画
+///  帧的结束(这里结束是指 drawFrame 回调完成之后，finalizeTree 会调用所有非活动的 element.unmount 
+///  方法)。在动画的最后帧，任何仍然不活动的 element 将被 unmount
 ///
-/// *如果element重新合并到树中(例如，因为它或他的祖先element有可重用的[GlobalKey])，框架将会从
-///  [owner]的非活动elemten列表中删除元素并调用它的[activate]，并将element的渲染对象重新添加到渲染
-///  树。此时，element再次被认为是“active”，并可能会出现在屏幕上
+/// *如果 element 被重新合并到树中(例如，因为它或他的祖先 element 有可重用的 [GlobalKey] )，框架将会
+///  从[BuildOwner]的非活动 elemtent 列表中删除元素并调用它的 [activate]，并将 element 的 
+///  RenderObject 重新添加到渲染对象树中。此时，element 再次被认为是 “active”，并可能会出现在屏幕上
 ///
-/// *如果element在当前动画结束帧时没有重新合并到树中，框架将调用该element的[unmount]
+/// *如果 element 在当前动画结束帧时没有重新合并到树中，框架将调用该 element 的[unmount]
 ///
 /// *此时，元素被认为是“defunct”，之后不再会合并到树中
-
-
 abstract class Element extends DiagnosticableTree implements BuildContext {
-  /// widget通常重载createElement来创建element、
-  /// 使element持有widget  
+  /// widget 通常重载 createElement 来创建 element、
+  /// 使 element 持有 widget  
   Element(Widget widget)
     : assert(widget != null),
       _widget = widget;
 
-  /// 父element  
+  /// 父 element  
   Element _parent;
 
+  /// 判断相等的唯一方式：是否引用了同一 element 
   @override
   bool operator ==(Object other) => identical(this, other);
 
@@ -55,15 +56,29 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
 
   /// 父节点为子节点设置的位置
   ///
-  /// 如果子类element只有一个孩子，那么这个域为null
+  /// 如果子类 element 只有一个孩子，那么这个域为 null
+  /// 多孩子的情况可以参考 MultiChildRenderObjectElement 的实现 
+    
+  /// Slots
+  ///
+  /// 每个子 [element] 对应一个 [RenderObject]，它应该作为这个 element 的 renderObject 的子 
+  /// renderObjet。但是，element 的当前的 child 列表可能不会最终对应 RenderObject 的 element 
+  /// 例如，[StatelessElement] ([StatelessWidget]的 element)，简单地对应于它 build 方法返回的
+  /// Element 子树的最上层的 [RenderObject]
+  ///
+  /// 因此，每个子节点都被分配了一个 _slot_token。这是一个标识符，对这个 [RenderObjectElement] 节点
+  /// 是私有的。当其后代最终产生(RenderObject)并准备将它附加到这个节点的 RenderObject,它将
+  /// _slots_token 传回到这个节点,这使得这个节点能够轻易地确定这个 RenderObject 在父 RenderObject 
+  /// 中相对其他孩子的位置。
   dynamic get slot => _slot;
   dynamic _slot;
 
-  /// element在树中的深度
+  /// element 在树中的深度
   int get depth => _depth;
   int _depth;
 
-  /// 排序，按照深度小大，是否标记dirty 先后排序  
+  /// 排序，按照深度小大，是否标记 dirty 先后排序  
+  /// 即深度小的会被再在前面。如果深度相同，那么被标记 dirty 的会被排在前面  
   static int _sort(Element a, Element b) {
     if (a.depth < b.depth)
       return -1;
@@ -80,14 +95,16 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
   Widget get widget => _widget;
   Widget _widget;
 
-  /// 控制element生命流程的owner
+  /// 控制 element 生命周期的 BuildOwner
   @override
   BuildOwner get owner => _owner;
   BuildOwner _owner;
 
+  /// 是否处于活动状态  
   bool _active = false;
 
   /// 热重载相关
+  /// 这个方法被开发工具调用，会整颗 element 树的 markNeedsBuild 方法被调用，即重建整颗树  
   @mustCallSuper
   @protected
   void reassemble() {
@@ -101,7 +118,6 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
   RenderObject get renderObject {
     RenderObject result;
     void visit(Element element) {
-      assert(result == null); // this verifies that there's only one child
       if (element is RenderObjectElement)
         result = element.renderObject;
       else
@@ -117,11 +133,11 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
   _ElementLifecycle _debugLifecycleState = _ElementLifecycle.initial;
 
   /// 访问所有的孩子
-  /// 有孩子的子类element必须重载这个方法  
+  /// 有孩子的子类 element 必须重载这个方法  
   /// typedef ElementVisitor = void Function(Element element);  
   void visitChildren(ElementVisitor visitor) { }
 
-  /// 访问子element，直接调用 visitChildren
+  /// 访问子 element，直接调用 visitChildren
   @override
   void visitChildElements(ElementVisitor visitor) {
     visitChildren(visitor);
@@ -130,48 +146,49 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
   /// 更新孩子
   @protected
   Element updateChild(Element child, Widget newWidget, dynamic newSlot) {
-    /// 移除旧的widget
-    /// deactivate child
+    /// 移除旧的 widget，或是没有子节点，前者会导致子节点的 unmount 被调用
     if (newWidget == null) {
       if (child != null)
         deactivateChild(child);
       return null;
     }
     if (child != null) {
-      /// Widget没有改变  
+      /// Widget 的引用没有发生改变  
       if (child.widget == newWidget) {
-        /// 如果位置可能发生了变更  
+        /// 如果位置可能发生了变更，那么只需要更新 slot  
         if (child.slot != newSlot)
           updateSlotForChild(child, newSlot);
         return child;
       }
-      /// 只更新的widget的数据  
+      /// 如果用新的 widget 去替换 旧的 widget  
       if (Widget.canUpdate(child.widget, newWidget)) {
+        /// 如果位置可能发生了变更，那么只需要更新 slot   
         if (child.slot != newSlot)
           updateSlotForChild(child, newSlot);
+        /// 用新的 widget 来替换旧的 widget，并更新的对应的 element 或者 RenderObject 数据  
         child.update(newWidget);
         return child;
       }
-      /// 否则deactivate child
+      /// 否则 deactivate child
       deactivateChild(child);
     }
-    /// 扩充新的element  
+    /// 将 newWidet 扩充成新的 element 做为孩子  
     return inflateWidget(newWidget, newSlot);
   }
 
-  /// 将这个element插入指定父节点的指定位置上
+  /// 将这个 element 插入指定父节点的指定位置上，并建立对父级的引用关系，并更新必要的信息
   @mustCallSuper
   void mount(Element parent, dynamic newSlot) {
     _parent = parent;
     _slot = newSlot;
-    /// 深度+1
+    /// 深度 + 1
     _depth = _parent != null ? _parent.depth + 1 : 1;
     /// 标记active为true  
     _active = true;
-    /// 分配owner  
+    /// 分配 owner  
     if (parent != null)
       _owner = parent.owner;
-    /// 注册global key  
+    /// 注册 global key  
     if (widget.key is GlobalKey) {
       final GlobalKey key = widget.key;
       key._register(this);
@@ -180,13 +197,13 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     _updateInheritance();
   }
 
-  /// 更新widget，子类经常重载这个方法
+  /// 更新 widget，子类经常重载这个方法
   @mustCallSuper
   void update(covariant Widget newWidget) {
     _widget = newWidget;
   }
 
-  /// 更改一个子element何其后代的位置
+  /// 更改一个子 element 何其后代的位置
   @protected
   void updateSlotForChild(Element child, dynamic newSlot) {
     void visit(Element element) {
@@ -213,9 +230,9 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     }
   }
 
-  /// 将[renderObject]从渲染树里移除。
+  /// 将 [renderObject] 从渲染树里移除。
   ///
-  /// 被[deactivateChild]调用。
+  /// 被 [deactivateChild] 调用。
   void detachRenderObject() {
     visitChildren((Element child) {
       child.detachRenderObject();
@@ -223,7 +240,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     _slot = null;
   }
 
-  /// 添加[renderObject] 到渲染树上指定的位置
+  /// 添加 [renderObject] 到渲染树上指定的位置
   void attachRenderObject(dynamic newSlot) {
     visitChildren((Element child) {
       child.attachRenderObject(newSlot);
@@ -231,7 +248,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     _slot = newSlot;
   }
 
-  /// 激活一个 inactive 的 globalkey 所对应的element，并将其返回 
+  /// 重新获得一个 globalkey 所对应的非活动 element，并将其返回 
   Element _retakeInactiveElement(GlobalKey key, Widget newWidget) {
     final Element element = key._currentElement;
     if (element == null) return null;
@@ -268,33 +285,35 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
 
   ...
       
-  /// deactivate一个孩子    
+  /// deactivate 一个孩子    
   @protected
   void deactivateChild(Element child) {
     child._parent = null;
     child.detachRenderObject();
-    owner._inactiveElements.add(child); // 这最终会调用child.deactivate()
+    owner._inactiveElements.add(child); // 这最终会调用child.deactivate
   }
 
-  /// 将child从element的children中移除
-  /// eactivateChild之后会被调用来解除关联
+  /// 将 child 从 element 的 children 中移除
+  /// deactivateChild 之后会被调用来解除关联
   @protected
   void forgetChild(Element child);
 
-  /// 给定一个新element作为parent，激活整个子树  
+  /// 给定一个新 element 作为 parent，激活整个子树 
+  /// 通常，这个方法会在 _retakeInactiveElement 之后调用，用于将 element 及其子树移栽到树中的另一个
+  /// 位置 
   void _activateWithParent(Element parent, dynamic newSlot) {
     _updateDepth(_parent.depth);
     _activateRecursively(this);
     attachRenderObject(newSlot);
   }
 
-  /// 递归地调用	activate
+  /// 递归地调用	activate，激活给定 element 的子树
   static void _activateRecursively(Element element) {
     element.activate();
     element.visitChildren(_activateRecursively);
   }
 
-  /// 使生命周期从inactive过渡到active
+  /// 使生命周期从 inactive 过渡到 active
   @mustCallSuper
   void activate() {
     final bool hadDependencies = 
@@ -313,7 +332,8 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
       didChangeDependencies();
   }
 
-  /// 使生命周期从active过渡到inactive
+  /// 使生命周期从 active 过渡到 inactive
+  /// 如果有依赖的话，会在依赖的节点的依赖着列表中移除自身  
   @mustCallSuper
   void deactivate() {
     if (_dependencies != null && _dependencies.isNotEmpty) {
@@ -324,20 +344,21 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     _active = false;
   }
 
-  /// 使生命周期从inactive过渡到defunct
+  /// 使生命周期从inactive 过渡到 defunct
   @mustCallSuper
   void unmount() {
+    /// 如果这个 element 对应了一个 GlobalKey 的话，需要注销  
     if (widget.key is GlobalKey) {
       final GlobalKey key = widget.key;
       key._unregister(this);
     }
   }
 
-  /// 向下查找第一个RenderObject  
+  /// 向下查找第一个 RenderObject  
   @override
   RenderObject findRenderObject() => renderObject;
 
-  /// 只有当renderObejct是RenderBox时才返回大小	
+  /// 只有当 renderObejct 是 RenderBox 时才返回大小	
   @override
   Size get size {
     final RenderObject renderObject = findRenderObject();
@@ -346,16 +367,18 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     return null;
   }
 
-  /// 一个从类型到element实例的映射
+  /// 一个从类型到 element 实例的映射，通常被 xxx.of(Context) 使用，用于获取对应类型的依赖  
   Map<Type, InheritedElement> _inheritedWidgets;
     
-  /// 依赖（依赖于InheritedElement）集合
+  /// 依赖（依赖于 InheritedElement ）集合
   Set<InheritedElement> _dependencies;
+  
+  /// 是否由未被满足的依赖   
   bool _hadUnsatisfiedDependencies = false;
 
   /// 建立遗传关系
-  /// 自身建立一个_dependencies（哈希集合），并将ancestor（InheritedElement ）加入集合中
-  /// 调用InheritedElement祖先的updateDependencies，在其_dependents中加入自身
+  /// 自身建立一个_dependencies（哈希集合），并将 ancestor（InheritedElement ）加入集合中
+  /// 调用 InheritedElement 祖先的 updateDependencies，在其 _dependents 中加入自身
 
   /// InheritedElement.setDependencies
   /// @protected
@@ -373,10 +396,10 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     return ancestor.widget;
   }
 
-  /// 返回指定类型的inheritFromElement持有的widget
+  /// 返回指定类型的 inheritFromElement 持有的 widget
   @override
   InheritedWidget inheritFromWidgetOfExactType(Type targetType, { Object aspect }) {
-    /// 在_inheritedWidgets中通过<Type>查找对应的element
+    /// 在 _inheritedWidgets 中通过 <Type> 查找对应的 element
     final InheritedElement ancestor = _inheritedWidgets == null ?
         null : 
         _inheritedWidgets[targetType];
@@ -388,7 +411,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     return null;
   }
 
-  /// 只在_inheritedWidgets中通过<Type>查找对应的element，不建立联系
+  /// 只在 _inheritedWidgets 中通过 <Type> 查找对应的 element，不建立联系
   @override
   InheritedElement ancestorInheritedElementForWidgetOfExactType(Type targetType) {
     final InheritedElement ancestor = 
@@ -403,7 +426,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     _inheritedWidgets = _parent?._inheritedWidgets;
   }
 
-  /// 向上查找第一个指定类型的Widget
+  /// 向上查找第一个指定类型的 Widget
   @override
   Widget ancestorWidgetOfExactType(Type targetType) {
     Element ancestor = _parent;
@@ -412,7 +435,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     return ancestor?.widget;
   }
 
-  /// 向上查找第一个指定类型的State
+  /// 向上查找第一个指定类型的 State
   @override
   State ancestorStateOfType(TypeMatcher matcher) {
     Element ancestor = _parent;
@@ -425,7 +448,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     return statefulAncestor?.state;
   }
 
-  /// 查找根指定类型的State
+  /// 查找根指定类型的 State
   @override
   State rootAncestorStateOfType(TypeMatcher matcher) {
     assert(_debugCheckStateIsActiveForAncestorLookup());
@@ -439,7 +462,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     return statefulAncestor?.state;
   }
 
-   /// 向上查找第一个指定类型的RenderObeject
+   /// 向上查找第一个指定类型的 RenderObeject
   @override
   RenderObject ancestorRenderObjectOfType(TypeMatcher matcher) {
     assert(_debugCheckStateIsActiveForAncestorLookup());
@@ -453,7 +476,8 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     return renderObjectAncestor?.renderObject;
   }
 
-  /// 访问先祖elment
+  /// 访问先祖 elment
+  /// 如果 visitor 返回 false 的话会停止查找  
   @override
   void visitAncestorElements(bool visitor(Element element)) {
     Element ancestor = _parent;
@@ -462,6 +486,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
   }
 
   /// 依赖发生改变时的回调，标记需要重建
+  /// 通常被 ProxyElement 的 notifyClinets 调用
   @mustCallSuper
   void didChangeDependencies() {
     markNeedsBuild();
@@ -469,11 +494,11 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
 
   ...
       
-  /// dirty标记，标记这个element是否需要重建    
+  /// dirty 标记，标记这个 element 是否需要重建    
   bool get dirty => _dirty;
   bool _dirty = true;
 
-  // 是否在 owner._dirtyElements 中
+  /// 是否在 owner._dirtyElements 中
   bool _inDirtyList = false;
 
   ... 
@@ -485,14 +510,15 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     owner.scheduleBuildFor(this);
   }
 
-  /// 当element被标记为dirty时，[BuildOwner]调用[BuildOwner.scheduleBuildFor]。
-  /// 首次build时调用到[mount]
-  /// 发生改变时调用到[update]。
+  /// 如果在这个节点上调用 markNeedsBuild 方法，那么会把这个节点加入到 BuildOwner._dirtyElements 
+  //  列表中 在下一个vsycn 信号到来的时候，引擎会调用到 buildScope 方法，对   
+  /// buildOwner._dirtyElements 中的每一个节点 element 调用其 rebuild 方法，子类必须重载
+  /// performRebuild方法来完成重建 element 树
   void rebuild() {
     performRebuild();
   }
 
-  /// 子类必须重载
+  /// 子类必须重载这个方法来完成重建的具体操作
   @protected
   void performRebuild();
 }
@@ -503,29 +529,31 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
 
 ## ComponeElement
 
+StatelessElement，StatefulElement，ProxyElement 的基类
+
 ```dart
 abstract class ComponentElement extends Element {
   ComponentElement(Widget widget) : super(widget);
 
   Element _child;
 
+  /// 在 mount 的时候调用 _firstBuild 方法
   @override
   void mount(Element parent, dynamic newSlot) {
     super.mount(parent, newSlot);
     _firstBuild();
   }
 
+  /// 子类可以重载这个方法来完成一些额外的操作  
   void _firstBuild() {
     rebuild();
   }
 
-  /// 当首次建立被[mount]，或需要更新时被[rebuild]自动调用
+  /// 当首次建立被 [mount]，或需要更新时被 [rebuild] 自动调用
+  /// 利用 build 方法来创建这个 element 持有的 widget 的子 widget
+  /// 并使用新得到的 widget 来更新自身持有的 element  
   @override
   void performRebuild() {
-    if (!kReleaseMode && debugProfileBuildsEnabled)
-      Timeline.startSync('${widget.runtimeType}',  arguments: 
-                         timelineWhitelistArguments);
-
     Widget built;
     try {
       built = build();
@@ -541,20 +569,16 @@ abstract class ComponentElement extends Element {
       ...
     } catch (e, stack) {
       ...
-      _child = updateChild(null, built, slot);
     }
-
-    if (!kReleaseMode && debugProfileBuildsEnabled)
-      Timeline.finishSync();
   }
 
-  /// 子类必须重载这个方法
+  /// 子类必须重载这个方法来返回子 widget 
   @protected
   Widget build();
 
   @override
   void visitChildren(ElementVisitor visitor) {
-    /// 如果有孩子才访问  
+    /// 如果有子 element才访问  
     if (_child != null) visitor(_child);
   }
 
@@ -571,7 +595,6 @@ abstract class ComponentElement extends Element {
 
 ```dart
 abstract class ProxyElement extends ComponentElement {
-  /// Initializes fields for subclasses.
   ProxyElement(ProxyWidget widget) : super(widget);
 
   @override
@@ -580,7 +603,7 @@ abstract class ProxyElement extends ComponentElement {
   @override
   Widget build() => widget.child;
 
-  /// 每次update时，会通知listener  
+  /// 每次 update 时，会通知 listener  
   @override
   void update(ProxyWidget newWidget) {
     final ProxyWidget oldWidget = widget;
@@ -590,7 +613,7 @@ abstract class ProxyElement extends ComponentElement {
     rebuild();
   }
 
-  /// widget发生改变时调用
+  /// widget 发生改变时调用
   @protected
   void updated(covariant ProxyWidget oldWidget) {
     notifyClients(oldWidget);
@@ -598,139 +621,6 @@ abstract class ProxyElement extends ComponentElement {
 
   @protected
   void notifyClients(covariant ProxyWidget oldWidget);
-}
-```
-
-
-
-
-
-## ParentDataElement
-
-```dart
-class ParentDataElement<T extends RenderObjectWidget> extends ProxyElement {
-  ParentDataElement(ParentDataWidget<T> widget) : super(widget);
-
-  @override
-  ParentDataWidget<T> get widget => super.widget;
-
-  @override
-  void mount(Element parent, dynamic newSlot) {
-    super.mount(parent, newSlot);
-  }
-
-  void _applyParentData(ParentDataWidget<T> widget) {
-    void applyParentDataToChild(Element child) {
-      if (child is RenderObjectElement) {
-        child._updateParentData(widget);
-      } else {
-        child.visitChildren(applyParentDataToChild);
-      }
-    }
-    visitChildren(applyParentDataToChild);
-  }
-
-  /// Calls [ParentDataWidget.applyParentData] on the given widget, passing it
-  /// the [RenderObject] whose parent data this element is ultimately
-  /// responsible for.
-  ///
-  /// 这个方法允许改变[RenderObject.parentData]而不触发重建
-  /// 这样做通常不是很好，当以下两个情况确实值得的：
-  ///
-  ///  * 处于build和layout阶段，[ParentData]不会影响build和layout，并且无法在build和layout之前
-  ///    确定数据的值 （例如，它取决于一个孩子的布局）
-  ///
-  ///  * 处于paint和layout阶段，[ParentData]不会影响paint和layout，并且无法在paint和layout之前
-  ///    确定数据的值 （例如，它取决合成）
-  ///
-  /// 在下一次构建时，会使用更新的数据作为配置
-  ///
-  ///
-  /// The new widget must have the same child as the current widget.
-  ///
-  /// 使用它的一个例子是[AutomaticKeepAlive]widget。如果它在生成它的一个后代时收到通知，告诉它
-  /// 它的子widget必须保持alive，它将应用一个[KeepAlive]widget
-  /// 这是安全的，因为根据定义，孩子已经保持alive,因此这不会改变父节点的帧行为。
-  /// 它比仅仅为了更新[KeepAlive]widget而请求额外的帧更有效。
-  void applyWidgetOutOfTurn(ParentDataWidget<T> newWidget) {
-    _applyParentData(newWidget);
-  }
-
-  @override
-  void notifyClients(ParentDataWidget<T> oldWidget) {
-    _applyParentData(widget);
-  }
-}
-```
-
-
-
-## InheritedElement
-
-```dart
-class InheritedElement extends ProxyElement {
-  InheritedElement(InheritedWidget widget) : super(widget);
-
-  @override
-  InheritedWidget get widget => super.widget;
-
-  /// 在实例化 InheritedElement 时，实例化一个_dependents，供后代获取
-  final Map<Element, Object> _dependents = HashMap<Element, Object>();
-
-   
-  @override
-  void _updateInheritance() {
-    /// incomminWidget是对父节点遗传映射表的引用  
-    final Map<Type, InheritedElement> incomingWidgets = _parent?._inheritedWidgets;
-    if (incomingWidgets != null)
-      /// 拷贝一份  
-      _inheritedWidgets = HashMap<Type, InheritedElement>.from(incomingWidgets);
-    else
-      /// 空表  
-      _inheritedWidgets = HashMap<Type, InheritedElement>();
-      
-    /// 将自身加入到类型遗传映射表中供后代获取  
-    _inheritedWidgets[widget.runtimeType] = this;
-  }
-
-  ...
-
-  /// 以某个element为键，返回其在_denpents中的映射值    
-  @protected
-  Object getDependencies(Element dependent) {
-    return _dependents[dependent];
-  }
-
-  /// 将一个element作为dependt  
-  @protected
-  void setDependencies(Element dependent, Object value) {
-    _dependents[dependent] = value;
-  }
-
-  @protected
-  void updateDependencies(Element dependent, Object aspect) {
-    setDependencies(dependent, null);
-  }
-
-  /// 通知某个dependent，调用其didChangeDependencies
-  @protected
-  void notifyDependent(covariant InheritedWidget oldWidget, Element dependent) {
-    dependent.didChangeDependencies();
-  }
-    
-  /// 这个方法直接调用了notifyClients
-  void updated(InheritedWidget oldWidget) {
-    if (widget.updateShouldNotify(oldWidget))
-      super.updated(oldWidget);
-  }
-
-  /// 通知所有的dependent
-  @override
-  void notifyClients(InheritedWidget oldWidget) {
-    for (Element dependent in _dependents.keys) {
-      notifyDependent(oldWidget, dependent);
-    }
-  }
 }
 ```
 
@@ -751,354 +641,8 @@ class StatelessElement extends ComponentElement {
   @override
   void update(StatelessWidget newWidget) {
     super.update(newWidget);
-    assert(widget == newWidget);
     _dirty = true;
     rebuild();
-  }
-}
-```
-
-
-
-## RenderObjectElment
-
-```dart
-/// ### Slots
-///
-/// 每个子[元素]对应一个[RenderObject]，它应该作为这个元素的render对象的子renderObjet
-/// 但是，元素的直接子元素可能不是最终生成它们对应的实际[RenderObject]的子元素。例如，
-/// [StatelessElement] ([StatelessWidget]的元，简单地对应于[RenderObject]，它的
-/// [StatelessWidget.build]返回的元素)
-///
-/// 因此，每个子节点都被分配了一个_slot_token。这是一个标识符，对这个[RenderObjectElement]节点是私有
-/// 的。当其后代最终产生(RenderObject)并准备将它附加到这个节点的RenderObject,它将_slots_token传回到
-/// 这个节点,这使得这个节点能够轻易地确定这个RenderObject在父RenderObject中相对其他孩子的位置。
-
-abstract class RenderObjectElement extends Element {
-  /// Creates an element that uses the given widget as its configuration.
-  RenderObjectElement(RenderObjectWidget widget) : super(widget);
-
-  @override
-  RenderObjectWidget get widget => super.widget;
-
-  /// The underlying [RenderObject] for this element.
-  @override
-  RenderObject get renderObject => _renderObject;
-  RenderObject _renderObject;
-
-  RenderObjectElement _ancestorRenderObjectElement;
-
-  RenderObjectElement _findAncestorRenderObjectElement() {
-    Element ancestor = _parent;
-    while (ancestor != null && ancestor is! RenderObjectElement)
-      ancestor = ancestor._parent;
-    return ancestor;
-  }
-
-  ParentDataElement<RenderObjectWidget> _findAncestorParentDataElement() {
-    Element ancestor = _parent;
-    while (ancestor != null && ancestor is! RenderObjectElement) {
-      if (ancestor is ParentDataElement<RenderObjectWidget>)
-        return ancestor;
-      ancestor = ancestor._parent;
-    }
-    return null;
-  }
-
-  @override
-  void mount(Element parent, dynamic newSlot) {
-    super.mount(parent, newSlot);
-    _renderObject = widget.createRenderObject(this);
-    assert(() { _debugUpdateRenderObjectOwner(); return true; }());
-    assert(_slot == newSlot);
-    attachRenderObject(newSlot);
-    _dirty = false;
-  }
-
-  @override
-  void update(covariant RenderObjectWidget newWidget) {
-    super.update(newWidget);
-    assert(widget == newWidget);
-    assert(() { _debugUpdateRenderObjectOwner(); return true; }());
-    widget.updateRenderObject(this, renderObject);
-    _dirty = false;
-  }
-
-  void _debugUpdateRenderObjectOwner() {
-    assert(() {
-      _renderObject.debugCreator = DebugCreator(this);
-      return true;
-    }());
-  }
-
-  @override
-  void performRebuild() {
-    widget.updateRenderObject(this, renderObject);
-    _dirty = false;
-  }
-
-  /// Updates the children of this element to use new widgets.
-  ///
-  /// Attempts to update the given old children list using the given new
-  /// widgets, removing obsolete elements and introducing new ones as necessary,
-  /// and then returns the new child list.
-  ///
-  /// During this function the `oldChildren` list must not be modified. If the
-  /// caller wishes to remove elements from `oldChildren` re-entrantly while
-  /// this function is on the stack, the caller can supply a `forgottenChildren`
-  /// argument, which can be modified while this function is on the stack.
-  /// Whenever this function reads from `oldChildren`, this function first
-  /// checks whether the child is in `forgottenChildren`. If it is, the function
-  /// acts as if the child was not in `oldChildren`.
-  ///
-  /// This function is a convenience wrapper around [updateChild], which updates
-  /// each individual child. When calling [updateChild], this function uses the
-  /// previous element as the `newSlot` argument.
-  @protected
-  List<Element> updateChildren(List<Element> oldChildren, List<Widget> newWidgets, { Set<Element> forgottenChildren }) {
-    assert(oldChildren != null);
-    assert(newWidgets != null);
-
-    Element replaceWithNullIfForgotten(Element child) {
-      return forgottenChildren != null && forgottenChildren.contains(child) ? null : child;
-    }
-
-    // This attempts to diff the new child list (newWidgets) with
-    // the old child list (oldChildren), and produce a new list of elements to
-    // be the new list of child elements of this element. The called of this
-    // method is expected to update this render object accordingly.
-
-    // The cases it tries to optimize for are:
-    //  - the old list is empty
-    //  - the lists are identical
-    //  - there is an insertion or removal of one or more widgets in
-    //    only one place in the list
-    // If a widget with a key is in both lists, it will be synced.
-    // Widgets without keys might be synced but there is no guarantee.
-
-    // The general approach is to sync the entire new list backwards, as follows:
-    // 1. Walk the lists from the top, syncing nodes, until you no longer have
-    //    matching nodes.
-    // 2. Walk the lists from the bottom, without syncing nodes, until you no
-    //    longer have matching nodes. We'll sync these nodes at the end. We
-    //    don't sync them now because we want to sync all the nodes in order
-    //    from beginning to end.
-    // At this point we narrowed the old and new lists to the point
-    // where the nodes no longer match.
-    // 3. Walk the narrowed part of the old list to get the list of
-    //    keys and sync null with non-keyed items.
-    // 4. Walk the narrowed part of the new list forwards:
-    //     * Sync non-keyed items with null
-    //     * Sync keyed items with the source if it exists, else with null.
-    // 5. Walk the bottom of the list again, syncing the nodes.
-    // 6. Sync null with any items in the list of keys that are still
-    //    mounted.
-
-    int newChildrenTop = 0;
-    int oldChildrenTop = 0;
-    int newChildrenBottom = newWidgets.length - 1;
-    int oldChildrenBottom = oldChildren.length - 1;
-
-    final List<Element> newChildren = oldChildren.length == newWidgets.length ?
-        oldChildren : List<Element>(newWidgets.length);
-
-    Element previousChild;
-
-    // Update the top of the list.
-    while ((oldChildrenTop <= oldChildrenBottom) && (newChildrenTop <= newChildrenBottom)) {
-      final Element oldChild = replaceWithNullIfForgotten(oldChildren[oldChildrenTop]);
-      final Widget newWidget = newWidgets[newChildrenTop];
-      assert(oldChild == null || oldChild._debugLifecycleState == _ElementLifecycle.active);
-      if (oldChild == null || !Widget.canUpdate(oldChild.widget, newWidget))
-        break;
-      final Element newChild = updateChild(oldChild, newWidget, previousChild);
-      assert(newChild._debugLifecycleState == _ElementLifecycle.active);
-      newChildren[newChildrenTop] = newChild;
-      previousChild = newChild;
-      newChildrenTop += 1;
-      oldChildrenTop += 1;
-    }
-
-    // Scan the bottom of the list.
-    while ((oldChildrenTop <= oldChildrenBottom) && (newChildrenTop <= newChildrenBottom)) {
-      final Element oldChild = replaceWithNullIfForgotten(oldChildren[oldChildrenBottom]);
-      final Widget newWidget = newWidgets[newChildrenBottom];
-      assert(oldChild == null || oldChild._debugLifecycleState == _ElementLifecycle.active);
-      if (oldChild == null || !Widget.canUpdate(oldChild.widget, newWidget))
-        break;
-      oldChildrenBottom -= 1;
-      newChildrenBottom -= 1;
-    }
-
-    // Scan the old children in the middle of the list.
-    final bool haveOldChildren = oldChildrenTop <= oldChildrenBottom;
-    Map<Key, Element> oldKeyedChildren;
-    if (haveOldChildren) {
-      oldKeyedChildren = <Key, Element>{};
-      while (oldChildrenTop <= oldChildrenBottom) {
-        final Element oldChild = replaceWithNullIfForgotten(oldChildren[oldChildrenTop]);
-        assert(oldChild == null || oldChild._debugLifecycleState == _ElementLifecycle.active);
-        if (oldChild != null) {
-          if (oldChild.widget.key != null)
-            oldKeyedChildren[oldChild.widget.key] = oldChild;
-          else
-            deactivateChild(oldChild);
-        }
-        oldChildrenTop += 1;
-      }
-    }
-
-    // Update the middle of the list.
-    while (newChildrenTop <= newChildrenBottom) {
-      Element oldChild;
-      final Widget newWidget = newWidgets[newChildrenTop];
-      if (haveOldChildren) {
-        final Key key = newWidget.key;
-        if (key != null) {
-          oldChild = oldKeyedChildren[key];
-          if (oldChild != null) {
-            if (Widget.canUpdate(oldChild.widget, newWidget)) {
-              // we found a match!
-              // remove it from oldKeyedChildren so we don't unsync it later
-              oldKeyedChildren.remove(key);
-            } else {
-              // Not a match, let's pretend we didn't see it for now.
-              oldChild = null;
-            }
-          }
-        }
-      }
-      assert(oldChild == null || Widget.canUpdate(oldChild.widget, newWidget));
-      final Element newChild = updateChild(oldChild, newWidget, previousChild);
-      assert(newChild._debugLifecycleState == _ElementLifecycle.active);
-      assert(oldChild == newChild || oldChild == null || oldChild._debugLifecycleState != _ElementLifecycle.active);
-      newChildren[newChildrenTop] = newChild;
-      previousChild = newChild;
-      newChildrenTop += 1;
-    }
-
-    // We've scanned the whole list.
-    assert(oldChildrenTop == oldChildrenBottom + 1);
-    assert(newChildrenTop == newChildrenBottom + 1);
-    assert(newWidgets.length - newChildrenTop == oldChildren.length - oldChildrenTop);
-    newChildrenBottom = newWidgets.length - 1;
-    oldChildrenBottom = oldChildren.length - 1;
-
-    // Update the bottom of the list.
-    while ((oldChildrenTop <= oldChildrenBottom) && (newChildrenTop <= newChildrenBottom)) {
-      final Element oldChild = oldChildren[oldChildrenTop];
-      assert(replaceWithNullIfForgotten(oldChild) != null);
-      assert(oldChild._debugLifecycleState == _ElementLifecycle.active);
-      final Widget newWidget = newWidgets[newChildrenTop];
-      assert(Widget.canUpdate(oldChild.widget, newWidget));
-      final Element newChild = updateChild(oldChild, newWidget, previousChild);
-      assert(newChild._debugLifecycleState == _ElementLifecycle.active);
-      assert(oldChild == newChild || oldChild == null || oldChild._debugLifecycleState != _ElementLifecycle.active);
-      newChildren[newChildrenTop] = newChild;
-      previousChild = newChild;
-      newChildrenTop += 1;
-      oldChildrenTop += 1;
-    }
-
-    // Clean up any of the remaining middle nodes from the old list.
-    if (haveOldChildren && oldKeyedChildren.isNotEmpty) {
-      for (Element oldChild in oldKeyedChildren.values) {
-        if (forgottenChildren == null || !forgottenChildren.contains(oldChild))
-          deactivateChild(oldChild);
-      }
-    }
-
-    return newChildren;
-  }
-
-  @override
-  void deactivate() {
-    super.deactivate();
-    assert(!renderObject.attached,
-      'A RenderObject was still attached when attempting to deactivate its '
-      'RenderObjectElement: $renderObject');
-  }
-
-  @override
-  void unmount() {
-    super.unmount();
-    assert(!renderObject.attached,
-      'A RenderObject was still attached when attempting to unmount its '
-      'RenderObjectElement: $renderObject');
-    widget.didUnmountRenderObject(renderObject);
-  }
-
-  void _updateParentData(ParentDataWidget<RenderObjectWidget> parentData) {
-    parentData.applyParentData(renderObject);
-  }
-
-  @override
-  void _updateSlot(dynamic newSlot) {
-    assert(slot != newSlot);
-    super._updateSlot(newSlot);
-    assert(slot == newSlot);
-    _ancestorRenderObjectElement.moveChildRenderObject(renderObject, slot);
-  }
-
-  @override
-  void attachRenderObject(dynamic newSlot) {
-    assert(_ancestorRenderObjectElement == null);
-    _slot = newSlot;
-    _ancestorRenderObjectElement = _findAncestorRenderObjectElement();
-    _ancestorRenderObjectElement?.insertChildRenderObject(renderObject, newSlot);
-    final ParentDataElement<RenderObjectWidget> parentDataElement = _findAncestorParentDataElement();
-    if (parentDataElement != null)
-      _updateParentData(parentDataElement.widget);
-  }
-
-  @override
-  void detachRenderObject() {
-    if (_ancestorRenderObjectElement != null) {
-      _ancestorRenderObjectElement.removeChildRenderObject(renderObject);
-      _ancestorRenderObjectElement = null;
-    }
-    _slot = null;
-  }
-
-  /// Insert the given child into [renderObject] at the given slot.
-  ///
-  /// The semantics of `slot` are determined by this element. For example, if
-  /// this element has a single child, the slot should always be null. If this
-  /// element has a list of children, the previous sibling is a convenient value
-  /// for the slot.
-  @protected
-  void insertChildRenderObject(covariant RenderObject child, covariant dynamic slot);
-
-  /// Move the given child to the given slot.
-  ///
-  /// The given child is guaranteed to have [renderObject] as its parent.
-  ///
-  /// The semantics of `slot` are determined by this element. For example, if
-  /// this element has a single child, the slot should always be null. If this
-  /// element has a list of children, the previous sibling is a convenient value
-  /// for the slot.
-  ///
-  /// This method is only ever called if [updateChild] can end up being called
-  /// with an existing [Element] child and a `slot` that differs from the slot
-  /// that element was previously given. [MultiChildRenderObjectElement] does this,
-  /// for example. [SingleChildRenderObjectElement] does not (since the `slot` is
-  /// always null). An [Element] that has a specific set of slots with each child
-  /// always having the same slot (and where children in different slots are never
-  /// compared against each other for the purposes of updating one slot with the
-  /// element from another slot) would never call this.
-  @protected
-  void moveChildRenderObject(covariant RenderObject child, covariant dynamic slot);
-
-  /// Remove the given child from [renderObject].
-  ///
-  /// The given child is guaranteed to have [renderObject] as its parent.
-  @protected
-  void removeChildRenderObject(covariant RenderObject child);
-
-  @override
-  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
-    super.debugFillProperties(properties);
-    properties.add(DiagnosticsProperty<RenderObject>('renderObject', renderObject, defaultValue: null));
   }
 }
 ```
@@ -1201,12 +745,460 @@ class StatefulElement extends ComponentElement {
 
 
 
+## ParentDataElement
+
+```dart
+class ParentDataElement<T extends RenderObjectWidget> extends ProxyElement {
+  ParentDataElement(ParentDataWidget<T> widget) : super(widget);
+
+  @override
+  ParentDataWidget<T> get widget => super.widget;
+
+  @override
+  void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+  }
+
+  /// 递归地调用子树的 _updateParentData(如果子节点的是 RenderObjectElement) 
+  void _applyParentData(ParentDataWidget<T> widget) {
+    void applyParentDataToChild(Element child) {
+      if (child is RenderObjectElement) {
+        child._updateParentData(widget);
+      } else {
+        child.visitChildren(applyParentDataToChild);
+      }
+    }
+    visitChildren(applyParentDataToChild);
+  }
+
+  /// 调用给定 widget 的[ParentDataWidget.applyParentData]
+  ///
+  /// 这个方法允许改变[RenderObject.parentData]而不触发重建
+  /// 这样做通常不是很好，当以下两个情况确实值得的：
+  ///
+  ///  * 处于 build 和 layout 阶段，[ParentData] 不会影响 build 和 layout，并且无法在 build 和
+  ///    layout 之前确定数据的值 （例如，它取决于一个孩子的布局）
+  ///
+  ///  * 处于 paint 阶段，[ParentData] 不会影响 paint，并且无法在 paint 之前确定数据的值 （例如，它
+  ///    取决于合成阶段）
+  ///
+  /// 在下一次构建时，会使用更新的数据作为配置
+  ///
+  /// The new widget must have the same child as the current widget.
+  ///
+  /// 使用它的一个例子是 [AutomaticKeepAlive] widget。如果它在生成它的一个后代时收到通知，告诉它
+  /// 它的子 widget 必须保持 alive，它将应用一个 [KeepAlive] widget
+  /// 这是安全的，因为根据定义，孩子已经保持 alive ,因此这不会改变父节点的帧行为。
+  /// 它比仅仅为了更新 [KeepAlive] widge 而请求额外的帧更有效。
+  void applyWidgetOutOfTurn(ParentDataWidget<T> newWidget) {
+    _applyParentData(newWidget);
+  }
+
+  @override
+  void notifyClients(ParentDataWidget<T> oldWidget) {
+    _applyParentData(widget);
+  }
+}
+```
+
+
+
+## InheritedElement
+
+```dart
+class InheritedElement extends ProxyElement {
+  InheritedElement(InheritedWidget widget) : super(widget);
+
+  @override
+  InheritedWidget get widget => super.widget;
+
+  /// 在实例化 InheritedElement 时，实例化一个 _dependents，当一个后代将这个 element 作为依赖的时
+  /// 候，会将它加入到这个依赖者列表中。之后当这个 element 被 rebuild 的时候会通知 依赖者列表中的每一
+  /// 个节点，并调用它的 didChangeDependencies  
+  final Map<Element, Object> _dependents = HashMap<Element, Object>();
+
+  @override
+  void _updateInheritance() {
+    /// incomminWidget 是对父节点遗传映射表的引用  
+    final Map<Type, InheritedElement> incomingWidgets = _parent?._inheritedWidgets;
+    if (incomingWidgets != null)
+      /// 拷贝一份作为自身的映射表  
+      _inheritedWidgets = HashMap<Type, InheritedElement>.from(incomingWidgets);
+    else
+      /// 空表  
+      _inheritedWidgets = HashMap<Type, InheritedElement>();
+      
+    /// 将自身加入到类型遗传映射表中供后代获取  
+    _inheritedWidgets[widget.runtimeType] = this;
+  }
+
+  ...
+
+  /// 以某个 element 为键，返回其在 _denpents 中的映射值    
+  @protected
+  Object getDependencies(Element dependent) {
+    return _dependents[dependent];
+  }
+
+  /// 将一个 element 作为 dependt，并将它映射成一个值  
+  @protected
+  void setDependencies(Element dependent, Object value) {
+    _dependents[dependent] = value;
+  }
+
+  @protected
+  void updateDependencies(Element dependent, Object aspect) {
+    setDependencies(dependent, null);
+  }
+
+  /// 通知某个 dependent，调用其 didChangeDependencies
+  @protected
+  void notifyDependent(covariant InheritedWidget oldWidget, Element dependent) {
+    dependent.didChangeDependencies();
+  }
+    
+  /// 这个方法直接调用了 notifyClients，也就是说 inheritedElement 被更新的时候，会通知所有将这个 
+  /// inheritedElement作为依赖的子 element
+  void updated(InheritedWidget oldWidget) {
+    if (widget.updateShouldNotify(oldWidget))
+      super.updated(oldWidget);
+  }
+
+  /// 通知所有的 dependent
+  @override
+  void notifyClients(InheritedWidget oldWidget) {
+    for (Element dependent in _dependents.keys) {
+      notifyDependent(oldWidget, dependent);
+    }
+  }
+}
+```
+
+
+
+
+
+## RenderObjectElment
+
+```dart
+abstract class RenderObjectElement extends Element {
+  RenderObjectElement(RenderObjectWidget widget) : super(widget);
+
+  @override
+  RenderObjectWidget get widget => super.widget;
+
+  @override
+  RenderObject get renderObject => _renderObject;
+  RenderObject _renderObject;
+
+  /// 找到一个祖先 RenderObjectElement
+  RenderObjectElement _ancestorRenderObjectElement;
+
+  RenderObjectElement _findAncestorRenderObjectElement() {
+    Element ancestor = _parent;
+    while (ancestor != null && ancestor is! RenderObjectElement)
+      ancestor = ancestor._parent;
+    return ancestor;
+  }
+
+  /// 找到一个祖先 ParentDataElement
+  ParentDataElement<RenderObjectWidget> _findAncestorParentDataElement() {
+    Element ancestor = _parent;
+    while (ancestor != null && ancestor is! RenderObjectElement) {
+      if (ancestor is ParentDataElement<RenderObjectWidget>)
+        return ancestor;
+      ancestor = ancestor._parent;
+    }
+    return null;
+  }
+
+  @override
+  void mount(Element parent, dynamic newSlot) {
+    super.mount(parent, newSlot);
+    _renderObject = widget.createRenderObject(this);
+    /// 这里断言了 slot 没有改变，这意味着当这个 element 被替换成新的 element 的时候，对应的 
+    /// renderObject 插槽不会改变  
+    assert(_slot == newSlot);
+    attachRenderObject(newSlot);
+    _dirty = false;
+  }
+
+  @override
+  void update(covariant RenderObjectWidget newWidget) {
+    super.update(newWidget);
+    widget.updateRenderObject(this, renderObject);
+    _dirty = false;
+  }
+
+  /// 仅仅更新一下渲染对象
+  @override
+  void performRebuild() {
+    widget.updateRenderObject(this, renderObject);
+    _dirty = false;
+  }
+
+  /// 使用新的 widget 列表来更新旧 widget 列表
+  @protected
+  List<Element> updateChildren(
+      List<Element> oldChildren, 
+      List<Widget> newWidgets, { 
+      Set<Element> forgottenChildren
+  }) {
+
+    /// 如果给定的 child 已经被遗忘的话，返回 null，否则返回 child
+    Element replaceWithNullIfForgotten(Element child) {
+      return forgottenChildren != null && forgottenChildren.contains(child) 
+          ? null 
+          : child;
+    }
+
+    // 这将尝试将新的子列表(newWidgets)与旧的子列表(oldChildren)进行比较，并生成一个新的元素列表作为
+    // 该元素的新子元素列表。此方法的调用将相应地更新此渲染对象。
+    // 它试图优化的案例有:
+    //   -旧的列表是空的
+    //   -名单是一样的
+    //   -在列表中只有一个地方插入或删除一个或多个小部件
+    // 如果两个列表中都有一个带有同一个 key 的 widget，那么它将被同步。
+    // 没有 key 的 widget 可能会被同步，但没有保证。
+
+    // 一般的方法是将整个新列表向后同步，如下所示:
+    // 1. 从首部遍历列表，同步节点，直到不再有匹配的节点。
+    // 2. 从尾部遍历列表，不同步节点，直到不再有匹配的节点。
+    //    我们将在最后同步这些节点。我们现在不同步它们，因为我们想要同步所有节点，从开始到结束。
+    // 此时，我们将旧列表和新列表缩小到节点不再匹配的地方。
+    // 3.遍历旧列表中剩余的部分以获得 key 列表，并用 null 同步不含 key 的项同步。
+    // 4.从后先前遍历剩余列表:
+    //   *用null同步非键值项
+    //   *将键控项与源同步(如果存在)，否则为空。
+    // 5. 从前向后遍历列表同步节点
+    // 6. 将空值与列表中的任何仍然挂载的项同步。
+
+    int newChildrenTop = 0;
+    int oldChildrenTop = 0;
+    int newChildrenBottom = newWidgets.length - 1;
+    int oldChildrenBottom = oldChildren.length - 1;
+
+    /// 用于存放更新以后 child 列表 
+    final List<Element> newChildren = oldChildren.length == newWidgets.length 
+        ? oldChildren 
+        : List<Element>(newWidgets.length);
+
+    /// 上一个子节点，被用作 slot
+    Element previousChild;
+
+    // 1.从首部遍历列表，同步节点，直到不再有匹配的节点。
+    while (
+        (oldChildrenTop <= oldChildrenBottom) && 
+        (newChildrenTop <= newChildrenBottom)
+    ) {
+      /// 如果对应 index 的 oldChild 已经被遗忘的话，得到 null 
+      final Element oldChild = replaceWithNullIfForgotten(oldChildren[oldChildrenTop]);
+      /// 获得对应 index 的 widget  
+      final Widget newWidget = newWidgets[newChildrenTop];
+      /// 如果不能用新的 widget 来更新旧的 widget 的话，进入阶段2
+      if (oldChild == null || !Widget.canUpdate(oldChild.widget, newWidget))
+        break;
+      /// 得到更新后的 child
+      /// 注意：这里把 previousChild 做为 slots 传入
+      final Element newChild = updateChild(oldChild, newWidget, previousChild);
+      /// 放置到对应的 index 上 
+      newChildren[newChildrenTop] = newChild;
+      previousChild = newChild;
+      /// index 后移
+      newChildrenTop += 1;
+      oldChildrenTop += 1;
+    }
+
+    // 2.从尾部遍历列表，不同步节点，直到不再有匹配的节点。
+    while (
+        (oldChildrenTop <= oldChildrenBottom) && 
+        (newChildrenTop <= newChildrenBottom)
+    ) {
+      final Element oldChild = 
+                 replaceWithNullIfForgotten(oldChildren[oldChildrenBottom]);
+      final Widget newWidget = newWidgets[newChildrenBottom];
+      /// 如果不能用新的 widget 来更新旧的 widget 的话，进入阶段3
+      if (oldChild == null || !Widget.canUpdate(oldChild.widget, newWidget))
+        break;
+      /// 注意这里并没有进行节点移动操作
+      oldChildrenBottom -= 1;
+      newChildrenBottom -= 1;
+    }
+
+    // 3.遍历旧列表中剩余的部分以获得 key 列表，并用 null 同步不含 key 的项同步。
+    // 这个值为 true 的话，说明有无法匹配的 child
+    final bool haveOldChildren = (oldChildrenTop <= oldChildrenBottom);
+    // 如果 child 含有key，会保存对应的 element，否则直接 deactivateChild(oldChild);
+    Map<Key, Element> oldKeyedChildren;
+    if (haveOldChildren) {
+      oldKeyedChildren = <Key, Element>{};
+      while (oldChildrenTop <= oldChildrenBottom) {
+        final Element oldChild = replaceWithNullIfForgotten(oldChildren[oldChildrenTop]);
+        if (oldChild != null) {
+          if (oldChild.widget.key != null)
+            oldKeyedChildren[oldChild.widget.key] = oldChild;
+          else
+           de deactivateChild(oldChild);
+        }
+        oldChildrenTop += 1;
+      }
+    }
+
+    // 4.从后先前遍历剩余列表:
+    //   *用null同步非键值项
+    //   *将键控项与源同步(如果存在)，否则为空。
+    while (newChildrenTop <= newChildrenBottom) {
+      Element oldChild;
+      final Widget newWidget = newWidgets[newChildrenTop];
+      if (haveOldChildren) {
+        final Key key = newWidget.key;
+        if (key != null) {
+          // 在新 widget 列表中查找是否有对应 key
+          oldChild = oldKeyedChildren[key];
+          // 如果有，则会将 key 从（oldKeyedChildren移除（通常这种情况是 widget 的顺序发生了变化）
+          if (oldChild != null) {
+            if (Widget.canUpdate(oldChild.widget, newWidget)) {
+              oldKeyedChildren.remove(key);
+            } else {
+              // Not a match, let's pretend we didn't see it for now.
+              oldChild = null;
+            }
+          }
+        }
+      }
+      // 到达这里时有两种情况：
+      // 1.能够在旧 element 列表中找到一个能与新 widget 的key对应的 element，那么使用新 widget 去更新它，得
+      //   到一个 child
+      // 2.如果不能，则会将新 widget 扩展成一个 element，作为 child 
+      /// 注意：这里把 previousChild 做为 slots 传入  
+      final Element newChild = updateChild(
+          oldChild, 
+          newWidget, 
+          //
+          previousChild
+      );
+      // 放置在对应的位置上  
+      newChildren[newChildrenTop] = newChild;
+      previousChild = newChild;
+      newChildrenTop += 1;
+    }
+
+    // 更新列表的尾部
+    newChildrenBottom = newWidgets.length - 1;
+    oldChildrenBottom = oldChildren.length - 1;
+
+    // 使用新 widget 来更新对应的 child
+    while (
+        (oldChildrenTop <= oldChildrenBottom) && 
+        (newChildrenTop <= newChildrenBottom)
+    ) {
+      final Element oldChild = oldChildren[oldChildrenTop];
+      final Widget newWidget = newWidgets[newChildrenTop];
+      final Element newChild = updateChild(oldChild, newWidget, previousChild);
+      newChildren[newChildrenTop] = newChild;
+      previousChild = newChild;
+      newChildrenTop += 1;
+      oldChildrenTop += 1;
+    }
+
+    // 清理没有被重用的 element
+    if (haveOldChildren && oldKeyedChildren.isNotEmpty) {
+      for (Element oldChild in oldKeyedChildren.values) {
+        if (forgottenChildren == null || !forgottenChildren.contains(oldChild))
+          deactivateChild(oldChild);
+      }
+    }
+
+    return newChildren;
+  }
+
+  @override
+  void deactivate() {
+    super.deactivate();
+  }
+
+  /// 同 mount 方法挂载 renderObject 一样，这里卸载了 renderObject
+  @override
+  void unmount() {
+    super.unmount();
+    widget.didUnmountRenderObject(renderObject);
+  }
+
+  void _updateParentData(ParentDataWidget<RenderObjectWidget> parentData) {
+    parentData.applyParentData(renderObject);
+  }
+
+  /// 更新插槽需要移动 renderObejct
+  @override
+  void _updateSlot(dynamic newSlot) {
+    super._updateSlot(newSlot);
+    _ancestorRenderObjectElement.moveChildRenderObject(renderObject, slot);
+  }
+
+  // 向上查找第一个 RenderObjectElement，并将自身的 renderObject 作为它的 renderObject 的孩子
+  @override
+  void attachRenderObject(dynamic newSlot) {
+    _slot = newSlot;
+    _ancestorRenderObjectElement = _findAncestorRenderObjectElement();
+    _ancestorRenderObjectElement?.insertChildRenderObject(renderObject, newSlot);
+    final ParentDataElement<RenderObjectWidget> parentDataElement = _findAncestorParentDataElement();
+    if (parentDataElement != null)
+      _updateParentData(parentDataElement.widget);
+  }
+
+  // 这个方法将 renderobject 从其父节移除
+  @override
+  void detachRenderObject() {
+    if (_ancestorRenderObjectElement != null) {
+      _ancestorRenderObjectElement.removeChildRenderObject(renderObject);
+      _ancestorRenderObjectElement = null;
+    }
+    _slot = null;
+  }
+
+  @protected
+  void insertChildRenderObject(covariant RenderObject child, covariant dynamic slot);
+
+  @protected
+  void moveChildRenderObject(covariant RenderObject child, covariant dynamic slot);
+    
+  @protected
+  void removeChildRenderObject(covariant RenderObject child);
+}
+```
+
+
+
+## RootRenderObjectElement
+
+```dart
+/// element 树的根节点
+///
+/// 只有根元素可以显式地设置其所有者。所有其他元素都从它们的父元素继承它们的所有者。
+abstract class RootRenderObjectElement extends RenderObjectElement {
+  RootRenderObjectElement(RenderObjectWidget widget) : super(widget);
+
+  void assignOwner(BuildOwner owner) {
+    _owner = owner;
+  }
+
+  @override
+  void mount(Element parent, dynamic newSlot) {
+    // 显然这个 element 没有 parent
+    assert(parent == null);
+    assert(newSlot == null);
+    super.mount(parent, newSlot);
+  }
+}
+```
+
+
+
 ## LeafRenderObjectElement
 
 ```dart
-/// An [Element] that uses a [LeafRenderObjectWidget] as its configuration.
+/// 没有子节点的渲染对象 element
 class LeafRenderObjectElement extends RenderObjectElement {
-  /// Creates an element that uses the given widget as its configuration.
   LeafRenderObjectElement(LeafRenderObjectWidget widget) : super(widget);
 
   /// 因为没有孩子，所以以下方法均不能使用	
@@ -1240,6 +1232,7 @@ class LeafRenderObjectElement extends RenderObjectElement {
 ## SingleChildRenderObjectElement
 
 ```dart
+/// 有且仅有一个孩子的渲染对象 element
 class SingleChildRenderObjectElement extends RenderObjectElement{
   SingleChildRenderObjectElement(SingleChildRenderObjectWidget widget) : super(widget);
 
@@ -1262,16 +1255,18 @@ class SingleChildRenderObjectElement extends RenderObjectElement{
   @override
   void mount(Element parent, dynamic newSlot) {
     super.mount(parent, newSlot);
+    /// 注意，这里的 slot 恒定为 null
     _child = updateChild(_child, widget.child, null);
   }
 
   @override
   void update(SingleChildRenderObjectWidget newWidget) {
     super.update(newWidget);
-    assert(widget == newWidget);
     _child = updateChild(_child, widget.child, null);
   }
 
+  /// 插入一个子渲染对象
+  /// 由于这个 element 持有的渲染对象只能有一个孩子，故直接把给定的 child 作为 renderObject 的 child  
   @override
   void insertChildRenderObject(RenderObject child, dynamic slot) {
     final RenderObjectWithChildMixin<RenderObject> renderObject = this.renderObject;
@@ -1298,25 +1293,21 @@ class SingleChildRenderObjectElement extends RenderObjectElement{
 
 ```dart
 class MultiChildRenderObjectElement extends RenderObjectElement {
-  /// Creates an element that uses the given widget as its configuration.
-  MultiChildRenderObjectElement(MultiChildRenderObjectWidget widget)
-    : assert(!debugChildrenHaveDuplicateKeys(widget, widget.children)),
-      super(widget);
+  MultiChildRenderObjectElement(MultiChildRenderObjectWidget widget) : super(widget);
 
   @override
   MultiChildRenderObjectWidget get widget => super.widget;
 
-  /// 过滤后的子element列表
-  @protected
-  @visibleForTesting
+  /// 过滤后的子 element 列表
   Iterable<Element> get children => 
       _children.where((Element child) => !_forgottenChildren.contains(child));
 
-  /// 真正的子element列表  
+  /// 真正的子 element 列表  
   List<Element> _children;
-  /// 使用HashSet（查找时间O（１）），来过滤已被移除的孩子
+  /// 使用 HashSet（查找时间O（１）），来过滤已被移除的孩子
   final Set<Element> _forgottenChildren = HashSet<Element>();
 
+  /// 以下的方法通常是由几个 mixin 实现的
   @override
   void insertChildRenderObject(RenderObject child, Element slot) {
     final ContainerRenderObjectMixin<
@@ -1336,7 +1327,6 @@ class MultiChildRenderObjectElement extends RenderObjectElement {
           > renderObject = this.renderObject;
 
     renderObject.move(child, after: slot?.renderObject);
-
   }
 
   @override
@@ -1358,6 +1348,8 @@ class MultiChildRenderObjectElement extends RenderObjectElement {
     }
   }
 
+  /// 当要移除一个 child 的时候，不会真正的移除它，而是把它加入到遗忘孩子列表中，并在更新的时候将这个列表当作
+  /// 参数传入
   @override
   void forgetChild(Element child) {
     _forgottenChildren.add(child);

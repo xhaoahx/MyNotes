@@ -299,7 +299,7 @@ void buildScope(Element context, [ VoidCallback callback ]) {
                 }
             }
         }
-       /// 这时候已经清理了所有的脏节点，然后需要清除 ._inDirtyList 
+      /// 这时候已经清理了所有的脏节点，然后需要清除 _inDirtyList 
     } finally {
         /// 清除inDirtyList标记
         for (Element element in _dirtyElements) {
