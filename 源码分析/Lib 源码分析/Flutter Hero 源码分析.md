@@ -5,11 +5,12 @@
 ## 函数原型
 
 ```dart
-/// 由给定的两个rect返回一个插值rect
+/// 由给定的两个 rect 返回一个插值 rect
+/// 这个函数通常被 HeroController 使用来创建页面动画
 /// 通常来说采用非线性的值会比较好看
 typedef CreateRectTween = Tween<Rect> Function(Rect begin, Rect end);
 
-/// 用给定的大小和widget构建一个占位符
+/// 用给定的大小和 widget 构建一个占位符
 typedef HeroPlaceholderBuilder = Widget Function(
   BuildContext context,
   Size heroSize,
@@ -36,9 +37,21 @@ enum HeroFlightDirection {
   /// 由 pop 触发的hero
   pop,
 }
+
+// 在祖先 context 坐标系统中给定 context 的边界框。
+Rect _boundingBoxFor(BuildContext context, [BuildContext ancestorContext]) {
+  final RenderBox box = context.findRenderObject();
+  /// MatrixUtils.transformRect 将给定的 Matrix4 变换运用到给定的 Rect 上，返回一个新 Rect 
+  return MatrixUtils.transformRect(
+      box.getTransformTo(ancestorContext?.findRenderObject()),
+      Offset.zero & box.size,
+  );
+}
 ```
 
+## 示意图
 
+<img src = "https://flutter.github.io/assets-for-api-docs/assets/interaction/heroes.png" width = 600px align = "left"/>
 
 ## Hero
 
@@ -52,62 +65,46 @@ class Hero extends StatefulWidget {
     this.placeholderBuilder,
     this.transitionOnUserGestures = false,
     @required this.child,
-  }) : assert(tag != null),
-       assert(transitionOnUserGestures != null),
-       assert(child != null),
-       super(key: key);
+  });
 
   /// 唯一标识符
-  /// 用于联系两个页面的hero  
+  /// 用于联系两个页面的 hero  
   final Object tag;
 
   /// 定义路由的边界如何变化
-  /// A hero flight begins with the destination hero's [child] aligned with the
-  /// starting hero's child. The [Tween<Rect>] returned by this callback is used
-  /// to compute the hero's bounds as the flight animation's value goes from 0.0
-  /// to 1.0.
+  ///
+  /// 一次 hero 飞行，从目的地子树与起始 hero 的子树对其的位置开始。这个回调返回的 [Tween<Rect>] 被用作计算 
+  /// 当动画值从 0.0 到 1.0 过程中 hero 的边界
   ///
   /// 默认使用[MaterialApp]创建的[HeroController.createRectTween]
   final CreateRectTween createRectTween;
 
-  /// 一个路由中的widget子树将会飞到另一个路由的widget子树中
-  /// 两个widget的外观应该尽可能地相似（如大小、颜色变化）  
+  /// 一个路由中的 widget 子树将会飞到另一个路由的 widget 子树位置
+  /// 两个 widget 的外观应该尽可能地相似（如大小、颜色变化）  
   final Widget child;
   
   /// ## 限制
   ///
-  /// 如果[flightShuttleBuilder] 产生的widget参加了[Navigator]的push过程
-  /// 那么它的子树不能使用globalKey。因为在飞行时，在路由页面的子树中都会包含hero及其子树，但
-  /// [GlobalKey]必须是全局单一的
-  /// If the said [GlobalKey] is essential to your application, consider providing
-  /// a custom [placeholderBuilder] for the source Hero, to avoid the [GlobalKey]
-  /// collision, such as a builder that builds an empty [SizedBox], keeping the
-  /// Hero [child]'s original size.
-    
+  /// 如果 [flightShuttleBuilder] 产生的 widget 参加了 [Navigator] 的 push过程
+  /// 那么它的子树不能使用 globalKey。因为在飞行时，在路由页面的子树中都会包含 hero 及其子树，但
+  /// [GlobalKey] 必须是全局单一的
+  ///
+  /// 如果上述 [GlobalKey] 是必须的，请考虑为源 hero 提供一个自定义[placeholderBuilder]，
+  /// 以避免 [GlobalKey] 冲突。例如：构建了一个空的[SizedBox]，保持 hero's [child] 的原始大小。
   final HeroFlightShuttleBuilder flightShuttleBuilder;
 
   /// hero [child] 起飞之后的占位符
   ///
-  /// 默认是一个保持hero原始size的[SizedBox]，除非是导航过渡动画
-  /// 导航过渡时，child是占位符的子树，保持offstage  
+  /// 默认是一个保持 hero 原始大小的 [SizedBox]，除非是导航过渡动画
+  /// 导航过渡时，child 是占位符的子树，保持 offstage  
   final HeroPlaceholderBuilder placeholderBuilder;
 
-  /// Whether to perform the hero transition if the [PageRoute] transition was
-  /// triggered by a user gesture, such as a back swipe on iOS.
-  ///
-  /// If [Hero]es with the same [tag] on both the from and the to routes have
-  /// [transitionOnUserGestures] set to true, a back swipe gesture will
-  /// trigger the same hero animation as a programmatically triggered push or
-  /// pop.
-  ///
-  /// The route being popped to or the bottom route must also have
-  /// [PageRoute.maintainState] set to true for a gesture triggered hero
-  /// transition to work.
-  ///
-  /// Defaults to false and cannot be null.
+  /// 当 [PageRoute] 被手势触发的时候，时候需要运用 hero 动画。例如，IOS 系统的返回手势
   final bool transitionOnUserGestures;
 
-  // 当从一个页面过渡到另一个页面时，返回一个从Herotag到Hero的映射表
+  /// 当从一个页面过渡到另一个页面时，返回一个从 Herotag 到 Hero 的映射表
+  /// 即把给定的 context 的子树的所有满足条件的 Hero 的 tag 映射到其 context，
+  /// 并返回这个映射表
   static Map<Object, _HeroState> _allHeroesFor(
       BuildContext context,
       bool isUserGestureTransition,
@@ -121,7 +118,7 @@ class Hero extends StatefulWidget {
       if (!isUserGestureTransition || heroWidget.transitionOnUserGestures) {
         result[tag] = heroState;
       } else {
-        // 如果不能过渡，那么必须将hero展示出来（因为hero可能在先前的过渡中被隐藏了）
+        // 如果不允许使用手势过渡路由动画，那么必须将 hero 隐藏（因为hero可能在先前的过渡中被隐藏了）
         heroState.ensurePlaceholderIsHidden();
       }
     }
@@ -134,11 +131,6 @@ class Hero extends StatefulWidget {
         if (Navigator.of(hero) == navigator) {
           inviteHero(hero, tag);
         } else {
-          // The nearest navigator to the Hero is not the Navigator that is
-          // currently transitioning from one route to another. This means
-          // the Hero is inside a nested Navigator and should only be
-          // considered for animation if it is part of the top-most route in
-          // that nested Navigator and if that route is also a PageRoute.
           final ModalRoute<dynamic> heroRoute = ModalRoute.of(hero);
           if (heroRoute != null && heroRoute is PageRoute && heroRoute.isCurrent) {
             inviteHero(hero, tag);
@@ -160,7 +152,7 @@ class Hero extends StatefulWidget {
 class _HeroState extends State<Hero> {
   final GlobalKey _key = GlobalKey();
   Size _placeholderSize;
-  // 占位符是否应该将hero的child作为自己的child，当_placeholderSize为非null时 
+  // 占位符是否应该将 hero 的 child 作为自己的 child，当 _placeholderSize为 非 null时 
   // 例如，hero正处于飞行动画中
   bool _shouldIncludeChild = true;
 
@@ -534,14 +526,18 @@ class _HeroFlight {
 ## HeroController
 
 ```dart
-/// 一个[Navigator] 观测者，用于管理[Hero]变换
+/// 一个 [Navigator] 观测者，用于管理 [Hero] 效果
+/// 它继承自 NavigatorObserver，故它可以获取到当路页面的切换
 class HeroController extends NavigatorObserver {
 
   HeroController({ this.createRectTween });
   final CreateRectTween createRectTween;
-
+  /// 一个从对象到 _HeroFlight 的映射
+  /// 其中：tag 是 Hero 组件中的 tag，两个 Hero 的 tag 相同，它们才会有连续的动画效果
+  ///  _HeroFlight 是用来操控 Hero 动画的实体类
   final Map<Object, _HeroFlight> _flights = <Object, _HeroFlight>{};
 
+  /// 当发生 Push 或 Pop 或 Replace 时，如果可以的话，启动路由动画
   @override
   void didPush(Route<dynamic> route, Route<dynamic> previousRoute) {
     _maybeStartHeroTransition(previousRoute, route, HeroFlightDirection.push, false);
@@ -567,6 +563,10 @@ class HeroController extends NavigatorObserver {
   }
 
 
+  /// 根据实际情况来触发动画，
+  /// 其中：
+  /// fromeRoute 是起始的路由，即 Hero 的起飞界面
+  /// toRoute 是终点路由，即 Hero 的降落界面     
   void _maybeStartHeroTransition(
     Route<dynamic> fromRoute,
     Route<dynamic> toRoute,
@@ -579,6 +579,8 @@ class HeroController extends NavigatorObserver {
     {
       final PageRoute<dynamic> from = fromRoute;
       final PageRoute<dynamic> to = toRoute;
+      /// 显然，当路由类型是 push 的时候，采用 目标路由的动画作为动画
+      /// 否则采用 返回路由的动画作为动画，则确保了动画的值随时间为 0.0 到 1.0
       final Animation<double> animation = 
           (flightType == HeroFlightDirection.push) ? to.animation : from.animation;
 
@@ -596,21 +598,23 @@ class HeroController extends NavigatorObserver {
           break;
       }
 
-      /// 如果使用手势跳转并且页面会维持状态的话，可以立即开始hero过渡	
+      /// 如果 使用手势跳转 并且 是退出路由 并且 目标页面使用了维持状态的话，可以立即开始 hero 过渡
+      /// 注意：
+      /// 因为退出路由需要将当前页面移除，从而展现下层页面。如果下层页面没有使用 维持状态（keepState）的话
+      /// 那么下层路由需要重新构建后布局并绘制
+      /// 因此，对于使用了 维持状态的下层界面，可以直接开始 hero 过渡
       if (isUserGestureTransition 
           && flightType == HeroFlightDirection.pop 
           && to.maintainState) 
       {
         _startHeroTransition(from, to, animation, flightType, isUserGestureTransition);
       } else {
-        // Otherwise, delay measuring until the end of the next frame to allow
-        // the 'to' route to build and layout.
+        // 否则，在下一帧的时候才开始 hero 过渡，即在本次构建布局绘制完成之后
 
-        // Putting a route offstage changes its animation value to 1.0. Once this
-        // frame completes, we'll know where the heroes in the `to` route are
-        // going to end up, and the `to` route will go back onstage.
+        // 当一个路由离开屏幕的时候它的动画的值会变成 1.0 当这一帧完成的时候，我们自动目标路由完成了,即目标路
+        // 由出现在了屏幕上
         to.offstage = to.animation.value == 0.0;
-
+		/// 在下一帧的时候构建
         WidgetsBinding.instance.addPostFrameCallback((Duration value) {
           _startHeroTransition(from, to, animation, flightType, isUserGestureTransition);
         });
@@ -626,15 +630,19 @@ class HeroController extends NavigatorObserver {
     HeroFlightDirection flightType,
     bool isUserGestureTransition,
   ) {
-    // 如果一个路由的子树或者navigator在调用这个方法之前被移除了，什么都不做
+    // 如果一个路由的子树或者 navigator 在调用这个方法之前被移除了，什么都不做
     if (navigator == null || from.subtreeContext == null || to.subtreeContext == null) {
       to.offstage = false;
       return;
     }
-
+	
+    /// 找到 navigator 所处的 rect
+    /// 其中：navigator 是这个 NavigatorObserver 所观测的 navigator，
+    /// _boundingBoxFor 找到了 navigator context 对应的渲染对象的大小，并将其映射成全局坐标
+    /// 这样就得到了 navigator 在全局所处的 rect
     final Rect navigatorRect = _boundingBoxFor(navigator.context);
 
-    /// 找到对应页面的hero映射表  
+    /// 找到对应页面的 hero 映射表  
     final Map<Object, _HeroState> fromHeroes =
         Hero._allHeroesFor(from.subtreeContext, isUserGestureTransition, navigator);
     final Map<Object, _HeroState> toHeroes =
@@ -646,14 +654,18 @@ class HeroController extends NavigatorObserver {
 
     for (Object tag in fromHeroes.keys) {
       if (toHeroes[tag] != null) {
-        /// 获取对应的builder  
+        /// 获取对应的 builder  
         final HeroFlightShuttleBuilder fromShuttleBuilder =
             fromHeroes[tag].widget.flightShuttleBuilder;
         final HeroFlightShuttleBuilder toShuttleBuilder = 
             toHeroes[tag].widget.flightShuttleBuilder;
+          
+        /// 因为在每次路由飞行完成之后，会自动在 _flight 中移除 tag 和其对应的  _HeroFlight，
+        /// 如果 _flights[tag] ！= null，说明 tag 已经不是第一次被使用了，这意味发生了重定向，即 hero 的目
+        /// 标路由发生了改变
         final bool isDiverted = _flights[tag] != null;
 
-        /// 构建manifest  
+        /// 构建 manifest  
         final _HeroFlightManifest manifest = _HeroFlightManifest(
           type: flightType,
           overlay: navigator.overlay,
@@ -674,7 +686,7 @@ class HeroController extends NavigatorObserver {
         if (isDiverted)
           _flights[tag].divert(manifest);
         else
-          /// 开始飞行  
+          /// 开始飞行
           _flights[tag] = _HeroFlight(_handleFlightEnded)..start(manifest);
       } else if (_flights[tag] != null) {
         /// 放弃飞行  
@@ -713,9 +725,9 @@ class HeroController extends NavigatorObserver {
 ## TickerMode
 
 ```dart
-/// 启用或阻止子树中的 tickers (and thus animation controllers) 
+/// 启用或阻止子树中的 tickers (因此动画也会被影响) 
 ///
-/// 只在被使用了widget-aware ticker providers创建的[AnimationController] 有效
+/// 只在被使用了使用了 ticker providers创建的 [AnimationController] 的 widget 有效
 /// 例如[TickerProviderStateMixin] or a [SingleTickerProviderStateMixin].
 class TickerMode extends InheritedWidget {
   const TickerMode({
@@ -725,7 +737,7 @@ class TickerMode extends InheritedWidget {
   }) : assert(enabled != null),
        super(key: key, child: child);
 
-  /// true：子树tick，false：子树不tick
+  /// true：子树 tick，false：子树不tick
   final bool enabled;
 
   static bool of(BuildContext context) {

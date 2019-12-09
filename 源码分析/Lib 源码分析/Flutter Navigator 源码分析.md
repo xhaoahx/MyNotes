@@ -30,7 +30,7 @@ class RouteSettings {
   /// 路由名
   final String name;
 
-  /// 是否是初始路由（第一个加入[Navigator]的路由）
+  /// 是否是初始路由（第一个加入 [Navigator] 的路由）
   ///
   /// 这个路由会跳过所有的动画效果，用于加速加载
   final bool isInitialRoute;
@@ -49,6 +49,7 @@ class RouteSettings {
 
 ```dart
 /// 抽象路由类
+/// 其中 T 是路由退出时的结果类型
 abstract class Route<T> {
   /// 初始化路由
   Route({ RouteSettings settings }) : settings = settings ?? const RouteSettings();
@@ -60,24 +61,24 @@ abstract class Route<T> {
   /// 配置
   final RouteSettings settings;
 
-  /// 路由覆盖层（注意在ModelRoute重载的createOverlayEntries，和在OverlayRoute调用到    
+  /// 路由覆盖层（注意在 ModelRoute 重载的 createOverlayEntries，和在 OverlayRoute 调用到    
   /// _overlayEntries.addAll(createOverlayEntries())，它们产生了页面）  
   List<OverlayEntry> get overlayEntries => const <OverlayEntry>[];
 
-  /// 向 navigator 中插入 route 时调用
+  /// 向 navigator 中插入 route 时调用，插入在 insertionPoint（插入点）之后
   @protected
   @mustCallSuper
   void install(OverlayEntry insertionPoint) { }
 
-  /// 在[install]之后，当向navigator中加入路由时调用
-  /// 返回值是Transition的过程（Future）
-  /// 在此方法之后，立刻调用[didChangeNext] 和 [didChangePrevious]  
+  /// 在 [install] 之后，即当向 navigator 中加入路由之后调用
+  /// 返回值是 Transition的过程（Future）
+  /// 在此方法之后，立刻调用 [didChangeNext] 和 [didChangePrevious]  
   @protected
   TickerFuture didPush() => TickerFuture.complete();
 
-  /// 在[install]之后，当route替换另一个route时调用
+  /// 在 [install] 之后，当使用一个新 route 替换另一个 route （oldRoute）时调用
   ///
-  /// 在此方法之后，立刻调用[didChangeNext] 和 [didChangePrevious]
+  /// 在此方法之后，立刻调用 [didChangeNext] 和 [didChangePrevious]
   @protected
   @mustCallSuper
   void didReplace(Route<dynamic> oldRoute) { }
@@ -92,10 +93,11 @@ abstract class Route<T> {
 
   T get currentResult => null;
 
+  /// 以下是用于路由退出处理结果 FutureCompleter
   Future<T> get popped => _popCompleter.future;
   final Completer<T> _popCompleter = Completer<T>();
 
-  /// 请求弹出出当前路由
+  /// 在 Pop 方法调用之后立刻调用此方法。默认实现调用了 didComplete，即完成 Pop 结果返回的 Completer
   @protected
   @mustCallSuper
   bool didPop(T result) {
@@ -103,38 +105,32 @@ abstract class Route<T> {
     return true;
   }
 
-  /// 完成future
+  /// 完成结果 future
   @protected
   @mustCallSuper
   void didComplete(T result) {
     _popCompleter.complete(result);
   }
 
-  /// 下一个路由被弹出时的调用
+  /// 下一个路由被弹出之后调用
   @protected
   @mustCallSuper
   void didPopNext(Route<dynamic> nextRoute) { }
 
-  /// 下一个路由被改变时的回调
+  /// 下一个路由被改变时之后调用
   @protected
   @mustCallSuper
   void didChangeNext(Route<dynamic> nextRoute) { }
 
-  /// 路由改变时，对前一个路由的回调
+  /// 路由改变之后调用，对上一个路由的回调
   @protected
   @mustCallSuper
   void didChangePrevious(Route<dynamic> previousRoute) { }
 
   /// Called whenever the internal state of the route has changed.
   ///
-  /// This should be called whenever [willHandlePopInternally], [didPop],
-  /// [offstage], or other internal state of the route changes value. It is used
-  /// by [ModalRoute], for example, to report the new information via its
-  /// inherited widget to any children of the route.
-  ///
-  /// See also:
-  ///
-  ///  * [changedExternalState], which is called when the [Navigator] rebuilds.
+  /// 当路由的[willhandlepopinner]、[didPop]、[offstage] 或其他内部状态改变时，应该调用这个函数。
+  /// 例如，[ModalRoute]使用它通过 inheritedWidget 来向路由的任何子节点反馈更新信息。
   @protected
   @mustCallSuper
   void changedInternalState() { }
@@ -163,17 +159,17 @@ abstract class Route<T> {
     _navigator = null;
   }
 
-  /// 是否是最上层的路由，即_navigator._history的最后一个
+  /// 是否是当前（最上层）的路由，即 _navigator._history 列表的最后一个
   bool get isCurrent {
     return _navigator != null && _navigator._history.last == this;
   }
 
-  /// 是否是最下层的路由，即_navigator._history的第一个
+  /// 是否是最下层的路由，即 _navigator._history 的第一个
   bool get isFirst {
     return _navigator != null && _navigator._history.first == this;
   }
 
-  /// 是否是Active  
+  /// 是否是 Active 状态，即处于  _navigator._history 列表中
   bool get isActive {
     return _navigator != null && _navigator._history.contains(this);
   }
@@ -185,26 +181,26 @@ abstract class Route<T> {
 ## NavigatorObserver
 
 ```dart
-/// 用于观测Navigator行为的接口
+/// 用于观测 Navigator 行为的接口
 class NavigatorObserver {
   NavigatorState get navigator => _navigator;
   NavigatorState _navigator;
 
-  /// [Navigator] 在栈顶插入一个 route
+  /// [Navigator] 在栈顶插入一个 route 之后调用
   ///
   /// 这会使得上一个 route 立即变成 previousRoute
   void didPush(Route<dynamic> route, Route<dynamic> previousRoute) { }
 
-  /// [Navigator] 移除栈顶一个 route
+  /// [Navigator] 移除栈顶一个 route 之后调用
   void didPop(Route<dynamic> route, Route<dynamic> previousRoute) { }
 
-  /// [Navigator] 移除栈顶一个 route
+  /// [Navigator] 移除栈中一个 route 之后调用
   void didRemove(Route<dynamic> route, Route<dynamic> previousRoute) { }
 
-  /// [Navigator] 替换一个 route 
+  /// [Navigator] 替换一个 route 之后调用
   void didReplace({ Route<dynamic> newRoute, Route<dynamic> oldRoute }) { }
 
-  /// [Navigator] 正在通过手势移除一个 route
+  /// [Navigator] 正在通过手势控制一个 route
   void didStartUserGesture(Route<dynamic> route, Route<dynamic> previousRoute) { }
 
   /// 手势不再控制 [Navigator].
@@ -230,8 +226,8 @@ class Navigator extends StatefulWidget {
   final String initialRoute;
 
   /// RouteFactory = Route<dynamic> Function(RouteSettings settings) 
-  /// 用给定的RouteSetting生成以一个Route
-  /// 通常是WidgetApp指定的:
+  /// 用给定的 RouteSetting 生成以一个 Route
+  /// 通常是 WidgetApp 指定的:
   /// _onGenerateRoute(RouteSettings settings) {
   ///  final String name = settings.name;
   ///  final WidgetBuilder pageContentBuilder = 
@@ -254,12 +250,12 @@ class Navigator extends StatefulWidget {
 
   final RouteFactory onUnknownRoute;
 
-  /// 这个 navigator 的观测者,当navigator发生改变时通知观测者
+  /// 这个 navigator 的观测者,当 navigator 发生改变时通知观测者
   final List<NavigatorObserver> observers;
 
   static const String defaultRouteName = '/';
 
-  /// 以下方法都是是调用了 Navigator.of(context) 获取到的 NavigatorState 的方法	
+  /// 以下方法都是是调用了 Navigator.of(context) 获取到的 NavigatorState，并调用其对应的方法	
   static Future<T> pushNamed<T extends Object>(
     BuildContext context,
     String routeName, {
@@ -334,12 +330,13 @@ class Navigator extends StatefulWidget {
         replaceRouteBelow<T>(anchorRoute: anchorRoute, newRoute: newRoute);
   }
 
-
+  /// 当前路由是否可以退出
   static bool canPop(BuildContext context) {
     final NavigatorState navigator = Navigator.of(context, nullOk: true);
     return navigator != null && navigator.canPop();
   }
 
+  /// 如果当前路由可以退出的话，那么退出
   static Future<bool> maybePop<T extends Object>(
       BuildContext context, [ T result ]) 
   {
@@ -364,6 +361,7 @@ class Navigator extends StatefulWidget {
   }
 
   /// 获取到最近的 NavigatorState  
+  /// 如果 rootNavigator = true，那么会查找根 NavigatorState
   static NavigatorState of(
     BuildContext context, {
     bool rootNavigator = false,
@@ -385,12 +383,15 @@ class Navigator extends StatefulWidget {
 ## NavigatorState
 
 ```dart
+/// 注意，这里 mixin 了一个 TickerProviderStateMixin ，那么 NavigatorState 是可以作为 vsync 的
 class NavigatorState 
     extends State<Navigator> 
     with TickerProviderStateMixin 
 {
+  ///此 globalKey 用于获取子 Overlay 的 State
   final GlobalKey<OverlayState> _overlayKey = GlobalKey<OverlayState>();
   final List<Route<dynamic>> _history = <Route<dynamic>>[];
+  /// 已经被 pop 的路由
   final Set<Route<dynamic>> _poppedRoutes = <Route<dynamic>>{};
 
   /// The [FocusScopeNode] for the [FocusScope] that encloses the routes.
@@ -401,15 +402,16 @@ class NavigatorState
   @override
   void initState() {
     super.initState();
+    /// 使 NavigatorObserver 中每一个观测者都持有对自身的引用
     for (NavigatorObserver observer in widget.observers) {
       observer._navigator = this;
     }
     String initialRouteName = widget.initialRoute ?? Navigator.defaultRouteName;
-    /// 如果initialRouteName类似于 /xxxx/xxxx/xxx 的话，会逐个push对应的route 
+    /// 如果initialRouteName类似于 /xxxx/xxxx/xxx 的话，会逐个 push 对应的 route 
     if (initialRouteName.startsWith('/') && initialRouteName.length > 1) {
       initialRouteName = initialRouteName.substring(1); // strip leading '/'
         
-      /// 首先将 defaultRouteName 对应的route加入 plannedInitialRoutes中
+      /// 首先将 defaultRouteName 对应的 route 加入 plannedInitialRoutes 中
       final List<Route<dynamic>> plannedInitialRoutes = <Route<dynamic>>[
         _routeNamed<dynamic>(
             Navigator.defaultRouteName, 
@@ -428,19 +430,24 @@ class NavigatorState
           );
         }
       }
-      /// plannedInitialRoutes 为空，则push默认route  
+        
+      /// plannedInitialRoutes 最后一项为 null ，则 push 默认 route  
       if (plannedInitialRoutes.last == null) {
         push(_routeNamed<Object>(Navigator.defaultRouteName, arguments: null));
-      /// 否则 push 所有不为 null 的路由 （可能是因为没有对应的routeNames无法产生route   
+      /// 否则 push 所有不为 null 的路由 （可能是因为没有对应的 routeNames 无法产生 route）   
       } else {
         plannedInitialRoutes.where(
             (Route<dynamic> route) => route != null
         ).forEach(push);
-      }   
+      }  
+    /// 否则，如果 initialRouteName 不是以 ''/' 开头并且长度大与一的话，
+    /// push 默认的路由
     } else {
       Route<Object> route;
+      /// 如果自定义了初始路由名，push 对应的路由
       if (initialRouteName != Navigator.defaultRouteName)
         route = _routeNamed<Object>(initialRouteName, allowNull: true, arguments: null);
+      /// 如果没有则使用默认的初始路由名，即'/'
       route ??= _routeNamed<Object>(Navigator.defaultRouteName, arguments: null);
       push(route);
     }
@@ -449,6 +456,7 @@ class NavigatorState
       _initialOverlayEntries.addAll(route.overlayEntries);
   }
 
+  /// 更新 widget 的时候一并更新观测者
   @override
   void didUpdateWidget(Navigator oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -459,10 +467,11 @@ class NavigatorState
         observer._navigator = this;
       }
     }
+    /// 通知外部状态改变
     for (Route<dynamic> route in _history)
       route.changedExternalState();
   }
-
+    
   @override
   void dispose() {
     for (NavigatorObserver observer in widget.observers)
@@ -479,8 +488,8 @@ class NavigatorState
   /// navigator 用于视觉呈现的 覆盖层
   OverlayState get overlay => _overlayKey.currentState;
 
-  /// 当前覆盖层
-  /// 逆转_history之后，返回第一个route（push的最后一个route）的最后一层覆盖层  
+  /// 当前覆盖层（即最上层可视的覆盖层）
+  /// 逆转 _history 之后，返回第一个 overlayEntries 不为空 route 的最后一层覆盖层 
   OverlayEntry get _currentOverlayEntry {
     for (Route<dynamic> route in _history.reversed) {
       if (route.overlayEntries.isNotEmpty)
@@ -491,7 +500,7 @@ class NavigatorState
 
   bool _debugLocked = false;
       
-  /// 配置 RouteSettings ，调用 onGenerateRoute（setting）来产生一个新的 route
+  /// 使用给定 name 和参数来配置 RouteSettings ，并调用 onGenerateRoute（setting）来产生一个新的 route
   Route<T> _routeNamed<T>(String name, {
       @required Object arguments, 
       bool allowNull = false })
@@ -536,7 +545,7 @@ class NavigatorState
     return pushNamed<T>(routeName, arguments: arguments);
   }
 
-  /// 推入一个路由并且移除一些路由
+  /// 推入一个路由并且移除一些路由（当  RoutePredicate 返回 true 的时候停止移除）
   @optionalTypeArgs
   Future<T> pushNamedAndRemoveUntil<T extends Object>(
     String newRouteName,
@@ -548,11 +557,11 @@ class NavigatorState
 
   /// 在栈顶推入指定的路由
   /// 调用顺序：
-  /// route.install(_currentOverlayEntry) // 为route创建了overlayEntries
+  /// route.install(_currentOverlayEntry) // 为 route 创建了 overlayEntries
   /// 			|
   /// _history.add(route); 
   ///			|
-  /// route.didPush();// TransitionRoute在这里会启用动画 
+  /// route.didPush();// TransitionRoute 在这里会启用动画 
   ///			|
   /// route.didChangeNext(null);
   /// 			|(oldRoute 为先前的一个路由)
@@ -560,17 +569,19 @@ class NavigatorState
   /// 			|
   /// route.didChangePrevious(oldRoute); 
   ///			|
-  /// for(NavigatorObserver observer in widget.observers) 
+  /// for(NavigatorObserver observer in widget.observers) // 通知所有观测者 
   ///      observer.didPush(route, oldRoute);
   /// 			|
-  /// _afterNavigation(route);
+  /// _afterNavigation(route);// 使得页面 不可被点击
     
+  /// 入栈一个给定的 route
   @optionalTypeArgs
   Future<T> push<T extends Object>(Route<T> route) {
     final Route<dynamic> oldRoute = _history.isNotEmpty ? _history.last : null;
     route._navigator = this;
-    /// 插入到第一个route的最后一个overlayEntry后面  
+    /// 插入到第一个 route 的最后一个 overlayEntry 后面  
     route.install(_currentOverlayEntry);
+    /// 加入路由历史
     _history.add(route);
     route.didPush();
     route.didChangeNext(null);
@@ -578,11 +589,17 @@ class NavigatorState
       oldRoute.didChangeNext(route);
       route.didChangePrevious(oldRoute);
     }
+    /// 通知观测者
     for (NavigatorObserver observer in widget.observers)
       observer.didPush(route, oldRoute);
+    /// 派发通知
     RouteNotificationMessages.maybeNotifyRouteChange(
         _routePushedMethod, route, oldRoute);
+    /// 使页面不可被点击
     _afterNavigation(route);
+    /// 返回一个 Future<T> 作为结果
+    /// 注意到 poped 是 completer.future，故只需在 route.pop 的时候，调用 completer.complete 即可以完成 
+    /// future
     return route.popped;
   }
 
@@ -590,14 +607,18 @@ class NavigatorState
     _cancelActivePointers();
   }
 
+  /// 入栈一个给定的路由用于替换当前的的路由
   Future<T> pushReplacement<T extends Object, TO extends Object>(
       Route<T> newRoute, { TO result }) 
   {
     final Route<dynamic> oldRoute = _history.last;
+    /// index 即最后一个路由的位置
     final int index = _history.length - 1;
     newRoute._navigator = this;
     newRoute.install(_currentOverlayEntry);
+    /// 直接用新路由来替换旧路由
     _history[index] = newRoute;
+    /// 在新路由完成推入的时候，把之前的路由 dispose
     newRoute.didPush().whenCompleteOrCancel(() {
       if (mounted) {
         oldRoute
@@ -606,10 +627,12 @@ class NavigatorState
       }
     });
     newRoute.didChangeNext(null);
+    /// 旧路由的前一个路由，即倒数第二个路由
     if (index > 0) {
       _history[index - 1].didChangeNext(newRoute);
       newRoute.didChangePrevious(_history[index - 1]);
     }
+    /// 通知观测者
     for (NavigatorObserver observer in widget.observers)
       observer.didReplace(newRoute: newRoute, oldRoute: oldRoute);
     RouteNotificationMessages.
@@ -618,7 +641,7 @@ class NavigatorState
     return newRoute.popped;
   }
 
-    
+  /// 推入一个路由并且不断移除直到 RoutePredicate 返回 true，过程和 pushReplacement 类似
   @optionalTypeArgs
   Future<T> pushAndRemoveUntil<T extends Object>(
       Route<T> newRoute, RoutePredicate predicate) 
@@ -662,6 +685,7 @@ class NavigatorState
     return newRoute.popped;
   }
 
+  /// 用给定的新路由来替换一个指定的路由（不一定是最后一个，可以是 _history 中的任一个）
   @optionalTypeArgs
   void replace<T extends Object>({ 
       @required Route<dynamic> oldRoute,
@@ -693,27 +717,19 @@ class NavigatorState
   }
 
  
+  /// 用给定的新路由替换给定的锚点路由下层的一个路由
   void replaceRouteBelow<T extends Object>({ @required Route<dynamic> anchorRoute, Route<T> newRoute }) {
     replace<T>(oldRoute: _history[_history.indexOf(anchorRoute) - 1], 
                newRoute: newRoute);
   }
-
+    
+  /// 是否可以退出当前路由
   bool canPop() {
     assert(_history.isNotEmpty);
     return _history.length > 1 || _history[0].willHandlePopInternally;
   }
 
-  /// Tries to pop the current route, while honoring the route's [Route.willPop]
-  /// state.
-  ///
-  /// {@macro flutter.widgets.navigator.maybePop}
-  ///
-  /// See also:
-  ///
-  ///  * [Form], which provides an `onWillPop` callback that enables the form
-  ///    to veto a [pop] initiated by the app's back button.
-  ///  * [ModalRoute], which provides a `scopedWillPopCallback` that can be used
-  ///    to define the route's `willPop` method.
+  /// 尝试退出当前的路由 [Route.willPop]，能否退出会考虑 route.willPop 调用
   @optionalTypeArgs
   Future<bool> maybePop<T extends Object>([ T result ]) async {
     final Route<T> route = _history.last;
@@ -746,12 +762,13 @@ class NavigatorState
      
       if (_history.length > 1) {
         _history.removeLast();
-        // If route._navigator is null, the route called finalizeRoute from
-        // didPop, which means the route has already been disposed and doesn't
-        // need to be added to _poppedRoutes for later disposal.
+        // 如果 route._navigator 是 null, 这说明在 didPop 时已经调用了 finalizeRoute，即这个路由已经被
+        // 而无需把它加入到 _poppedRoutes 随后 dispose
         if (route._navigator != null)
           _poppedRoutes.add(route);
+        /// 调用 didPopNext 回调
         _history.last.didPopNext(route);
+        /// 通知观测者
         for (NavigatorObserver observer in widget.observers)
           observer.didPop(route, _history.last);
         RouteNotificationMessages.maybeNotifyRouteChange(
@@ -772,8 +789,7 @@ class NavigatorState
       pop();
   }
 
-  /// 移除一个路由
-    
+  /// 移除一个指定的路由
   void removeRoute(Route<dynamic> route) {
     final int index = _history.indexOf(route);
     /// 这个路由必须存在于 _history 列表中
@@ -791,7 +807,7 @@ class NavigatorState
     _afterNavigation<dynamic>(nextRoute);
   }
 
- 
+  /// 移除一个给定锚点下层所有的路由
   void removeRouteBelow(Route<dynamic> anchorRoute) {
    
     final int index = _history.indexOf(anchorRoute) - 1;
@@ -808,28 +824,97 @@ class NavigatorState
   }
 
   /// 终结一个路由
-  /// 在 pop 时，将其加入 _poppedRoutes，日后可以恢复，
+  /// 在 pop 时，将其加入 _poppedRoutes，之后可以恢复，
   /// finalizeRoute 会完全销毁 route，不可恢复  
   void finalizeRoute(Route<dynamic> route) {
     _poppedRoutes.remove(route);
     route.dispose();
   }
 
-  /// 掠过几个手势控制  
-  ...
+  /// 用户手势控制进程
+  int get _userGesturesInProgress => _userGesturesInProgressCount;
+  int _userGesturesInProgressCount = 0;
+  set _userGesturesInProgress(int value) {
+    _userGesturesInProgressCount = value;
+    userGestureInProgressNotifier.value = _userGesturesInProgress > 0;
+  }
 
+  /// 路由是否当前正在被用户的手势操控，例如在 IOS 系统上的返回手势
+  bool get userGestureInProgress => userGestureInProgressNotifier.value;
+
+  final ValueNotifier<bool> userGestureInProgressNotifier = ValueNotifier<bool>(false);
+
+
+  /// navigator 正在被用户的手势控制
+  void didStartUserGesture() {
+    _userGesturesInProgress += 1;
+    if (_userGesturesInProgress == 1) {
+      final Route<dynamic> route = _history.last;
+      final Route<dynamic> previousRoute = !route.willHandlePopInternally && _history.length > 1
+          ? _history[_history.length - 2]
+          : null;
+      for (NavigatorObserver observer in widget.observers)
+        observer.didStartUserGesture(route, previousRoute);
+    }
+  }
+
+  /// 用户手势完成
+  ///
+  /// Notifies the navigator that a gesture regarding which the navigator was
+  /// previously notified with [didStartUserGesture] has completed.
+  void didStopUserGesture() {
+    assert(_userGesturesInProgress > 0);
+    _userGesturesInProgress -= 1;
+    if (_userGesturesInProgress == 0) {
+      for (NavigatorObserver observer in widget.observers)
+        observer.didStopUserGesture();
+    }
+  }
+
+  /// 保存了指针 id 的集合
+  final Set<int> _activePointers = <int>{};
+
+  /// 处理指针落下事件
+  void _handlePointerDown(PointerDownEvent event) {
+    _activePointers.add(event.pointer);
+  }
+
+  /// 处理指针离开或者取消事件
+  void _handlePointerUpOrCancel(PointerEvent event) {
+    _activePointers.remove(event.pointer);
+  }
+
+  /// 操作 Navigator 是否能被点击
+  void _cancelActivePointers() {
+    // TODO(abarth): 这一机制还不够完善
+    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.idle) {
+      // 向下查找到 RenderAbsorbPointer，将其 absorbing 设置为 true，即吸收所有的指针事件
+      // 之后 markNeedsBuild 触发刷新
+      // （这是对 RenderObject 的直接操作，似乎打破了框架的运作规律）
+      final RenderAbsorbPointer absorber = 
+          _overlayKey.currentContext?.findAncestorRenderObjectOfType<RenderAbsorbPointer>();
+      setState(() {
+        absorber?.absorbing = true;
+      });
+    }
+    _activePointers.toList().forEach(WidgetsBinding.instance.cancelPointer);
+  }
+
+  /// 构建
   @override
   Widget build(BuildContext context) {
+    /// 最外层有一个指针监听器，用于监听路由页面的指针事件，
     return Listener(
       onPointerDown: _handlePointerDown,
       onPointerUp: _handlePointerUpOrCancel,
       onPointerCancel: _handlePointerUpOrCancel,
+      /// 是否允许被点击，被 _cancelActivePointers 直接操控
       child: AbsorbPointer(
-        absorbing: false, // it's mutated directly by _cancelActivePointers above
+        absorbing: false, // 被 _cancelActivePointers 直接操控
         child: FocusScope(
           node: focusScopeNode,
           autofocus: true,
-          /// 这里为子树创建了一个最高层 Overlay  
+          /// 这里为子树创建了一个顶层 Overlay ，用于显示页面内容  
           child: Overlay(
             key: _overlayKey,
             initialEntries: _initialOverlayEntries,
@@ -843,19 +928,21 @@ class NavigatorState
 
 
 
-### -------------------------- 分割线 ------------------------------
+## Route 子类
 
 
 
-### OverlayRoute
+### 1.OverlayRoute
 
 ```dart
-/// 一个可以创建覆盖层的Route
+/// 一个可以创建覆盖层的 Route
 abstract class OverlayRoute<T> extends Route<T> {
   OverlayRoute({
     RouteSettings settings,
   }) : super(settings: settings);
 
+  /// 创建覆盖层列表，这个方法被子类重载
+  /// ModalRoute 重载了此方法返回了两个 Overlay，分别包含了 Barrier 和 Page
   Iterable<OverlayEntry> createOverlayEntries();
 
   @override
@@ -866,6 +953,11 @@ abstract class OverlayRoute<T> extends Route<T> {
   void install(OverlayEntry insertionPoint) {
     assert(_overlayEntries.isEmpty);
     _overlayEntries.addAll(createOverlayEntries());
+    /// 调用 navigator.overlay.intsertAll（详见 [Navigator.overlay] 和 [Overlay]）
+    /// 把创建的所有覆盖层插入到插入点之后
+    /// 通常，Navigator 调用 Push 方法的时候，传入 insertionPoint 总是最上层的 OverlayEntry，即当前视图对
+    /// 应的 OverlayEntry
+    /// 故，Push 方法总是会添加新的 Overlay 到最上层
     navigator.overlay?.insertAll(_overlayEntries, above: insertionPoint);
     super.install(insertionPoint);
   }
@@ -897,24 +989,27 @@ abstract class OverlayRoute<T> extends Route<T> {
 
 
 
-### TransitionRoute
+### 2.TransitionRoute
 
 ```dart
+/// 当 Pop 或 Push 时，有动画效果过渡
 abstract class TransitionRoute<T> extends OverlayRoute<T> {
-  /// 当 Pop 或 Push 时，有动画效果过渡
   TransitionRoute({
     RouteSettings settings,
   }) : super(settings: settings);
 
-  /// 在 push 或 pop 各完成一次
+  /// 过渡动画时候完成
   Future<T> get completed => _transitionCompleter.future;
   final Completer<T> _transitionCompleter = Completer<T>();
 
   Duration get transitionDuration;
 
-  /// 如果设置为 true ，那么当 Transition 完成时，这个 route 之前的 route 就不会被建造，以节省资源
+  /// 页面透明度
+  /// 如果设置为 true （也就是说这个页面是不透明的），那么当 Transition 完成时，这个 route 之前（或者说这个
+  /// 页面之下的所有页面）的 route 就不会被建造，以节省资源
   bool get opaque;
 
+  /// 返回动画完成的时候销毁路由
   @override
   bool get finishedWhenPopped => _controller.status == AnimationStatus.dismissed;
 
@@ -934,54 +1029,60 @@ abstract class TransitionRoute<T> extends OverlayRoute<T> {
       duration: duration,
       debugLabel: debugLabel,
       /// 注意：
-      /// navigator mixin 了一个 TickerProvider  
+      /// navigator mixin 了一个 TickerProvider，这里直接把 Navigator 当作 vsync
       vsync: navigator,
     );
   }
 
   Animation<double> createAnimation() {
     /// Animation<double> get view => this; 
-    /// 将 _controller 自身向外暴露  
+    /// 显然，_controller 自身也是一个 Animation<double> 
     return _controller.view;
   }
 
+  /// 路由返回的结果
   T _result;
 
   /// 但动画状态改变时，触发回调  
   void _handleStatusChanged(AnimationStatus status) {
     switch (status) {
-      /// 如果当动画完成时，把overlayEntries的第一个OverlayEntry的opaque设置为true
-      /// 这样会使得先前路由被遮蔽，在 OverlayState 会把先前的路由从_onstage里移除
-      /// 先前的route不再会被build      
+      /// 如果当动画完成时，把 overlayEntries 的第一个 OverlayEntry.opaque （即最下层的覆盖层的透明度）设置
+      /// 为给定的 opaque
+      /// 若给定 opaque 是 true 的话，会使得先前路由被遮蔽，在 OverlayState 中非把先前的路由从
+      /// _onstage 列表中里移除 
       case AnimationStatus.completed:
         if (overlayEntries.isNotEmpty)
           overlayEntries.first.opaque = opaque;
         break;
+      /// 显然，在动画还没有完成的时候，需要展示下层的覆盖层，必须把本覆盖层的 opaque 设置成 false
       case AnimationStatus.forward:
       case AnimationStatus.reverse:
         if (overlayEntries.isNotEmpty)
           overlayEntries.first.opaque = false;
         break;
+      /// 如果 AnimationStatus == dismissed，这说明这个路由被 pop 了，因此需要被销毁
       case AnimationStatus.dismissed:
         if (!isActive) {
           navigator.finalizeRoute(this);
         }
         break;
     }
-    /// 这个方法在ModelRoute里被重写
+      
+    /// 这个方法在 ModalRoute 里被重写
     /// 调用了_modalBarrier.markNeedsBuild();  
     changedInternalState();
   }
 
-  /// 创建了AnimationController   
+  /// 创建了 AnimationController   
   @override
   void install(OverlayEntry insertionPoint) {
     _controller = createAnimationController();
+    /// 这里的 animation 实际就是 _controller
     _animation = createAnimation();
     super.install(insertionPoint);
   }
 
-  /// 开始动画  
+  /// 在 install 之后通常会调用 didPush,开始动画  
   @override
   TickerFuture didPush() {
     _animation.addStatusListener(_handleStatusChanged);
@@ -1047,7 +1148,10 @@ abstract class TransitionRoute<T> extends OverlayRoute<T> {
       _secondaryAnimation.parent = kAlwaysDismissedAnimation;
     }
   }
-    
+
+  /// 时候能够过渡到另一个 route
+  /// 当返回 true 时，当一个新的路由被 push 或者 pop 到这个路由的上层的时候，这个路由的 secondaryAnimation 
+  /// 会开始运行
   bool canTransitionTo(TransitionRoute<dynamic> nextRoute) => true;
 
   bool canTransitionFrom(TransitionRoute<dynamic> previousRoute) => true;
@@ -1064,24 +1168,24 @@ abstract class TransitionRoute<T> extends OverlayRoute<T> {
 
 
 
-## LocalHistoryEntry
+#### LocalHistoryEntry
 
 ```dart
+/// 信息类
 class LocalHistoryEntry {
-  /// Creates an entry in the history of a [LocalHistoryRoute].
   LocalHistoryEntry({ this.onRemove });
 
-  /// 被移除时调用
+  /// 被移除时的回调
   final VoidCallback onRemove;
 
   LocalHistoryRoute<dynamic> _owner;
 
-  /// Remove this entry from the history of its associated [LocalHistoryRoute].
+  /// 把这个 Entry 从其关联的 [LocalHistoryRoute] 的 history 中移除
   void remove() {
     _owner.removeLocalHistoryEntry(this);
-    assert(_owner == null);
   }
 
+  /// 通知这个 Entry 已经被移除了，调用给定的 移除回调
   void _notifyRemoved() {
     if (onRemove != null)
       onRemove();
@@ -1091,12 +1195,116 @@ class LocalHistoryEntry {
 
 
 
-### LocalHistoryRoute
+### 3.LocalHistoryRoute
 
 ```dart
+/// 一个能够保存在当前页面上相加新视图的路由
+/// 用例如下：
+///
+/// ```dart
+/// void main() => runApp(App());
+/// class App extends StatelessWidget {
+///   @override
+///   Widget build(BuildContext context) {
+///     return MaterialApp(
+///       initialRoute: '/',
+///       routes: {
+///         '/': (BuildContext context) => HomePage(),
+///         '/second_page': (BuildContext context) => SecondPage(),
+///       },
+///     );
+///   }
+/// }
+///
+/// class HomePage extends StatefulWidget {
+///   HomePage();
+///
+///   @override
+///   _HomePageState createState() => _HomePageState();
+/// }
+///
+/// class _HomePageState extends State<HomePage> {
+///   @override
+///   Widget build(BuildContext context) {
+///     return Scaffold(
+///       body: Center(
+///         child: Column(
+///           mainAxisSize: MainAxisSize.min,
+///           children: <Widget>[
+///             Text('HomePage'),
+///             // Press this button to open the SecondPage.
+///             RaisedButton(
+///               child: Text('Second Page >'),
+///               onPressed: () {
+///                 Navigator.pushNamed(context, '/second_page');
+///               },
+///             ),
+///           ],
+///         ),
+///       ),
+///     );
+///   }
+/// }
+///
+/// class SecondPage extends StatefulWidget {
+///   @override
+///   _SecondPageState createState() => _SecondPageState();
+/// }
+///
+/// class _SecondPageState extends State<SecondPage> {
+///
+///   bool _showRectangle = false;
+///
+///   void _navigateLocallyToShowRectangle() {
+///     setState(() => _showRectangle = true);
+///     ModalRoute.of(context).addLocalHistoryEntry(
+///         LocalHistoryEntry(
+///             onRemove: () {
+///               // Hide the red rectangle.
+///               setState(() => _showRectangle = false);
+///             }
+///         )
+///     );
+///   }
+///
+///   @override
+///   Widget build(BuildContext context) {
+///     final localNavContent = _showRectangle
+///       ? Container(
+///           width: 100.0,
+///           height: 100.0,
+///           color: Colors.red,
+///         )
+///       : RaisedButton(
+///           child: Text('Show Rectangle'),
+///           onPressed: _navigateLocallyToShowRectangle,
+///         );
+///
+///     return Scaffold(
+///       body: Center(
+///         child: Column(
+///           mainAxisAlignment: MainAxisAlignment.center,
+///           children: <Widget>[
+///             localNavContent,
+///             RaisedButton(
+///               child: Text('< Back'),
+///               onPressed: () {
+///                 // 当红色矩形存在时，会使其消失；否则，直接退出路由，返回 Home 页
+///                 Navigator.of(context).pop();
+///               },
+///             ),
+///           ],
+///         ),
+///       ),
+///     );
+///   }
+/// }
+/// ```
+/// {@end-tool}
 mixin LocalHistoryRoute<T> on Route<T> {
   List<LocalHistoryEntry> _localHistory;
 
+  /// 添加一个 HistoryEntry 到列表中
   void addLocalHistoryEntry(LocalHistoryEntry entry) {
     entry._owner = this;
     _localHistory ??= <LocalHistoryEntry>[];
@@ -1106,7 +1314,7 @@ mixin LocalHistoryRoute<T> on Route<T> {
       changedInternalState();
   }
 
-  /// 同步地移除一个当前 route 的历史 route
+  /// 移除一个 historyEntry，并调用其回调
   void removeLocalHistoryEntry(LocalHistoryEntry entry) {
     _localHistory.remove(entry);
     entry._owner = null;
@@ -1115,6 +1323,7 @@ mixin LocalHistoryRoute<T> on Route<T> {
       changedInternalState();
   }
 
+  /// 重载了 willPop 方法，如果
   @override
   Future<RoutePopDisposition> willPop() async {
     if (willHandlePopInternally)
@@ -1136,6 +1345,8 @@ mixin LocalHistoryRoute<T> on Route<T> {
     return super.didPop(result);
   }
 
+  /// 如果 _localHistory 列表的长度不为 0 的话，那么这次 Pop 将被视作页面内部的 Pop，也就是说，这次 Pop 不会
+  /// 将当前页面 Pop 掉，而是移除一层 Histroy
   @override
   bool get willHandlePopInternally {
     return _localHistory != null && _localHistory.isNotEmpty;
@@ -1145,18 +1356,193 @@ mixin LocalHistoryRoute<T> on Route<T> {
 
 
 
-### ModalRoute 
+#### _ModalScopeStatus
+
+```dart
+class _ModalScopeStatus extends InheritedWidget {
+  const _ModalScopeStatus({
+    Key key,
+    @required this.isCurrent,
+    @required this.canPop,
+    @required this.route,
+    @required Widget child,
+  }) : assert(isCurrent != null),
+       assert(canPop != null),
+       assert(route != null),
+       assert(child != null),
+       super(key: key, child: child);
+
+  /// 是否是 current route  
+  final bool isCurrent;
+  /// 能否弹出  
+  final bool canPop;
+  /// 持有的route  
+  final Route<dynamic> route;
+
+  @override
+  bool updateShouldNotify(_ModalScopeStatus old) {
+    return isCurrent != old.isCurrent ||
+           canPop != old.canPop ||
+           route != old.route;
+  }
+}
+```
+
+
+
+#### _ModalScope
+
+```dart
+class _ModalScope<T> extends StatefulWidget {
+  const _ModalScope({
+    Key key,
+    this.route,
+  }) : super(key: key);
+
+  final ModalRoute<T> route;
+
+  @override
+  _ModalScopeState<T> createState() => _ModalScopeState<T>();
+}
+```
+
+
+
+#### _ModalScopeState
+
+```dart
+class _ModalScopeState<T> extends State<_ModalScope<T>> {
+  Widget _page;
+
+  /// 这个 listenable 合并了一个 route 的两个 animation（animation 和 secondaryAnimation）
+  /// 附：Listenable.merge 构造函数实际返回了一个 _MergeListenable ，当向其中添加一个 listenr 时，它会
+  /// 在其 _children 中的每一个 listenable 中注册这个 listener
+  Listenable _listenable;
+
+  /// The node this scope will use for its root [FocusScope] widget.
+  final FocusScopeNode focusScopeNode = 
+      FocusScopeNode(debugLabel: '$_ModalScopeState Focus Scope');
+
+  @override
+  void initState() {
+    super.initState();
+    final List<Listenable> animations = <Listenable>[];
+    if (widget.route.animation != null)
+      animations.add(widget.route.animation);
+    if (widget.route.secondaryAnimation != null)
+      animations.add(widget.route.secondaryAnimation);
+    _listenable = Listenable.merge(animations);
+    if (widget.route.isCurrent) {
+      widget.route.navigator.focusScopeNode.setFirstFocus(focusScopeNode);
+    }
+  }
+
+  @override
+  void didUpdateWidget(_ModalScope<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.route.isCurrent) {
+      widget.route.navigator.focusScopeNode.setFirstFocus(focusScopeNode);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _page = null;
+  }
+
+  /// 强制重建页面，这回清除已有的 _page 缓存  
+  void _forceRebuildPage() {
+    setState(() {
+      _page = null;
+    });
+  }
+
+  @override
+  void dispose() {
+    focusScopeNode.dispose();
+    super.dispose();
+  }
+
+  // This should be called to wrap any changes to route.isCurrent, route.canPop,
+  // and route.offstage.
+  void _routeSetState(VoidCallback fn) {
+    setState(fn);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    /// 返回一个 _ModalScopeStatus
+    return _ModalScopeStatus(
+      route: widget.route,
+      isCurrent: widget.route.isCurrent, // _routeSetState is called if this updates
+      canPop: widget.route.canPop, // _routeSetState is called if this updates
+      /// 当 offstage 为真时，不会进行子树的绘制
+      child: Offstage(
+        offstage: widget.route.offstage, // 当 route.offstage 改变的时候，setState 会被调用
+        /// PageStorage 用于储存滚动状态等信息
+        child: PageStorage(
+          bucket: widget.route._storageBucket,
+          /// 焦点根组件
+          child: FocusScope(
+            node: focusScopeNode,
+            /// 重绘边界，用于提高性能
+            /// 显然，当子树（页面）重绘的时候，上层无需重绘
+            child: RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: _listenable,
+                builder: (BuildContext context, Widget child) {
+                  /// buildTransitions 在这里被调用，用于构建过渡
+                  /// buildPage 产生的 widget 在这里作为child传入  
+                  return widget.route.buildTransitions(
+                    context,
+                    widget.route.animation,
+                    widget.route.secondaryAnimation,
+                    IgnorePointer(
+                      ignoring: widget.route.navigator.userGestureInProgress
+                        || widget.route.animation?.status == AnimationStatus.reverse,
+                      child: child,
+                    ),
+                  );
+                },
+                /// 缓存 _page  
+                child: _page ??= RepaintBoundary(
+                  key: widget.route._subtreeKey, // immutable
+                  child: Builder(
+                    builder: (BuildContext context) {
+                      /// buildPage在这里被调用，用于建造页面  
+                      return widget.route.buildPage(
+                        context,
+                        widget.route.animation,
+                        widget.route.secondaryAnimation,
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+```
+
+### 3.ModalRoute 
 
 ```dart
 /// 一个可以在执行动画时阻碍与先前路由交互的 Route
 abstract class ModalRoute<T> 
-    extends TransitionRoute<T> 
+    extends TransitionRoute<T>
+    /// 注意这里 mixin 了 LocalHistoryRoute<T> 
     with LocalHistoryRoute<T> 
 {
   ModalRoute({
     RouteSettings settings,
   }) : super(settings: settings);
 
+  /// 在一个 Widget 中调用 ModalRoute.of(context) 以获取到它所在路由（ModalRoute）
   @optionalTypeArgs
   static ModalRoute<T> of<T extends Object>(BuildContext context) {
     final _ModalScopeStatus widget = 
@@ -1169,7 +1555,7 @@ abstract class ModalRoute<T>
     if (_scopeKey.currentState != null) {
       _scopeKey.currentState._routeSetState(fn);
     } else {
-      // route 当前处于不可见状态，因此不需要setState
+      // route 当前处于不可见状态，因此不需要 setState
       fn();
     }
   }
@@ -1201,10 +1587,13 @@ abstract class ModalRoute<T>
   @override
   void install(OverlayEntry insertionPoint) {
     super.install(insertionPoint);
+    /// super.animation 即 TransitionRoute 中的 animation
     _animationProxy = ProxyAnimation(super.animation);
+    /// super.secondaryAnimation 即 TransitionRoute 中的 secondaryAnimation
     _secondaryAnimationProxy = ProxyAnimation(super.secondaryAnimation);
   }
 
+  /// push 之后，为推送的页面请求一次焦点，这可能是 TextField 的 autoFocus 属性的用处
   @override
   TickerFuture didPush() {
     if (_scopeKey.currentState != null) {
@@ -1227,7 +1616,7 @@ abstract class ModalRoute<T>
   /// 当 inactive 时是否要保存状态
   bool get maintainState;
 
-  /// 是否可见（OffStage通过设置最大Size为Size（0,0）来组织布局渲染  
+  /// 是否可见（offStage 为 true 时，会阻止子树的渲染（并不会阻止布局，通常来说，布局是一定会进行的））  
   bool get offstage => _offstage;
   bool _offstage = false;
   set offstage(bool value) {
@@ -1242,41 +1631,48 @@ abstract class ModalRoute<T>
         _offstage ? kAlwaysDismissedAnimation : super.secondaryAnimation;
   }
 
+  /// 子树的 Buildcontext
   BuildContext get subtreeContext => _subtreeKey.currentContext;
 
+  /// 向外提供 animation，被 buildPage 和 buildTransition 方法使用
   @override
   Animation<double> get animation => _animationProxy;
   ProxyAnimation _animationProxy;
-
+  /// 同上
   @override
   Animation<double> get secondaryAnimation => _secondaryAnimationProxy;
   ProxyAnimation _secondaryAnimationProxy;
-
+  
   final List<WillPopCallback> _willPopCallbacks = <WillPopCallback>[];
 
   @override
   Future<RoutePopDisposition> willPop() async {
     final _ModalScopeState<T> scope = _scopeKey.currentState;
     for (WillPopCallback callback in List<WillPopCallback>.from(_willPopCallbacks)) {
+      /// 如果有一个回调返回了 false 的话，那么不能退出
       if (!await callback())
         return RoutePopDisposition.doNotPop;
     }
     return await super.willPop();
   }
 
+  /// 添加一个退出时回调
   void addScopedWillPopCallback(WillPopCallback callback) {
     _willPopCallbacks.add(callback);
   }
 
+  /// 移除一个退出时回调
   void removeScopedWillPopCallback(WillPopCallback callback) {
     _willPopCallbacks.remove(callback);
   }
 
+  /// 是否有退出时回调
   @protected
   bool get hasScopedWillPopCallback {
     return _willPopCallbacks.isNotEmpty;
   }
 
+  
   @override
   void didChangePrevious(Route<dynamic> previousRoute) {
     super.didChangePrevious(previousRoute);
@@ -1289,6 +1685,7 @@ abstract class ModalRoute<T>
     _modalBarrier.markNeedsBuild();
   }
 
+  /// 外部状态改变，这会清除 _ModalScopeState 中的 page 缓存
   @override
   void changedExternalState() {
     super.changedExternalState();
@@ -1309,10 +1706,9 @@ abstract class ModalRoute<T>
   // one of the builders
   OverlayEntry _modalBarrier;
   
-  /// 建造一个遮罩层  
+  /// 建造一个背景板  
   Widget _buildModalBarrier(BuildContext context) {
     Widget barrier;
-    /// 创建遮罩层实体
     if (barrierColor != null && !offstage) { 
         /// 从透明色到指定颜色的渐变
         ColorTween(
@@ -1353,6 +1749,11 @@ abstract class ModalRoute<T>
     );
   }
 
+  /// 这里重载了 createOverlayEntries，返回了两个 OverlayEntry，
+  /// 其一包含了背景版，（把 _buildModalBarrier 当作 builder）
+  /// 其二包含了页面实体，（把 _buildModalScope 当作 builder。详见[_ModalScope]）
+  /// 通常，在 insert 的时候把这两个 OverlayEntry 插入到了 Overlay 中 _entries 的尾端，
+  /// 即当前视图的最上层。
   @override
   Iterable<OverlayEntry> createOverlayEntries() sync* {
     yield _modalBarrier = OverlayEntry(builder: _buildModalBarrier);
@@ -1365,10 +1766,10 @@ abstract class ModalRoute<T>
 
 
 
-### PageRoute
+### 4.PageRoute
 
 ```dart
-/// 替换整个屏幕的 Route
+/// 其实是对 ModalRoute 的简单封装
 abstract class PageRoute<T> extends ModalRoute<T> {
   PageRoute({
     RouteSettings settings,
@@ -1407,25 +1808,21 @@ abstract class PageRoute<T> extends ModalRoute<T> {
 
 
 
-### MaterialPageRoute
+### 5.MaterialPageRoute
 
 ```dart
-/// 平台自适应的 page 切换效果
+/// Material 设计风格适应的页面路由
 class MaterialPageRoute<T> extends PageRoute<T> {
 
   MaterialPageRoute({
     @required this.builder,
     RouteSettings settings,
-    /// 默认maintainState为true
-    /// 这会使得push另一个页面时，保持上一个页面状态，但也会消耗一定资源
-    /// 当页面层数多，且上一页状态无需被储存时，设置false提升性能  
+    /// 默认 maintainState 为 true
+    /// 这会使得 push 另一个页面时，保持上一个页面状态，但也会消耗一定资源
+    /// 当页面层数多，且上一页状态无需被储存时，设置 false 提升性能  
     this.maintainState = true,
     bool fullscreenDialog = false,
-  }) : assert(builder != null),
-       assert(maintainState != null),
-       assert(fullscreenDialog != null),
-       assert(opaque),
-       super(settings: settings, fullscreenDialog: fullscreenDialog);
+  }) : super(settings: settings, fullscreenDialog: fullscreenDialog);
 
   final WidgetBuilder builder;
 
@@ -1491,171 +1888,238 @@ class MaterialPageRoute<T> extends PageRoute<T> {
 
 
 
-### _ModelScopeStatus
+### 6.CupertinoPageRoute
 
 ```dart
-class _ModalScopeStatus extends InheritedWidget {
-  const _ModalScopeStatus({
-    Key key,
-    @required this.isCurrent,
-    @required this.canPop,
-    @required this.route,
-    @required Widget child,
-  }) : assert(isCurrent != null),
-       assert(canPop != null),
-       assert(route != null),
-       assert(child != null),
-       super(key: key, child: child);
+class CupertinoPageRoute<T> extends PageRoute<T> {
+  /// Creates a page route for use in an iOS designed app.
+  ///
+  /// The [builder], [maintainState], and [fullscreenDialog] arguments must not
+  /// be null.
+  CupertinoPageRoute({
+    @required this.builder,
+    this.title,
+    RouteSettings settings,
+    this.maintainState = true,
+    bool fullscreenDialog = false,
+  }) : super(settings: settings, fullscreenDialog: fullscreenDialog);
 
-  /// 是否是current route  
-  final bool isCurrent;
-  /// 能否弹出  
-  final bool canPop;
-  /// 持有的route  
-  final Route<dynamic> route;
+  /// Builds the primary contents of the route.
+  final WidgetBuilder builder;
 
-  @override
-  bool updateShouldNotify(_ModalScopeStatus old) {
-    return isCurrent != old.isCurrent ||
-           canPop != old.canPop ||
-           route != old.route;
+  /// A title string for this route.
+  ///
+  /// Used to auto-populate [CupertinoNavigationBar] and
+  /// [CupertinoSliverNavigationBar]'s `middle`/`largeTitle` widgets when
+  /// one is not manually supplied.
+  final String title;
+
+  ValueNotifier<String> _previousTitle;
+
+  /// The title string of the previous [CupertinoPageRoute].
+  ///
+  /// The [ValueListenable]'s value is readable after the route is installed
+  /// onto a [Navigator]. The [ValueListenable] will also notify its listeners
+  /// if the value changes (such as by replacing the previous route).
+  ///
+  /// The [ValueListenable] itself will be null before the route is installed.
+  /// Its content value will be null if the previous route has no title or
+  /// is not a [CupertinoPageRoute].
+  ///
+  /// See also:
+  ///
+  ///  * [ValueListenableBuilder], which can be used to listen and rebuild
+  ///    widgets based on a ValueListenable.
+  ValueListenable<String> get previousTitle {
+    assert(
+      _previousTitle != null,
+      'Cannot read the previousTitle for a route that has not yet been installed',
+    );
+    return _previousTitle;
   }
-}
-```
-
-
-
-### _ModelScope
-
-```dart
-class _ModalScope<T> extends StatefulWidget {
-  const _ModalScope({
-    Key key,
-    this.route,
-  }) : super(key: key);
-
-  final ModalRoute<T> route;
 
   @override
-  _ModalScopeState<T> createState() => _ModalScopeState<T>();
-}
-```
-
-
-
-### _ModelScopeState
-
-```dart
-class _ModalScopeState<T> extends State<_ModalScope<T>> {
-  Widget _page;
-
-  /// 这个listenable合并了一个route的两个animation（animation 和 secondaryAnimation）
-  Listenable _listenable;
-
-  /// The node this scope will use for its root [FocusScope] widget.
-  final FocusScopeNode focusScopeNode = 
-      FocusScopeNode(debugLabel: '$_ModalScopeState Focus Scope');
-
-  @override
-  void initState() {
-    super.initState();
-    final List<Listenable> animations = <Listenable>[];
-    if (widget.route.animation != null)
-      animations.add(widget.route.animation);
-    if (widget.route.secondaryAnimation != null)
-      animations.add(widget.route.secondaryAnimation);
-    _listenable = Listenable.merge(animations);
-    if (widget.route.isCurrent) {
-      widget.route.navigator.focusScopeNode.setFirstFocus(focusScopeNode);
+  void didChangePrevious(Route<dynamic> previousRoute) {
+    final String previousTitleString = previousRoute is CupertinoPageRoute
+        ? previousRoute.title
+        : null;
+    if (_previousTitle == null) {
+      _previousTitle = ValueNotifier<String>(previousTitleString);
+    } else {
+      _previousTitle.value = previousTitleString;
     }
+    super.didChangePrevious(previousRoute);
   }
 
   @override
-  void didUpdateWidget(_ModalScope<T> oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    assert(widget.route == oldWidget.route);
-    if (widget.route.isCurrent) {
-      widget.route.navigator.focusScopeNode.setFirstFocus(focusScopeNode);
-    }
+  final bool maintainState;
+
+  @override
+  // A relatively rigorous eyeball estimation.
+  Duration get transitionDuration => const Duration(milliseconds: 400);
+
+  @override
+  Color get barrierColor => null;
+
+  @override
+  String get barrierLabel => null;
+
+  @override
+  bool canTransitionFrom(TransitionRoute<dynamic> previousRoute) {
+    return previousRoute is CupertinoPageRoute;
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _page = null;
+  bool canTransitionTo(TransitionRoute<dynamic> nextRoute) {
+    // Don't perform outgoing animation if the next route is a fullscreen dialog.
+    return nextRoute is CupertinoPageRoute && !nextRoute.fullscreenDialog;
   }
 
-  /// 强制重建页面，这回清除已有的 _page 缓存  
-  void _forceRebuildPage() {
-    setState(() {
-      _page = null;
-    });
+  /// True if an iOS-style back swipe pop gesture is currently underway for [route].
+  ///
+  /// This just check the route's [NavigatorState.userGestureInProgress].
+  ///
+  /// See also:
+  ///
+  ///  * [popGestureEnabled], which returns true if a user-triggered pop gesture
+  ///    would be allowed.
+  static bool isPopGestureInProgress(PageRoute<dynamic> route) {
+    return route.navigator.userGestureInProgress;
+  }
+
+  /// True if an iOS-style back swipe pop gesture is currently underway for this route.
+  ///
+  /// See also:
+  ///
+  ///  * [isPopGestureInProgress], which returns true if a Cupertino pop gesture
+  ///    is currently underway for specific route.
+  ///  * [popGestureEnabled], which returns true if a user-triggered pop gesture
+  ///    would be allowed.
+  bool get popGestureInProgress => isPopGestureInProgress(this);
+
+  /// Whether a pop gesture can be started by the user.
+  ///
+  /// Returns true if the user can edge-swipe to a previous route.
+  ///
+  /// Returns false once [isPopGestureInProgress] is true, but
+  /// [isPopGestureInProgress] can only become true if [popGestureEnabled] was
+  /// true first.
+  ///
+  /// This should only be used between frames, not during build.
+  bool get popGestureEnabled => _isPopGestureEnabled(this);
+
+  static bool _isPopGestureEnabled<T>(PageRoute<T> route) {
+    // If there's nothing to go back to, then obviously we don't support
+    // the back gesture.
+    if (route.isFirst)
+      return false;
+    // If the route wouldn't actually pop if we popped it, then the gesture
+    // would be really confusing (or would skip internal routes), so disallow it.
+    if (route.willHandlePopInternally)
+      return false;
+    // If attempts to dismiss this route might be vetoed such as in a page
+    // with forms, then do not allow the user to dismiss the route with a swipe.
+    if (route.hasScopedWillPopCallback)
+      return false;
+    // Fullscreen dialogs aren't dismissible by back swipe.
+    if (route.fullscreenDialog)
+      return false;
+    // If we're in an animation already, we cannot be manually swiped.
+    if (route.animation.status != AnimationStatus.completed)
+      return false;
+    // If we're being popped into, we also cannot be swiped until the pop above
+    // it completes. This translates to our secondary animation being
+    // dismissed.
+    if (route.secondaryAnimation.status != AnimationStatus.dismissed)
+      return false;
+    // If we're in a gesture already, we cannot start another.
+    if (isPopGestureInProgress(route))
+      return false;
+
+    // Looks like a back gesture would be welcome!
+    return true;
   }
 
   @override
-  void dispose() {
-    focusScopeNode.dispose();
-    super.dispose();
+  Widget buildPage(
+      BuildContext context, 
+      Animation<double> animation, 
+      Animation<double> secondaryAnimation
+  ) {
+    final Widget child = builder(context);
+    final Widget result = Semantics(
+      scopesRoute: true,
+      explicitChildNodes: true,
+      child: child,
+    );
+    return result;
   }
 
-  // This should be called to wrap any changes to route.isCurrent, route.canPop,
-  // and route.offstage.
-  void _routeSetState(VoidCallback fn) {
-    setState(fn);
-  }
+  // Called by _CupertinoBackGestureDetector when a pop ("back") drag start
+  // gesture is detected. The returned controller handles all of the subsequent
+  // drag events.
+  static _CupertinoBackGestureController<T> _startPopGesture<T>(PageRoute<T> route) {
+    assert(_isPopGestureEnabled(route));
 
-  @override
-  Widget build(BuildContext context) {
-    return _ModalScopeStatus(
-      route: widget.route,
-      isCurrent: widget.route.isCurrent, // _routeSetState is called if this updates
-      canPop: widget.route.canPop, // _routeSetState is called if this updates
-      child: Offstage(
-        offstage: widget.route.offstage, // _routeSetState is called if this updates
-        child: PageStorage(
-          bucket: widget.route._storageBucket, // immutable
-          child: FocusScope(
-            node: focusScopeNode, // immutable
-            child: RepaintBoundary(
-              child: AnimatedBuilder(
-                animation: _listenable, // 当animation改变时，调用builder
-                builder: (BuildContext context, Widget child) {
-                  /// buildTransitions在这里被调用，用于构建过渡
-                  /// buildPage产生的widget在这里作为child传入  
-                  return widget.route.buildTransitions(
-                    context,
-                    widget.route.animation,
-                    widget.route.secondaryAnimation,
-                    IgnorePointer(
-                      ignoring: widget.route.navigator.userGestureInProgress
-                        || widget.route.animation?.status == AnimationStatus.reverse,
-                      child: child,
-                    ),
-                  );
-                },
-                /// 缓存_page  
-                child: _page ??= RepaintBoundary(
-                  key: widget.route._subtreeKey, // immutable
-                  child: Builder(
-                    builder: (BuildContext context) {
-                      /// buildPage在这里被调用，用于建造页面  
-                      return widget.route.buildPage(
-                        context,
-                        widget.route.animation,
-                        widget.route.secondaryAnimation,
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+    return _CupertinoBackGestureController<T>(
+      navigator: route.navigator,
+      controller: route.controller, // protected access
     );
   }
+
+  /// Returns a [CupertinoFullscreenDialogTransition] if [route] is a full
+  /// screen dialog, otherwise a [CupertinoPageTransition] is returned.
+  ///
+  /// Used by [CupertinoPageRoute.buildTransitions].
+  ///
+  /// This method can be applied to any [PageRoute], not just
+  /// [CupertinoPageRoute]. It's typically used to provide a Cupertino style
+  /// horizontal transition for material widgets when the target platform
+  /// is [TargetPlatform.iOS].
+  ///
+  /// See also:
+  ///
+  ///  * [CupertinoPageTransitionsBuilder], which uses this method to define a
+  ///    [PageTransitionsBuilder] for the [PageTransitionsTheme].
+  static Widget buildPageTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    if (route.fullscreenDialog) {
+      return CupertinoFullscreenDialogTransition(
+        animation: animation,
+        child: child,
+      );
+    } else {
+      return CupertinoPageTransition(
+        primaryRouteAnimation: animation,
+        secondaryRouteAnimation: secondaryAnimation,
+        // Check if the route has an animation that's currently participating
+        // in a back swipe gesture.
+        //
+        // In the middle of a back gesture drag, let the transition be linear to
+        // match finger motions.
+        linearTransition: isPopGestureInProgress(route),
+        child: _CupertinoBackGestureDetector<T>(
+          enabledCallback: () => _isPopGestureEnabled<T>(route),
+          onStartPopGesture: () => _startPopGesture<T>(route),
+          child: child,
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget buildTransitions(BuildContext context, Animation<double> animation, Animation<double> secondaryAnimation, Widget child) {
+    return buildPageTransitions<T>(this, context, animation, secondaryAnimation, child);
+  }
+
+  @override
+  String get debugLabel => '${super.debugLabel}(${settings.name})';
 }
+
 ```
-
-
 
