@@ -826,8 +826,8 @@ abstract class RenderObject
     markNeedsPaint();
   }
 
-  /// 大小约束是否是size算法的惟一参数
-  /// 返回false总是正确的，但是返回true可以使得计算render object的size更有效率。因为在约束没有发生改
+  /// 大小约束是否是 size 算法的惟一参数
+  /// 返回 false 总是正确的，但是返回 true 可以使计算 render object 的 size 更有效率。因为在约束没有发生改
   /// 变时，不必重新计算大小
   /// 无论何时，当这个值发生改变时，调用[markNeedsLayoutForSizedByParentChange]  
   @protected
