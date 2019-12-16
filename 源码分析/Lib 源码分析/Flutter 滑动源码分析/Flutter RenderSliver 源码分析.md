@@ -160,34 +160,20 @@ class SliverConstraints extends Constraints {
 
   /// 描述从 [cacheOrigin] 开始滑块应该提供多少内容
   ///
-  /// Not all content in the [remainingCacheExtent] will be visible as some
-  /// of it might fall into the cache area of the viewport.
+  /// 并不是 [remainingCacheExtent] 其中所有的内容都是可见的，因为其中的一部分可能落入缓存区域
   ///
-  /// Each sliver should start laying out content at the [cacheOrigin] and
-  /// try to provide as much content as the [remainingCacheExtent] allows.
+  /// 每一个滑块都应该在 [cacheOrigin] 开始布局，并在 [remainingCacheExtent] 允许的情况下提供尽可能多内容
   ///
-  /// The [remainingCacheExtent] is always larger or equal to the
-  /// [remainingPaintExtent]. Content, that falls in the [remainingCacheExtent],
-  /// but is outside of the [remainingPaintExtent] is currently not visible
-  /// in the viewport.
-  ///
-  /// See also:
-  ///
-  ///  * [RenderViewport.cacheExtent] for a description of a viewport's cache area.
+  /// [remainingCacheExtent] 总是大于等于 [remainingPaintExtent].
+  /// 落入 [remainingCacheExtent] 之内而在 [remainingPaintExtent] 之外的内容当前不可见
   final double remainingCacheExtent;
 
-  /// The axis along which the [scrollOffset] and [remainingPaintExtent] are measured.
+  /// 获取轴方向
   Axis get axis => axisDirectionToAxis(axisDirection);
 
-  /// Return what the [growthDirection] would be if the [axisDirection] was
-  /// either [AxisDirection.down] or [AxisDirection.right].
-  ///
-  /// This is the same as [growthDirection] unless the [axisDirection] is either
-  /// [AxisDirection.up] or [AxisDirection.left], in which case it is the
-  /// opposite growth direction.
-  ///
-  /// This can be useful in combination with [axis] to view the [axisDirection]
-  /// and [growthDirection] in different terms.
+  /// 返回相对于 axisDirection 的增长方向
+  /// 如果 axisDirection 是 down 或者 right，那么返回 growthDirection
+  /// 否则返回 growthDirection 的反向
   GrowthDirection get normalizedGrowthDirection {
     switch (axisDirection) {
       case AxisDirection.down:
@@ -219,6 +205,7 @@ class SliverConstraints extends Constraints {
   }
 
   /// 返回一个与此 SliverConsratraints 对应的 [BoxConstraints]
+  /// 注意，给定的交叉轴的盒约束的最大长度总是 crossAxisExtent
   BoxConstraints asBoxConstraints({
     double minExtent = 0.0,
     double maxExtent = double.infinity,
@@ -258,6 +245,7 @@ class SliverConstraints extends Constraints {
 ```dart
 /// 描述一个滑块所占据的控件
 /// 一个滑块可以以不同的形式来占据空间，这是为什么这个类包含了许多值的原因
+/// 这个类可以类比于滑块在 盒子中对应的 size
 class SliverGeometry extends Diagnosticable {
   const SliverGeometry({
     this.scrollExtent = 0.0,
@@ -276,7 +264,6 @@ class SliverGeometry extends Diagnosticable {
        cacheExtent = cacheExtent ?? layoutExtent ?? paintExtent,
        visible = visible ?? paintExtent > 0.0;
 
-  /// A sliver that occupies no space at all.
   static const SliverGeometry zero = SliverGeometry();
 
   /// 预测的这个滑块占用的总大小，即滑块的顶部到滑块的底部的距离之和
@@ -298,26 +285,24 @@ class SliverGeometry extends Diagnosticable {
   /// 用于 [paintOrigin] 本身的坐标系统是相对于这个滑块的布局位置的开始，而不是相对于它在视窗上的当前位置。
   /// 换句话说，通常情况下，[paintOrigin] 保持 0.0 不变，而不是当滑块滚动经过视口时，从 0.0 变化到
   /// [SliverConstraints.viewportMainAxisExtent]
-  /// This value does not affect the layout of subsequent slivers. The next
-  /// sliver is still placed at [layoutExtent] after this sliver's layout
-  /// position. This value does affect where the [paintExtent] extent is
-  /// measured from when computing the [SliverConstraints.overlap] for the next
-  /// sliver.
-  /// 此值不影响后续滑块的布局。下一个滑块仍然放置在该条子的布局位置之后的 [layoutExtent] 的位置。
-  /// 而是会影响计算下一个滑块 [SliverConstraints.overlay].
+  /// 
+  /// 这个值不影响后续滑块的布局。下一个滑块仍然放置在该条子的布局位置之后的 [layoutExtent] 的位置。
+  /// 这个值会影响，当计算下一个滑块的 [SliverConstraints.overlap] 时 [paintExtent] 从何处开始算起，
   final double paintOrigin;
 
   /// The amount of currently visible visual space that was taken by the sliver
   /// to render the subset of the sliver that covers all or part of the
   /// [SliverConstraints.remainingPaintExtent] in the current viewport.
   ///
-  /// This value does not affect how the next sliver is positioned. In other
+  /// 这个值不影响下一个滑块放置的位置. 换句话说，这个值是 100.0，并且 [layoutExtent] 是 0.0
+  /// 
   /// words, if this value was 100 and [layoutExtent] was 0, typical slivers
   /// placed after it would end up drawing in the same 100 pixel space while
   /// painting.
   ///
   /// 这个值必须处于 0 到 [SliverConstraints.remainingPaintExtent] 之间
   ///
+  /// 这个值当滑块处于视窗之外时为 0，并且当滑块划过视窗的时候从 0 开始变化
   /// This value is typically 0 when outside of the viewport and grows or
   /// shrinks from 0 or to 0 as the sliver is being scrolled into and out of the
   /// viewport unless the sliver wants to achieve a special effect and paint
@@ -327,26 +312,20 @@ class SliverGeometry extends Diagnosticable {
   /// [SliverConstraints.overlap].
   final double paintExtent;
 
-  /// The distance from the first visible part of this sliver to the first
-  /// visible part of the next sliver, assuming the next sliver's
-  /// [SliverConstraints.scrollOffset] is zero.
+  /// 这个滑块的首个个可见的部分到下一个滑块首个可见部分的距离（假设下个滑块的  
+  /// [SliverConstraints.scrollOffset] == 0）
   ///
-  /// This must be between zero and [paintExtent]. It defaults to [paintExtent].
+  /// 这个值必须处于 [paintExtent]. 默认等于 [paintExtent].
   ///
-  /// This value is typically 0 when outside of the viewport and grows or
-  /// shrinks from 0 or to 0 as the sliver is being scrolled into and out of the
-  /// viewport unless then sliver wants to achieve a special effect and push
-  /// down the layout start position of subsequent slivers before the sliver is
-  /// even scrolled into the viewport.
+  /// 当滑块在视窗之外的时候，这个值是 0，并且当滑块划过视窗的时候，这个值不断变化
   final double layoutExtent;
 
   /// 滑块能够提供的最大绘制距离
   final double maxPaintExtent;
 
-  /// The maximum extent by which this sliver can reduce the area in which
-  /// content can scroll if the sliver were pinned at the edge.
+  /// 如果将滑块固定在边缘，则此滑块可以减少内容滚动的最大范围。
   ///
-  /// Slivers that never get pinned at the edge, should return zero.
+  /// 不会被固定的滑块，这个值永远是 0.0
   ///
   /// A pinned app bar is an example for a sliver that would use this setting:
   /// When the app bar is pinned to the top, the area in which content can
@@ -402,62 +381,29 @@ class SliverGeometry extends Diagnosticable {
 
 ```dart
 abstract class RenderSliver extends RenderObject {
-  // layout input
+  // 约束输入
   @override
   SliverConstraints get constraints => super.constraints;
 
-  /// The amount of space this sliver occupies.
+  /// 描述此滑块所占据的空间
   ///
-  /// This value is stale whenever this object is marked as needing layout.
-  /// During [performLayout], do not read the [geometry] of a child unless you
-  /// pass true for parentUsesSize when calling the child's [layout] function.
-  ///
-  /// The geometry of a sliver should be set only during the sliver's
-  /// [performLayout] or [performResize] functions. If you wish to change the
-  /// geometry of a sliver outside of those functions, call [markNeedsLayout]
-  /// instead to schedule a layout of the sliver.
+  /// 这个值在 layout 的时候是落后的，因此，在 [performLayout] 时不要读取这个内容
+  /// 除非，在 调用孩子的 layout 的时候将 parentUsesSize 设置为 true
+  /// 
+  /// 这个值只应该在 [performLayout] or [performResize] 运行时设置
+  /// 如果里希望在这些函数之外修改 geometry ，调用 [markNeedsLayout]
   SliverGeometry get geometry => _geometry;
   SliverGeometry _geometry;
   set geometry(SliverGeometry value) {
-    assert(!(debugDoingThisResize && debugDoingThisLayout));
-    assert(sizedByParent || !debugDoingThisResize);
-    assert(() {
-      if ((sizedByParent && debugDoingThisResize) ||
-          (!sizedByParent && debugDoingThisLayout))
-        return true;
-      assert(!debugDoingThisResize);
-      DiagnosticsNode contract, violation, hint;
-      if (debugDoingThisLayout) {
-        assert(sizedByParent);
-        violation = ErrorDescription('It appears that the geometry setter was called from performLayout().');
-      } else {
-        violation = ErrorDescription('The geometry setter was called from outside layout (neither performResize() nor performLayout() were being run for this object).');
-        if (owner != null && owner.debugDoingLayout)
-          hint = ErrorDescription('Only the object itself can set its geometry. It is a contract violation for other objects to set it.');
-      }
-      if (sizedByParent)
-        contract = ErrorDescription('Because this RenderSliver has sizedByParent set to true, it must set its geometry in performResize().');
-      else
-        contract = ErrorDescription('Because this RenderSliver has sizedByParent set to false, it must set its geometry in performLayout().');
-
-      final List<DiagnosticsNode> information = <DiagnosticsNode>[
-        ErrorSummary('RenderSliver geometry setter called incorrectly.'),
-        violation,
-        if (hint != null) hint,
-        contract,
-        describeForError('The RenderSliver in question is'),
-      ];
-      throw FlutterError.fromParts(information);
-    }());
     _geometry = value;
   }
 
   @override
   Rect get semanticBounds => paintBounds;
 
+  /// 获取绘制边界
   @override
   Rect get paintBounds {
-    assert(constraints.axis != null);
     switch (constraints.axis) {
       case Axis.horizontal:
         return Rect.fromLTWH(
@@ -476,49 +422,12 @@ abstract class RenderSliver extends RenderObject {
   }
 
   @override
-  void debugResetSize() { }
-
-  @override
-  void debugAssertDoesMeetConstraints() {
-    assert(geometry.debugAssertIsValid(
-      informationCollector: () sync* {
-        yield describeForError('The RenderSliver that returned the offending geometry was');
-      }
-    ));
-    assert(() {
-      if (geometry.paintExtent > constraints.remainingPaintExtent) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
-          ErrorSummary('SliverGeometry has a paintOffset that exceeds the remainingPaintExtent from the constraints.'),
-          describeForError('The render object whose geometry violates the constraints is the following'),
-          ..._debugCompareFloats(
-            'remainingPaintExtent', constraints.remainingPaintExtent,
-            'paintExtent', geometry.paintExtent,
-          ),
-          ErrorDescription(
-            'The paintExtent must cause the child sliver to paint within the viewport, and so '
-            'cannot exceed the remainingPaintExtent.',
-          ),
-        ]);
-      }
-      return true;
-    }());
-  }
-
-  @override
   void performResize() {
     assert(false);
   }
 
-  /// For a center sliver, the distance before the absolute zero scroll offset
-  /// that this sliver can cover.
-  ///
-  /// For example, if an [AxisDirection.down] viewport with an
-  /// [RenderViewport.anchor] of 0.5 has a single sliver with a height of 100.0
-  /// and its [centerOffsetAdjustment] returns 50.0, then the sliver will be
-  /// centered in the viewport when the scroll offset is 0.0.
-  ///
-  /// The distance here is in the opposite direction of the
-  /// [RenderViewport.axisDirection], so values will typically be positive.
+  /// 对于一个 center 滑块, 这个值等于他在绝对滚动偏移零点之前的覆盖距离
+  /// 这个值通常是正值
   double get centerOffsetAdjustment => 0.0;
 
   /// Determines the set of render objects located at the given position.
@@ -559,11 +468,21 @@ abstract class RenderSliver extends RenderObject {
   /// The most straight-forward way to implement hit testing for a new sliver
   /// render object is to override its [hitTestSelf] and [hitTestChildren]
   /// methods.
-  bool hitTest(SliverHitTestResult result, { @required double mainAxisPosition, @required double crossAxisPosition }) {
+  bool hitTest(SliverHitTestResult result, { 
+      @required double mainAxisPosition, 
+      @required double crossAxisPosition 
+  }) {
     if (mainAxisPosition >= 0.0 && mainAxisPosition < geometry.hitTestExtent &&
         crossAxisPosition >= 0.0 && crossAxisPosition < constraints.crossAxisExtent) {
-      if (hitTestChildren(result, mainAxisPosition: mainAxisPosition, crossAxisPosition: crossAxisPosition) ||
-          hitTestSelf(mainAxisPosition: mainAxisPosition, crossAxisPosition: crossAxisPosition)) {
+      if (hitTestChildren(
+          result, 
+          mainAxisPosition: mainAxisPosition, 
+          crossAxisPosition: 
+          crossAxisPosition
+      ) || hitTestSelf(
+          mainAxisPosition: mainAxisPosition, 
+          crossAxisPosition: crossAxisPosition
+      )) {
         result.add(SliverHitTestEntry(
           this,
           mainAxisPosition: mainAxisPosition,
@@ -583,7 +502,10 @@ abstract class RenderSliver extends RenderObject {
   ///
   /// For a discussion of the semantics of the arguments, see [hitTest].
   @protected
-  bool hitTestSelf({ @required double mainAxisPosition, @required double crossAxisPosition }) => false;
+  bool hitTestSelf({ 
+      @required double mainAxisPosition, 
+      @required double crossAxisPosition
+  }) => false;
 
   /// Override this method to check whether any children are located at the
   /// given position.
@@ -597,7 +519,10 @@ abstract class RenderSliver extends RenderObject {
   ///
   /// For a discussion of the semantics of the arguments, see [hitTest].
   @protected
-  bool hitTestChildren(SliverHitTestResult result, { @required double mainAxisPosition, @required double crossAxisPosition }) => false;
+  bool hitTestChildren(SliverHitTestResult result, { 
+      @required double mainAxisPosition, 
+      @required double crossAxisPosition 
+  }) => false;
 
   /// Computes the portion of the region from `from` to `to` that is visible,
   /// assuming that only the region from the [SliverConstraints.scrollOffset]
@@ -616,8 +541,10 @@ abstract class RenderSliver extends RenderObject {
   /// function's results will not be consistent.
   // This could be a static method but isn't, because it would be less convenient
   // to call it from subclasses if it was.
-  double calculatePaintOffset(SliverConstraints constraints, { @required double from, @required double to }) {
-    assert(from <= to);
+  double calculatePaintOffset(SliverConstraints constraints, {
+      @required double from, 
+      @required double to 
+  }) {
     final double a = constraints.scrollOffset;
     final double b = constraints.scrollOffset + constraints.remainingPaintExtent;
     // the clamp on the next line is to avoid floating point rounding errors
@@ -632,8 +559,11 @@ abstract class RenderSliver extends RenderObject {
   ///
   /// This method is not useful if there is not a 1:1 relationship between
   /// consumed scroll offset and consumed cache extent.
-  double calculateCacheOffset(SliverConstraints constraints, { @required double from, @required double to }) {
-    assert(from <= to);
+  double calculateCacheOffset(
+      SliverConstraints constraints, { 
+      @required double from,
+      @required double to 
+  }) {
     final double a = constraints.scrollOffset + constraints.cacheOrigin;
     final double b = constraints.scrollOffset + constraints.remainingCacheExtent;
     // the clamp on the next line is to avoid floating point rounding errors
@@ -668,9 +598,6 @@ abstract class RenderSliver extends RenderObject {
   /// Calling this for a child that is not visible is not valid.
   @protected
   double childMainAxisPosition(covariant RenderObject child) {
-    assert(() {
-      throw FlutterError('$runtimeType does not implement childPosition.');
-    }());
     return 0.0;
   }
 
@@ -760,119 +687,11 @@ abstract class RenderSliver extends RenderObject {
     return null;
   }
 
-  void _debugDrawArrow(Canvas canvas, Paint paint, Offset p0, Offset p1, GrowthDirection direction) {
-    assert(() {
-      if (p0 == p1)
-        return true;
-      assert(p0.dx == p1.dx || p0.dy == p1.dy); // must be axis-aligned
-      final double d = (p1 - p0).distance * 0.2;
-      Offset temp;
-      double dx1, dx2, dy1, dy2;
-      switch (direction) {
-        case GrowthDirection.forward:
-          dx1 = dx2 = dy1 = dy2 = d;
-          break;
-        case GrowthDirection.reverse:
-          temp = p0;
-          p0 = p1;
-          p1 = temp;
-          dx1 = dx2 = dy1 = dy2 = -d;
-          break;
-      }
-      if (p0.dx == p1.dx) {
-        dx2 = -dx2;
-      } else {
-        dy2 = -dy2;
-      }
-      canvas.drawPath(
-        Path()
-          ..moveTo(p0.dx, p0.dy)
-          ..lineTo(p1.dx, p1.dy)
-          ..moveTo(p1.dx - dx1, p1.dy - dy1)
-          ..lineTo(p1.dx, p1.dy)
-          ..lineTo(p1.dx - dx2, p1.dy - dy2),
-        paint,
-      );
-      return true;
-    }());
-  }
-
-  @override
-  void debugPaint(PaintingContext context, Offset offset) {
-    assert(() {
-      if (debugPaintSizeEnabled) {
-        final double strokeWidth = math.min(4.0, geometry.paintExtent / 30.0);
-        final Paint paint = Paint()
-          ..color = const Color(0xFF33CC33)
-          ..strokeWidth = strokeWidth
-          ..style = PaintingStyle.stroke
-          ..maskFilter = MaskFilter.blur(BlurStyle.solid, strokeWidth);
-        final double arrowExtent = geometry.paintExtent;
-        final double padding = math.max(2.0, strokeWidth);
-        final Canvas canvas = context.canvas;
-        canvas.drawCircle(
-          offset.translate(padding, padding),
-          padding * 0.5,
-          paint,
-        );
-        switch (constraints.axis) {
-          case Axis.vertical:
-            canvas.drawLine(
-              offset,
-              offset.translate(constraints.crossAxisExtent, 0.0),
-              paint,
-            );
-            _debugDrawArrow(
-              canvas,
-              paint,
-              offset.translate(constraints.crossAxisExtent * 1.0 / 4.0, padding),
-              offset.translate(constraints.crossAxisExtent * 1.0 / 4.0, arrowExtent - padding),
-              constraints.normalizedGrowthDirection,
-            );
-            _debugDrawArrow(
-              canvas,
-              paint,
-              offset.translate(constraints.crossAxisExtent * 3.0 / 4.0, padding),
-              offset.translate(constraints.crossAxisExtent * 3.0 / 4.0, arrowExtent - padding),
-              constraints.normalizedGrowthDirection,
-            );
-            break;
-          case Axis.horizontal:
-            canvas.drawLine(
-              offset,
-              offset.translate(0.0, constraints.crossAxisExtent),
-              paint,
-            );
-            _debugDrawArrow(
-              canvas,
-              paint,
-              offset.translate(padding, constraints.crossAxisExtent * 1.0 / 4.0),
-              offset.translate(arrowExtent - padding, constraints.crossAxisExtent * 1.0 / 4.0),
-              constraints.normalizedGrowthDirection,
-            );
-            _debugDrawArrow(
-              canvas,
-              paint,
-              offset.translate(padding, constraints.crossAxisExtent * 3.0 / 4.0),
-              offset.translate(arrowExtent - padding, constraints.crossAxisExtent * 3.0 / 4.0),
-              constraints.normalizedGrowthDirection,
-            );
-            break;
-        }
-      }
-      return true;
-    }());
-  }
 
   // This override exists only to change the type of the second argument.
   @override
   void handleEvent(PointerEvent event, SliverHitTestEntry entry) { }
 
-  @override
-  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
-    super.debugFillProperties(properties);
-    properties.add(DiagnosticsProperty<SliverGeometry>('geometry', geometry));
-  }
 }
 ```
 
