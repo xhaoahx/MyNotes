@@ -1,14 +1,21 @@
 # Flutter Matrix4 源码分析
 
+## 基础定义
+
 ```dart
 /// 采用齐次坐标系的三维坐标的矩阵变换
 /// 采用四维矩阵的原因见 Flutter Matrix4 分析.md
+/// 对于 Flutter 而言，采用了左手坐标系（举例来说就是对于手机屏幕，左上角为原点，向下为 y 轴，向右为 y 轴，向
+/// 上为 z 轴
 class Matrix4 {
   /// 矩阵的数据，采用列表而不是List<List>>以提高性能和内存效率  
   final Float64List _m4storage;
   Float64List get storage => _m4storage;
+```
 
-  /// 解决方程 [A] * [x] = [b].
+## 通用方法
+```dart
+  /// 解决方程 [A] * [x] = [b]，其中 XB 为二维向量
   static void solve2(Matrix4 A, Vector2 x, Vector2 b) {
     final double a11 = A.entry(0, 0);
     final double a12 = A.entry(0, 1);
@@ -27,7 +34,7 @@ class Matrix4 {
       ..y = det * (a11 * by - a21 * bx);
   }
 
-  /// 解决方程 [A] * [x] = [b].
+  /// 解决方程 [A] * [x] = [b]，其中 XB 为三维向量
   static void solve3(Matrix4 A, Vector3 x, Vector3 b) {
     final double A0x = A.entry(0, 0);
     final double A0y = A.entry(1, 0);
@@ -78,8 +85,10 @@ class Matrix4 {
       ..z = z_;
   }
 
-  /// 解决方程 [A] * [x] = [b].
+  /// 解决方程 [A] * [x] = [b]，其中 XB 为四维向量
+  /// 对此做出解释
   static void solve(Matrix4 A, Vector4 x, Vector4 b) {
+    /// 以下获取到 4D 矩阵的 16 个分量，即从 a00 ~ a33（从列表的角度来说，从 a[0] ~ a[15]）
     final double a00 = A._m4storage[0];
     final double a01 = A._m4storage[1];
     final double a02 = A._m4storage[2];
@@ -96,6 +105,7 @@ class Matrix4 {
     final double a31 = A._m4storage[13];
     final double a32 = A._m4storage[14];
     final double a33 = A._m4storage[15];
+    /// 以下求 A 的行列式
     final double b00 = a00 * a11 - a01 * a10;
     final double b01 = a00 * a12 - a02 * a10;
     final double b02 = a00 * a13 - a03 * a10;
@@ -114,6 +124,7 @@ class Matrix4 {
     final double bZ = b.storage[2];
     final double bW = b.storage[3];
 
+    /// 算出 A 的行列式的值 det（A）
     double det =
         b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
 
@@ -144,8 +155,7 @@ class Matrix4 {
               (a20 * b03 - a21 * b01 + a22 * b00) * bW);
   }
 
-  /// Returns a matrix that is the inverse of [other] if [other] is invertible,
-  /// otherwise `null`.
+  /// 返回可转置矩阵 [other] 的转置矩阵，否则返回 null 
   static Matrix4 tryInvert(Matrix4 other) {
     final Matrix4 r = new Matrix4.zero();
     final double determinant = r.copyInverse(other);
@@ -155,10 +165,10 @@ class Matrix4 {
     return r;
   }
 
-  /// Return index in storage for [row], [col] value.
+  /// 由行列下标来确定数组下标
   int index(int row, int col) => (col * 4) + row;
 
-  /// Value at [row], [col].
+  /// 在给定行列下标的值，即 matrix[row][col]
   double entry(int row, int col) {
     assert((row >= 0) && (row < dimension));
     assert((col >= 0) && (col < dimension));
@@ -166,15 +176,18 @@ class Matrix4 {
     return _m4storage[index(row, col)];
   }
 
-  /// Set value at [row], [col] to be [v].
+  /// 设置给定行列下标的值
   void setEntry(int row, int col, double v) {
     assert((row >= 0) && (row < dimension));
     assert((col >= 0) && (col < dimension));
 
     _m4storage[index(row, col)] = v;
   }
+```
 
-  /// Constructs a new mat4.
+## 构造方法
+```dart
+  /// 构造一个 4D 矩阵，必须给定每一个位置的值
   factory Matrix4(
           double arg0,
           double arg1,
@@ -196,7 +209,7 @@ class Matrix4 {
         ..setValues(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9,
             arg10, arg11, arg12, arg13, arg14, arg15);
 
-  /// New matrix from [values].
+  /// 用给定的 [values] 来构造矩阵
   factory Matrix4.fromList(List<double> values) => new Matrix4.zero()
     ..setValues(
         values[0],
@@ -216,16 +229,16 @@ class Matrix4 {
         values[14],
         values[15]);
 
-  /// Zero matrix.
+  /// 0 矩阵
   Matrix4.zero() : _m4storage = new Float64List(16);
 
-  /// Identity matrix.
+  /// 单位矩阵
   factory Matrix4.identity() => new Matrix4.zero()..setIdentity();
 
-  /// Copies values from [other].
+  /// 拷贝 [other].
   factory Matrix4.copy(Matrix4 other) => new Matrix4.zero()..setFrom(other);
 
-  /// Constructs a matrix that is the inverse of [other].
+  /// 转置 [other].
   factory Matrix4.inverted(Matrix4 other) {
     final Matrix4 r = new Matrix4.zero();
     final double determinant = r.copyInverse(other);
@@ -236,42 +249,40 @@ class Matrix4 {
     return r;
   }
 
-  /// Constructs a new mat4 from columns.
+  /// 按列向量构造矩阵
   factory Matrix4.columns(
           Vector4 arg0, Vector4 arg1, Vector4 arg2, Vector4 arg3) =>
       new Matrix4.zero()..setColumns(arg0, arg1, arg2, arg3);
 
-  /// Outer product of [u] and [v].
+  /// 构造一个向量外积，即叉乘 [u] 和 [v].
   factory Matrix4.outer(Vector4 u, Vector4 v) =>
       new Matrix4.zero()..setOuter(u, v);
 
-  /// Rotation of [radians_] around X.
+  /// 以下三个工厂方法构造了绕不同轴旋转的矩阵
   factory Matrix4.rotationX(double radians) => new Matrix4.zero()
     .._m4storage[15] = 1.0
     ..setRotationX(radians);
 
-  /// Rotation of [radians_] around Y.
   factory Matrix4.rotationY(double radians) => new Matrix4.zero()
     .._m4storage[15] = 1.0
     ..setRotationY(radians);
 
-  /// Rotation of [radians_] around Z.
   factory Matrix4.rotationZ(double radians) => new Matrix4.zero()
     .._m4storage[15] = 1.0
     ..setRotationZ(radians);
 
-  /// Translation matrix.
+  /// 构造平移矩阵（通过三维向量来构造）
   factory Matrix4.translation(Vector3 translation) => new Matrix4.zero()
     ..setIdentity()
     ..setTranslation(translation);
 
-  /// Translation matrix.
+  /// 构造平移矩阵（通过 x，y，z来构造）
   factory Matrix4.translationValues(double x, double y, double z) =>
       new Matrix4.zero()
         ..setIdentity()
         ..setTranslationRaw(x, y, z);
 
-  /// Scale matrix.
+  /// 构造缩放矩阵，即设置斜对角线上的三个值（通过三维向量来构造）
   factory Matrix4.diagonal3(Vector3 scale) {
     final Matrix4 m = new Matrix4.zero();
     final Float64List mStorage = m._m4storage;
@@ -283,7 +294,7 @@ class Matrix4 {
     return m;
   }
 
-  /// Scale matrix.
+  /// 构造缩放矩阵，即设置斜对角线上的三个值（通过 x，y，z来构造）
   factory Matrix4.diagonal3Values(double x, double y, double z) =>
       new Matrix4.zero()
         .._m4storage[15] = 1.0
@@ -291,14 +302,14 @@ class Matrix4 {
         .._m4storage[5] = y
         .._m4storage[0] = x;
 
-  /// Skew matrix around X axis
+  /// 构造沿着 X 轴错切矩阵
   factory Matrix4.skewX(double alpha) {
     final Matrix4 m = new Matrix4.identity();
     m._m4storage[4] = math.tan(alpha);
     return m;
   }
 
-  /// Skew matrix around Y axis.
+  /// 构造沿着 Y 轴错切矩阵
   factory Matrix4.skewY(double beta) {
     final Matrix4 m = new Matrix4.identity();
     m._m4storage[1] = math.tan(beta);
@@ -313,7 +324,7 @@ class Matrix4 {
     return m;
   }
 
-  /// Constructs Matrix4 with given [Float64List] as [storage].
+  /// 用给定的列表来构造矩阵
   Matrix4.fromFloat64List(this._m4storage);
 
   /// Constructs Matrix4 with a [storage] that views given [buffer] starting at
@@ -321,13 +332,17 @@ class Matrix4 {
   Matrix4.fromBuffer(ByteBuffer buffer, int offset)
       : _m4storage = new Float64List.view(buffer, offset, 16);
 
-  /// Constructs Matrix4 from [translation], [rotation] and [scale].
+  /// 用给定的 [translation], [rotation] 和 [scale] 来构造矩阵
+  /// 其中平移是三维向量，旋转是四元数，缩放是三维向量
   factory Matrix4.compose(
           Vector3 translation, Quaternion rotation, Vector3 scale) =>
       new Matrix4.zero()
         ..setFromTranslationRotationScale(translation, rotation, scale);
+```
 
-  /// Sets the diagonal to [arg].
+## 修改矩阵值
+```dart
+  /// 设置斜对角线上的值为 [arg]，即等比缩放
   void splatDiagonal(double arg) {
     _m4storage[0] = arg;
     _m4storage[5] = arg;
@@ -335,7 +350,7 @@ class Matrix4 {
     _m4storage[15] = arg;
   }
 
-  /// Sets the matrix with specified values.
+  /// 用给定的值来设置矩阵
   void setValues(
       double arg0,
       double arg1,
@@ -371,7 +386,7 @@ class Matrix4 {
     _m4storage[0] = arg0;
   }
 
-  /// Sets the entire matrix to the column values.
+  /// 用给定的四个四维列向量来设置矩阵
   void setColumns(Vector4 arg0, Vector4 arg1, Vector4 arg2, Vector4 arg3) {
     final Float64List arg0Storage = arg0._v4storage;
     final Float64List arg1Storage = arg1._v4storage;
@@ -395,7 +410,7 @@ class Matrix4 {
     _m4storage[15] = arg3Storage[3];
   }
 
-  /// Sets the entire matrix to the matrix in [arg].
+  /// 类似于拷贝
   void setFrom(Matrix4 arg) {
     final Float64List argStorage = arg._m4storage;
     _m4storage[15] = argStorage[15];
@@ -501,23 +516,23 @@ class Matrix4 {
     _m4storage[15] = uStorage[3] * vStorage[3];
   }
 
-  /// Returns a printable string
+  /// 打印 4 * 4 矩阵
   @override
   String toString() => '[0] ${getRow(0)}\n[1] ${getRow(1)}\n'
       '[2] ${getRow(2)}\n[3] ${getRow(3)}\n';
 
-  /// Dimension of the matrix.
+  /// 矩阵维度，固定为 4
   int get dimension => 4;
 
-  /// Access the element of the matrix at the index [i].
+  /// 通过给定的下标来获取列表元素
   double operator [](int i) => _m4storage[i];
 
-  /// Set the element of the matrix at the index [i].
+  /// 设置给定下标上的列表元素
   void operator []=(int i, double v) {
     _m4storage[i] = v;
   }
 
-  /// Check if two matrices are the same.
+  /// 判断两个矩阵是否相等（即当矩阵中的每一个值相等的时候，认为两个矩阵相等）
   @override
   bool operator ==(Object other) =>
       (other is Matrix4) &&
@@ -540,32 +555,24 @@ class Matrix4 {
 
   @override
   int get hashCode => quiver.hashObjects(_m4storage);
-
-  /// Returns row 0
+    
+  /// 以下提供方法从行列来获取或者更改矩阵的值
   Vector4 get row0 => getRow(0);
 
-  /// Returns row 1
   Vector4 get row1 => getRow(1);
 
-  /// Returns row 2
   Vector4 get row2 => getRow(2);
 
-  /// Returns row 3
   Vector4 get row3 => getRow(3);
 
-  /// Sets row 0 to [arg]
   set row0(Vector4 arg) => setRow(0, arg);
 
-  /// Sets row 1 to [arg]
   set row1(Vector4 arg) => setRow(1, arg);
 
-  /// Sets row 2 to [arg]
   set row2(Vector4 arg) => setRow(2, arg);
 
-  /// Sets row 3 to [arg]
   set row3(Vector4 arg) => setRow(3, arg);
 
-  /// Assigns the [row] of the matrix [arg]
   void setRow(int row, Vector4 arg) {
     final Float64List argStorage = arg._v4storage;
     _m4storage[index(row, 0)] = argStorage[0];
@@ -574,7 +581,6 @@ class Matrix4 {
     _m4storage[index(row, 3)] = argStorage[3];
   }
 
-  /// Gets the [row] of the matrix
   Vector4 getRow(int row) {
     final Vector4 r = new Vector4.zero();
     final Float64List rStorage = r._v4storage;
@@ -585,7 +591,6 @@ class Matrix4 {
     return r;
   }
 
-  /// Assigns the [column] of the matrix [arg]
   void setColumn(int column, Vector4 arg) {
     final int entry = column * 4;
     final Float64List argStorage = arg._v4storage;
@@ -594,8 +599,7 @@ class Matrix4 {
     _m4storage[entry + 1] = argStorage[1];
     _m4storage[entry + 0] = argStorage[0];
   }
-
-  /// Gets the [column] of the matrix
+    
   Vector4 getColumn(int column) {
     final Vector4 r = new Vector4.zero();
     final Float64List rStorage = r._v4storage;
@@ -607,10 +611,10 @@ class Matrix4 {
     return r;
   }
 
-  /// Clone matrix.
+  /// 矩阵复制
   Matrix4 clone() => new Matrix4.copy(this);
 
-  /// Copy into [arg].
+  /// 复制到给定的矩阵上
   Matrix4 copyInto(Matrix4 arg) {
     final Float64List argStorage = arg._m4storage;
     argStorage[0] = _m4storage[0];
@@ -635,7 +639,11 @@ class Matrix4 {
   /// Returns new matrix -this
   Matrix4 operator -() => clone()..negate();
 
-  /// Returns a new vector or matrix by multiplying [this] with [arg].
+  /// 矩阵乘法
+  /// 如果给定的参数
+  /// 1.是双精度浮点数，则认为是缩放
+  /// 2.是三维或者四维向量，则认为是平移
+  /// 3.是四维矩阵，则做矩阵乘法
   dynamic operator *(dynamic arg) {
     if (arg is double) {
       return scaled(arg);
@@ -652,13 +660,25 @@ class Matrix4 {
     throw new ArgumentError(arg);
   }
 
-  /// Returns new matrix after component wise [this] + [arg]
+  /// 矩阵加法
   Matrix4 operator +(Matrix4 arg) => clone()..add(arg);
 
-  /// Returns new matrix after component wise [this] - [arg]
+  /// 矩阵减法
   Matrix4 operator -(Matrix4 arg) => clone()..sub(arg);
+```
 
-  /// Translate this matrix by a [Vector3], [Vector4], or x,y,z
+## 矩阵变换
+```dart
+/// 矩阵变换公式：
+/// T * R（4 * 4） * T-1 = 
+/// |I  0| * |R(3 * 3) 0| * |I 0| = |R(3 * 3)         0|
+/// |-p 1|   |0        1|   |p 1|   |p - p * R(3 * 3) 1|
+```
+
+### 平移
+```dart
+/// 对于此矩阵进行平移（即不是构造新的矩阵）
+  /// 参数可以给定三维或者四维向量，或者确切的 x，y，z 值
   void translate(dynamic x, [double y = 0.0, double z = 0.0]) {
     double tx;
     double ty;
@@ -677,6 +697,7 @@ class Matrix4 {
       ty = y;
       tz = z;
     }
+
     final double t1 = _m4storage[0] * tx +
         _m4storage[4] * ty +
         _m4storage[8] * tz +
@@ -744,8 +765,11 @@ class Matrix4 {
     _m4storage[14] += tz * _m4storage[15];
     _m4storage[15] = tw * _m4storage[15];
   }
+```
 
-  /// Rotate this [angle] radians around [axis]
+### 旋转
+```
+  /// 绕给定轴旋转给定的角度
   void rotate(Vector3 axis, double angle) {
     final double len = axis.length;
     final Float64List axisStorage = axis._v3storage;
@@ -802,7 +826,7 @@ class Matrix4 {
     _m4storage[11] = t12;
   }
 
-  /// Rotate this [angle] radians around X
+  /// 绕 X 轴旋转
   void rotateX(double angle) {
     final double cosAngle = math.cos(angle);
     final double sinAngle = math.sin(angle);
@@ -824,7 +848,7 @@ class Matrix4 {
     _m4storage[11] = t8;
   }
 
-  /// Rotate this matrix [angle] radians around Y
+  /// 绕 Y 轴旋转
   void rotateY(double angle) {
     final double cosAngle = math.cos(angle);
     final double sinAngle = math.sin(angle);
@@ -846,7 +870,7 @@ class Matrix4 {
     _m4storage[11] = t8;
   }
 
-  /// Rotate this matrix [angle] radians around Z
+  /// 绕 Z 轴旋转
   void rotateZ(double angle) {
     final double cosAngle = math.cos(angle);
     final double sinAngle = math.sin(angle);
@@ -867,8 +891,11 @@ class Matrix4 {
     _m4storage[6] = t7;
     _m4storage[7] = t8;
   }
+```
 
-  /// Scale this matrix by a [Vector3], [Vector4], or x,y,z
+### 缩放
+```dart
+  /// 缩放
   void scale(dynamic x, [double y, double z]) {
     double sx;
     double sy;
@@ -908,7 +935,9 @@ class Matrix4 {
   /// Create a copy of [this] scaled by a [Vector3], [Vector4] or [x],[y], and
   /// [z].
   Matrix4 scaled(dynamic x, [double y, double z]) => clone()..scale(x, y, z);
-
+```
+### 置零
+```dart
   /// Zeros [this].
   void setZero() {
     _m4storage[0] = 0.0;
@@ -929,7 +958,9 @@ class Matrix4 {
     _m4storage[15] = 0.0;
   }
 
-  /// Makes [this] into the identity matrix.
+```
+  ### 设置单位矩阵
+ ```dart
   void setIdentity() {
     _m4storage[0] = 1.0;
     _m4storage[1] = 0.0;
@@ -952,6 +983,10 @@ class Matrix4 {
   /// Returns the tranpose of this.
   Matrix4 transposed() => clone()..transpose();
 
+```
+
+### 矩阵转置
+```dart
   void transpose() {
     double temp;
     temp = _m4storage[4];
@@ -2061,5 +2096,5 @@ class Matrix4 {
       _m4storage[15] == 0.0;
 }
 
-```
+ ```
 

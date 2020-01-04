@@ -2,19 +2,23 @@
 
 [TOC]
 
-## 根节点
+
+
+## Widget 树，ELement 树，RenderObject 树的根节点
 
 ### RenderView
 
 ```dart
-/// render树的根节点
+/// RenderOBject 树的根节点
+///
+/// 注意混入了 RenderObjectWithChildMixin，这个 mixin 提供了单孩子渲染对象的管理
 class RenderView extends RenderObject with RenderObjectWithChildMixin<RenderBox> {
+  /// 这个类要求其孩子必须为 RenderBox
   RenderView({
     RenderBox child,
     @required ViewConfiguration configuration,
     @required ui.Window window,
-  }) : assert(configuration != null),
-       _configuration = configuration,
+  }) : _configuration = configuration,
        _window = window {
     this.child = child;
   }
@@ -22,15 +26,16 @@ class RenderView extends RenderObject with RenderObjectWithChildMixin<RenderBox>
   Size get size => _size;
   Size _size = Size.zero;
 
-  /// 根节点的布局约束
+  /// 根节点的布局约束配置
+  /// 包含了屏幕物理像素宽度和屏幕像素比
   ViewConfiguration get configuration => _configuration;
   ViewConfiguration _configuration;
   
+  /// 更改这个配置的时候会触发全局的布局绘制更新
   set configuration(ViewConfiguration value) {
     if (configuration == value) return;
     _configuration = value;
     replaceRootLayer(_updateMatricesAndCreateNewRootLayer());
-    /// 第一次设置configuration时会标记需要布局  
     markNeedsLayout();
   }
 
@@ -38,48 +43,57 @@ class RenderView extends RenderObject with RenderObjectWithChildMixin<RenderBox>
 
   bool automaticSystemUiAdjustment = true;
 
+  /// 为第一帧的渲染做准备，以此来驱动渲染流水线
+  ///
+  /// 这个方法只应该被调用一次且必须在改变 [configuration] 之前调用
+  /// 这个方法通常在调用了构造函数之后立刻调用
+  ///
+  /// 这个方法通常不会实际地调度第一帧。通常，在这个方法完成之后调用 owner 的
+  /// [PipelineOwner.requestVisualUpdate] 来完成调度
   void prepareInitialFrame() {
     scheduleInitialLayout();
     scheduleInitialPaint(_updateMatricesAndCreateNewRootLayer());
   }
 
+  /// 根节点的变化矩阵
   Matrix4 _rootTransform;
 
+  /// 将 ViewConfiguration 转化成根节点的变换矩阵，并根据此矩阵来创建一个新的合成层并返回
   Layer _updateMatricesAndCreateNewRootLayer() {
     _rootTransform = configuration.toMatrix();
     final ContainerLayer rootLayer = TransformLayer(transform: _rootTransform);
+    /// 新建的层会将这个 RenderView 作为其 owner
     rootLayer.attach(this);
-    assert(_rootTransform != null);
     return rootLayer;
   }
 
-  /// 不能使用这个方法  
+  /// 显然，根RenderObject 的大小是固定的，不会随时间而改变。故不能使用这个方法  
   @override
   void performResize() {
     assert(false);
   }
 
+  /// 从根节点向下递归进行布局
   @override
   void performLayout() {
     _size = configuration.size;
     if (child != null)
+      /// 注意，这里给出的约束是紧缩的
       child.layout(BoxConstraints.tight(_size));
   }
 
-  /// Determines the set of render objects located at the given position.
+  /// 确定给定位置上的所有的渲染对象的集合
   ///
-  /// Returns true if the given point is contained in this render object or one
-  /// of its descendants. Adds any render objects that contain the point to the
-  /// given hit test result.
+  /// 如果给定的点包含在此渲染对象或其子渲染对象中，则返回 true。
+  /// 将包含该点的任何渲染对象添加到给定的 HitTestResult 中。随后，手势竞技场会做出决断
   ///
-  /// The [position] argument is in the coordinate system of the render view,
-  /// which is to say, in logical pixels. This is not necessarily the same
-  /// coordinate system as that expected by the root [Layer], which will
-  /// normally be in physical (device) pixels.
+  /// [position] 参数处于在 render 视图的坐标系统中，也就是说，在逻辑像素中。
+  /// 这并不一定是根 [Layer] 所期望的坐标系统，根 [Layer] 坐标系统通常位于物理(设备)像素中。
   bool hitTest(HitTestResult result, { Offset position }) {
     if (child != null)
       child.hitTest(BoxHitTestResult.wrap(result), position: position);
     result.add(HitTestEntry(this));
+    /// 显然对于任何一点，都处于根渲染对象的范围内
     return true;
   }
 
@@ -93,12 +107,14 @@ class RenderView extends RenderObject with RenderObjectWithChildMixin<RenderBox>
   @override
   bool get isRepaintBoundary => true;
 
+  /// 根节点的绘制，直接在当前 PaintContext 上绘制子树
   @override
   void paint(PaintingContext context, Offset offset) {
     if (child != null)
       context.paintChild(child, offset);
   }
 
+  /// 把当前变换矩阵加入到给定的变换矩阵上，也就是说，将两个矩阵相乘
   @override
   void applyPaintTransform(RenderBox child, Matrix4 transform) {
     transform.multiply(_rootTransform);
@@ -154,6 +170,7 @@ class RenderView extends RenderObject with RenderObjectWithChildMixin<RenderBox>
     }
   }
 
+  /// （预测）的绘制边界，即屏幕的物理像素（？？）大小
   @override
   Rect get paintBounds => Offset.zero & (size * configuration.devicePixelRatio);
 
@@ -170,6 +187,8 @@ class RenderView extends RenderObject with RenderObjectWithChildMixin<RenderBox>
 ### RenderObjectToWidgetElement
 
 ```dart
+/// Element 树的根节点
+/// 桥接 [RenderObject] 到 [Element] 树
 class RenderObjectToWidgetElement<T extends RenderObject> 
 	extends RootRenderObjectElement 
 {
@@ -180,7 +199,7 @@ class RenderObjectToWidgetElement<T extends RenderObject>
 
   Element _child;
 
-  /// 根Element的slots	
+  /// 根 Element 的 slots	
   static const Object _rootChildSlot = Object();
 
   @override
@@ -195,9 +214,10 @@ class RenderObjectToWidgetElement<T extends RenderObject>
     _child = null;
   }
 
+  /// 注意到以下的两个方法都会调用到 _rebuild（通常来说，mount 也可以看作一次重建，从无到有的重建）
   @override
   void mount(Element parent, dynamic newSlot) {
-  	/// 显然，这个element 没有 parent element
+  	/// 显然，这个 element 没有 parent element
     assert(parent == null);
     super.mount(parent, newSlot);
     _rebuild();
@@ -225,6 +245,10 @@ class RenderObjectToWidgetElement<T extends RenderObject>
     super.performRebuild();
   }
 
+  /// 重建
+  /// 直接调用 updateChild 来构建 element 子树，其中
+  /// 1.widget.child 是我们传递给 runApp 的 widget，它会被自动作为 RenderObjectToWidgetAdapter 的子树
+  /// 2._rootChildSlot 是一个常量
   void _rebuild() {
     try {
       _child = updateChild(_child, widget.child, _rootChildSlot);
@@ -237,6 +261,7 @@ class RenderObjectToWidgetElement<T extends RenderObject>
   @override
   RenderObjectWithChildMixin<T> get renderObject => super.renderObject;
 
+  /// 插入子渲染对象（即替换唯一的渲染对象子节点）
   @override
   void insertChildRenderObject(RenderObject child, dynamic slot) {
     renderObject.child = child;
@@ -244,10 +269,11 @@ class RenderObjectToWidgetElement<T extends RenderObject>
 
   @override
   void moveChildRenderObject(RenderObject child, dynamic slot) {
-  	/// 这个element对应的RenderObject只有一个孩子，故不能调用这个方法
+  	/// 这个 element 对应的 RenderObject 只有一个孩子，故不能调用这个方法
     assert(false);
   }
 
+  /// 移除子渲染对象
   @override
   void removeChildRenderObject(RenderObject child) {
     renderObject.child = null;
@@ -260,48 +286,63 @@ class RenderObjectToWidgetElement<T extends RenderObject>
 ###  RenderObjectToWidgetAdapter
 
 ```dart
+/// widegt 树的根节点
+/// 这个 Widget 其实是一个反模式，
+/// 通常来说，树的构建流程通常是根据给定的 widget 来创建 element 和 renderObject，
+/// 而这个 RenderObjectToWidgetAdapter，顾名思义，是将给定 renderObject 转化成一个 widget（或者说是提供一
+/// 个对应适配的 widet）
 class RenderObjectToWidgetAdapter<T extends RenderObject> extends RenderObjectWidget {
-  /// 桥接[RenderObject]到[Element]树
   RenderObjectToWidgetAdapter({
     this.child,
-    /// 即RenderView  
+    /// 这个参数是渲染对象树的根节点，即 RenderView。这里体现的此 widget 是对根渲染对象的适配  
     this.container,
     this.debugShortDescription,
   }) : super(key: GlobalObjectKey(container));
 
   final Widget child;
-  /// 这个widget持有renderview，作为createRenderView的返回值  
+  /// 这个 widget 持有 renderview，作为 createRenderView 的返回值  
   final RenderObjectWithChildMixin<T> container;
   final String debugShortDescription;
 
-  /// 建立根element  
+  /// 建立根 element  
   @override
   RenderObjectToWidgetElement<T> createElement() => RenderObjectToWidgetElement<T>(this);
 
-  /// 建立根renderObject  
+  /// 建立根 renderObject  
   @override
   RenderObjectWithChildMixin<T> createRenderObject(BuildContext context) => container;
 
+  /// 由于这个 widegt 对应的渲染对象是先于这个 widget 被创建的，故逻辑上不能使用这个 widget 来更新渲染对象
   @override
   void updateRenderObject(BuildContext context, RenderObject renderObject) { }
 
+  /// 
   RenderObjectToWidgetElement<T> attachToRenderTree(
       BuildOwner owner, [ 
       RenderObjectToWidgetElement<T> element ]
   ) {
-    /// element == null 意味着这是初始流程  
+    /// element == null 意味着这是初始化流程，也就是本篇的分析流程  
     if (element == null) {
+      /// 锁定状态，详见 [BuildOwner.locakState]
       owner.lockState(() {
+        /// 在 [BuildOwner.locakState] 会调用此回调
+        /// 注意，根 element 是在此处被创建的，并将 BuildOnwer 分配给根 elelment
         element = createElement();
-        assert(element != null);
         element.assignOwner(owner);
       });  
-      owner.buildScope(element, () {element.mount(null, null);});
+      /// 此时，就可以首次调用 owner.buildScope 来完成对整棵 element 树的构建
+      owner.buildScope(element, () {
+          element.mount(null, null);
+      });
+      /// 随后，会请求一次视觉更新，也就是请求一帧
+      /// 会依次进行 构建，布局，绘制等流程
       SchedulerBinding.instance.ensureVisualUpdate();
+    /// 否则，将会重建整棵 element 树
     } else {
       element._newWidget = this;
       element.markNeedsBuild();
     }
+    /// 返回根 element
     return element;
   }
 }
@@ -311,18 +352,44 @@ class RenderObjectToWidgetAdapter<T extends RenderObject> extends RenderObjectWi
 
 
 
-## 绑定根Widget,Element,RenderObject
+## 从 runApp 开始
 
 ```dart
 /// app入口
 void main() => runApp(MyApp());
 
 void runApp(Widget app) {
+ /// 以下调用相当于：
+ /// WidgetsBinding widgetBinding = WidgetsFlutterBinding.ensureInitialized();
+ /// widgetBinding.attachRootWidget(app);
+ /// widgetBinding.scheduleWarmUpFrame();
   WidgetsFlutterBinding.ensureInitialized()
     ..attachRootWidget(app)
     ..scheduleWarmUpFrame();
 }
-   
+```
+
+### ensureInitialized
+```dart
+/// runApp 首先直接调用到 WidgetBinding 类的静态方法：
+/// 第一次构建（运行）的时候，由于 WidgetsBinding.instance == null，首先调用 WidgetsFlutterBinding()
+/// 即构建一个 WidgetsFlutterBinding，自动调用其超类的构造函数，即 BindingBase()
+static WidgetsBinding ensureInitialized() {
+    if (WidgetsBinding.instance == null)
+        WidgetsFlutterBinding();
+    return WidgetsBinding.instance;
+}
+
+/// BindingBase 的构建函数：
+BindingBase() {
+	...
+    initInstances();
+    ...
+    /// 以下调用根据运行模式（如 debug 模式或者 release 模式）来决定一些运行参数
+    initServiceExtensions();
+  }
+
+
 /// 在 WidgetsFlutterBinding.ensureInitialized()中的RendererBinding中，首先实例化了
 /// PipelineOwner类：
 /// _pipelineOwner = PipelineOwner(
@@ -375,7 +442,11 @@ void runApp(Widget app) {
 ///
 
 ... 
+```
 
+### attachRootWidget
+
+```dart
 /// WidgetsFlutterBinding.attachRootWidget
 /// _renderViewElement 即为 element树的根节点    
 void attachRootWidget(Widget rootWidget) {
@@ -551,7 +622,15 @@ Element inflateWidget(Widget newWidget, dynamic newSlot) {
 
 
 
-## 调用顺序
+### scheduleWarmUpFrame
+
+```dart
+
+```
+
+
+
+## 递归构建的调用顺序
 
 - 父elemen先调用mount方法建立与爷element的关联（获取buildOwner,挂载RenderObject等）
 - （调用其自身的performRebuild方法）
@@ -562,11 +641,11 @@ Element inflateWidget(Widget newWidget, dynamic newSlot) {
 
 
 
-## 例
+## 构建举例
 
 
 
-### 以StatelessElement 为例
+### 以 StatelessElement 为例
 
 ```dart
 /// ComponentElement.mount
