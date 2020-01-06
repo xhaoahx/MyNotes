@@ -374,6 +374,22 @@ void runApp(Widget app) {
 /// runApp 首先直接调用到 WidgetBinding 类的静态方法：
 /// 第一次构建（运行）的时候，由于 WidgetsBinding.instance == null，首先调用 WidgetsFlutterBinding()
 /// 即构建一个 WidgetsFlutterBinding，自动调用其超类的构造函数，即 BindingBase()
+///
+/// 注意 WidgetsFlutterBinding 的声明，它继承自 BindingBase 并且混入了一系列的“Binding（胶水）”类，如下：
+/// class WidgetsFlutterBinding 
+///       extends BindingBase 
+///       with GestureBinding, 
+///            ServicesBinding, 
+///            SchedulerBinding, 
+///            PaintingBinding, 
+///            SemanticsBinding, 
+///            RendererBinding, 
+///            WidgetsBinding 
+///
+/// 其真实的继承顺序其实是线性的，也就是说，继承关系如下：
+/// BindingBase -> GestureBinding -> ServicesBinding -> SchedulerBinding -> PaintingBinding -> 
+/// SemanticsBinding -> RendererBinding -> WidgetsBinding -> WidgetsFlutterBinding 
+/// 此外 由于混入类没有构造函数，WidgetsFlutterBinding() 首先会自动调用 BindingBase 的构造函数
 static WidgetsBinding ensureInitialized() {
     if (WidgetsBinding.instance == null)
         WidgetsFlutterBinding();
@@ -382,66 +398,141 @@ static WidgetsBinding ensureInitialized() {
 
 /// BindingBase 的构建函数：
 BindingBase() {
-	...
-    initInstances();
     ...
-    /// 以下调用根据运行模式（如 debug 模式或者 release 模式）来决定一些运行参数
-    initServiceExtensions();
-  }
+        /// 这个方法在每一个混入类里面都有实现，并且都会调用 super.initInstances。并且
+        /// 对于每一个混入类的方法实现，这个方法将私有 instance 字段设置为其自身，也就是说，每一个混入类都保
+        /// 存了一个 instance 实例（事实上，每个混入类保存的实例是同一个，但是由于其 get 方法的实现不同，返回
+        /// 的是类型转换后的结果，这有利于接口控制）
+        initInstances();
+    ...
+        /// 以下调用根据运行模式（如 debug 模式或者 release 模式）来决定一些运行参数
+        initServiceExtensions();
+}
 
+/// BindingBase.initInstances
+/// 运用断言修改初始化标记，debug 用
+void initInstances() {
+    assert(!_debugInitialized);
+    assert(() {
+        _debugInitialized = true;
+        return true;
+    }());
+}
 
-/// 在 WidgetsFlutterBinding.ensureInitialized()中的RendererBinding中，首先实例化了
-/// PipelineOwner类：
-/// _pipelineOwner = PipelineOwner(
-///      onNeedVisualUpdate: ensureVisualUpdate,
-///      onSemanticsOwnerCreated: _handleSemanticsOwnerCreated,
-///      onSemanticsOwnerDisposed: _handleSemanticsOwnerDisposed
-/// );
-///
-/// 其中
-/// void ensureVisualUpdate() {
-///  switch (schedulerPhase) {
-///      case SchedulerPhase.idle:
-///      case SchedulerPhase.postFrameCallbacks:
-///        scheduleFrame();
-///        return;
-///      case SchedulerPhase.transientCallbacks:
-///      case SchedulerPhase.midFrameMicrotasks:
-///      case SchedulerPhase.persistentCallbacks:
-///        return;
-///   }
-/// }
-///
-/// 然后为window绑定了回调方法
-/// final Window window = Window._();
-///
-/// window
-///      ..onMetricsChanged = handleMetricsChanged // 当屏幕像素高度改变的回调
-///      ..onTextScaleFactorChanged = handleTextScaleFactorChanged // 字体大小改变回调
-///      ..onPlatformBrightnessChanged = handlePlatformBrightnessChanged // 亮度改变回调
-///      ..onSemanticsEnabledChanged = _handleSemanticsEnabledChanged 
-///      ..onSemanticsAction = _handleSemanticsAction;
-/// WidgetsBinding
-///
-/// 然后初始化widgetsBinding mixin，
-/// 并创建了BuildOwner对象
-/// mixin WidgetsBinding on BindingBase, SchedulerBinding, GestureBinding, 
-/// RendererBinding, ///SemanticsBinding {
-///	...
-///    BuildOwner get buildOwner => _buildOwner;
-///    final BuildOwner _buildOwner = BuildOwner();
-/// ...
-/// }
-///
-/// 然后为其绑定了方法
-/// buildOwner.onBuildScheduled = _handleBuildScheduled;
-///     window.onLocaleChanged = handleLocaleChanged;
-///     window.onAccessibilityFeaturesChanged = handleAccessibilityFeaturesChanged;
-///
-///
-///
+/// GestureBinding.initInstances
+/// 为 window 单例绑定了处理指针事件（也就是点击或触摸事件）的回调
+void initInstances() {
+    super.initInstances();
+    _instance = this;
+    window.onPointerDataPacket = _handlePointerDataPacket;
+}
 
-... 
+/// ServiceBinding.initInstances
+/// 新建了一个二进制流“信使”，用于处理平台消息。为 window 单例绑定了处理消息的方法
+@override
+void initInstances() {
+    super.initInstances();
+    _instance = this;
+    _defaultBinaryMessenger = createBinaryMessenger();
+    window
+        ..onPlatformMessage = defaultBinaryMessenger.handlePlatformMessage;
+    initLicenses();
+    SystemChannels.system.setMessageHandler(handleSystemMessage);
+}
+
+/// SchedulerBinding.initInstances
+/// 绑定了监听平台生命周期的方法
+void initInstances() {
+    super.initInstances();
+    _instance = this;
+    SystemChannels.lifecycle.setMessageHandler(_handleLifecycleMessage);
+    readInitialLifecycleStateFromNativeWindow();
+
+    if (!kReleaseMode) {
+        int frameNumber = 0;
+        addTimingsCallback((List<FrameTiming> timings) {
+            for (FrameTiming frameTiming in timings) {
+                frameNumber += 1;
+                _profileFramePostEvent(frameNumber, frameTiming);
+            }
+        });
+    }
+}
+
+/// PaintingBinding.initInstances
+/// 设置了图片缓存区，可以控制图片的缓存
+@override
+void initInstances() {
+    super.initInstances();
+    _instance = this;
+    _imageCache = createImageCache();
+    if (shaderWarmUp != null) {
+        shaderWarmUp.execute();
+    }
+}
+
+/// ServiceBinding.initInstances
+/// 与可访问性有关
+void initInstances() {
+    super.initInstances();
+    _instance = this;
+    _accessibilityFeatures = window.accessibilityFeatures;
+}
+
+/// RenderingBinding.initInstances
+/// 这个方法的实现完成了：
+/// 1.构建 pipelineOwner 实例；
+/// 2.为 window 单例绑定了：
+///   (1)屏幕像素大小变化的回调
+///   (2)系统字体大小变化时的回调
+///   (3)平台亮度（例如选择夜间模式）改变时的回调
+///   (4)语义模式（可访问性相关）启动时回调
+///   (5)语义行为回调
+/// 3.构建并且初始化了一个 RenderView 对象
+/// 4.在 SchedulerBinding._persistentCallbacks（即永久帧回调中）加入了 _handlePersistentFrameCallback
+///   这个回调会驱动渲染流水线运行
+/// 5.初始化了鼠标设备追踪器
+void initInstances() {
+    super.initInstances();
+    _instance = this;
+    _pipelineOwner = PipelineOwner(
+        onNeedVisualUpdate: ensureVisualUpdate,
+        onSemanticsOwnerCreated: _handleSemanticsOwnerCreated,
+        onSemanticsOwnerDisposed: _handleSemanticsOwnerDisposed,
+    );
+    window
+        ..onMetricsChanged = handleMetricsChanged
+        ..onTextScaleFactorChanged = handleTextScaleFactorChanged
+        ..onPlatformBrightnessChanged = handlePlatformBrightnessChanged
+        ..onSemanticsEnabledChanged = _handleSemanticsEnabledChanged
+        ..onSemanticsAction = _handleSemanticsAction;
+    initRenderView();
+    _handleSemanticsEnabledChanged();
+    assert(renderView != null);
+    addPersistentFrameCallback(_handlePersistentFrameCallback);
+    initMouseTracker();
+}
+
+/// WidgetsBinding.initInstances
+/// 这个方法的实现完成了：
+/// 1.新建了一个 BuildOwner 实例
+/// 2.为 buildOwner 绑定了构建调度回调，每一次构建之前，会调用此回调
+/// 3.为 window 单例绑定了本地化改变时的回调
+/// 4.为 window 单例绑定了可访问性变化时的回调
+void initInstances() {
+    super.initInstances();
+    _instance = this;
+    // Initialization of [_buildOwner] has to be done after
+    // [super.initInstances] is called, as it requires [ServicesBinding] to
+    // properly setup the [defaultBinaryMessenger] instance.
+    _buildOwner = BuildOwner();
+    buildOwner.onBuildScheduled = _handleBuildScheduled;
+    window.onLocaleChanged = handleLocaleChanged;
+    window.onAccessibilityFeaturesChanged = handleAccessibilityFeaturesChanged;
+    SystemChannels.navigation.setMethodCallHandler(_handleNavigationInvocation);
+    FlutterErrorDetails.propertiesTransformers.add(transformDebugCreator);
+}
+
 ```
 
 ### attachRootWidget
@@ -625,19 +716,52 @@ Element inflateWidget(Widget newWidget, dynamic newSlot) {
 ### scheduleWarmUpFrame
 
 ```dart
+/// 在完成整颗树的构建之后，会调度预热帧
+void scheduleWarmUpFrame() {
+    if (_warmUpFrame || schedulerPhase != SchedulerPhase.idle)
+        return;
 
+    _warmUpFrame = true;
+    Timeline.startSync('Warm-up frame');
+    final bool hadScheduledFrame = _hasScheduledFrame;
+    // 在这里使用计时器来确保微任务在其间刷新。
+    /// 直接调用开始一帧，而不是向引擎层请求，等待引擎回调
+    Timer.run(() {
+        handleBeginFrame(null);
+    });
+    /// 直接调用绘制一帧，而不是等待引擎回调
+    Timer.run(() {
+        handleDrawFrame();
+        resetEpoch();
+        _warmUpFrame = false;
+        if (hadScheduledFrame)
+            scheduleFrame();
+    });
+	
+    /// 由于上边的两个回调使用了 Timer 来规划，因为事件队列的缘故，这一段代码会先于两个回调执行
+    lockEvents(() async {
+        /// 等待一帧结束标志
+        await endOfFrame;
+        Timeline.finishSync();
+    });
+}
 ```
 
 
 
-## 递归构建的调用顺序
+## 首次构建的调用顺序
 
-- 父elemen先调用mount方法建立与爷element的关联（获取buildOwner,挂载RenderObject等）
-- （调用其自身的performRebuild方法）
-- 父element调用其引用的widget的.build方法（即 widget 的 build(BuildContext context）。这里的 context 即父element本身)，得到子widget
-- 之后立即调用 child = updateChild(_child, built, slot)方法，试图用新widget去更新旧widget
-- （若_child为null，即还没有子element）然后父element再调用widget的createElement 方法（一般返回的是 XXXElement(this),即调用 XXXElement的构造器)，得到子element
-- 子element重复以上步骤
+- 本 elemen 先调用自身的 mount 方法建立与父 element 的关联（分配 buildOwner ,挂载 RenderObject 等）。此外，element 通常会实现 _rebuild 方法
+
+- 父 element 调用调用其自身的 performRebuild 方法，（并通常调用其自身的 build 方法，并通常其引用的 widget.build 方法，即 widget.build(BuildContext context）,这个 context 就是 element 自身，得到子 widget，即updateChild 的参数之一：built）
+
+- 之后立即调用 child = updateChild(_child, built, slot)方法，试图用新 widget 去更新旧 widget
+
+- 由于时首次构建，_child 为 null 并且 built 不为 null，于是调用 inflateWidget 方法来将 built 扩展（通常是调用 
+
+  widget .createElement 方法）成一个 element 作为自身的孩子，并在自身的孩子上调用 mount，把本 element 作为参数传入
+
+- 子 element 重复以上步骤
 
 
 
