@@ -1245,21 +1245,15 @@ mixin SchedulerBinding on BindingBase, ServicesBinding {
 
     bool _warmUpFrame = false;
 
-    /// Schedule a frame to run as soon as possible, rather than waiting for
-    /// the engine to request a frame in response to a system "Vsync" signal.
+    /// 尽可能快地调度一帧，而不是等待引擎响应垂直同步信号
     ///
-    /// This is used during application startup so that the first frame (which is
-    /// likely to be quite expensive) gets a few extra milliseconds to run.
+    /// 则通常在应用开始的第一帧时（这一帧相对来说是及其昂贵的），被调用，让它获取额外的时间来运行
     ///
-    /// Locks events dispatching until the scheduled frame has completed.
+    /// 锁定事件派发，直到帧调度完成
     ///
-    /// If a frame has already been scheduled with [scheduleFrame] or
-    /// [scheduleForcedFrame], this call may delay that frame.
+    /// 如果 [scheduleFrame] 或者 [scheduleForcedFrame] 已经被调用了，这个调用将会延迟已经调度了的帧
     ///
-    /// If any scheduled frame has already begun or if another
-    /// [scheduleWarmUpFrame] was already called, this call will be ignored.
-    ///
-    /// Prefer [scheduleFrame] to update the display in normal operation.
+    /// 如果任何其他的预热帧已经被调度或者正在进行一帧，此调用将会被忽略
     void scheduleWarmUpFrame() {
         if (_warmUpFrame || schedulerPhase != SchedulerPhase.idle)
             return;
@@ -1267,7 +1261,7 @@ mixin SchedulerBinding on BindingBase, ServicesBinding {
         _warmUpFrame = true;
         Timeline.startSync('Warm-up frame');
         final bool hadScheduledFrame = _hasScheduledFrame;
-        // We use timers here to ensure that microtasks flush in between.
+        // 在这里使用 Timer 来确保微任务队列进行
         Timer.run(() {
             assert(_warmUpFrame);
             handleBeginFrame(null);
@@ -1275,22 +1269,12 @@ mixin SchedulerBinding on BindingBase, ServicesBinding {
         Timer.run(() {
             assert(_warmUpFrame);
             handleDrawFrame();
-            // We call resetEpoch after this frame so that, in the hot reload case,
-            // the very next frame pretends to have occurred immediately after this
-            // warm-up frame. The warm-up frame's timestamp will typically be far in
-            // the past (the time of the last real frame), so if we didn't reset the
-            // epoch we would see a sudden jump from the old time in the warm-up frame
-            // to the new time in the "real" frame. The biggest problem with this is
-            // that implicit animations end up being triggered at the old time and
-            // then skipping every frame and finishing in the new time.
             resetEpoch();
             _warmUpFrame = false;
             if (hadScheduledFrame)
                 scheduleFrame();
         });
 
-        // Lock events so touch events etc don't insert themselves until the
-        // scheduled frame has finished.
         lockEvents(() async {
             await endOfFrame;
             Timeline.finishSync();
@@ -1364,7 +1348,9 @@ mixin SchedulerBinding on BindingBase, ServicesBinding {
     }
 
 	
+    /// 当调度一帧之后，引擎会回调此方法（此方法被绑定到 window.onBeginFrame）
     void _handleBeginFrame(Duration rawTimeStamp) {
+        /// 这里区别时候是预热帧，如果是，把 _ignoreNextEngineDrawFrame 设置为 true
         if (_warmUpFrame) {
             assert(!_ignoreNextEngineDrawFrame);
             _ignoreNextEngineDrawFrame = true;
@@ -1373,7 +1359,10 @@ mixin SchedulerBinding on BindingBase, ServicesBinding {
         handleBeginFrame(rawTimeStamp);
     }
 
+    /// 当调度一帧之后，引擎会在回调 _handleBeginFrame 之后，回调此方法。（此方法被绑定到 
+    /// window.onDrawFrame ）
     void _handleDrawFrame() {
+        /// 因为是预热帧，这里不进行实际的构建和绘制
         if (_ignoreNextEngineDrawFrame) {
             _ignoreNextEngineDrawFrame = false;
             return;
@@ -1486,75 +1475,59 @@ mixin SchedulerBinding on BindingBase, ServicesBinding {
 ## PaintingBinding
 
 ```dart
-/// Binding for the painting library.
+/// 绘制库的 binding
 ///
-/// Hooks into the cache eviction logic to clear the image cache.
+/// 涉及到缓存回收逻辑，以清除图像缓存。
 ///
-/// Requires the [ServicesBinding] to be mixed in earlier.
+/// 要求 [ServicesBinding] 被提前使用（混入）
 mixin PaintingBinding on BindingBase, ServicesBinding {
     @override
     void initInstances() {
         super.initInstances();
         _instance = this;
+        /// 在初始化的时候创建了图片缓存
         _imageCache = createImageCache();
         if (shaderWarmUp != null) {
             shaderWarmUp.execute();
         }
     }
-
-    /// The current [PaintingBinding], if one has been created.
+    
     static PaintingBinding get instance => _instance;
     static PaintingBinding _instance;
 
-    /// [ShaderWarmUp] to be executed during [initInstances].
+    /// [initInstances] 期间执行的 [ShaderWarmUp]
     ///
-    /// If the application has scenes that require the compilation of complex
-    /// shaders that are not covered by [DefaultShaderWarmUp], it may cause jank
-    /// in the middle of an animation or interaction. In that case, set
-    /// [shaderWarmUp] to a custom [ShaderWarmUp] before calling [initInstances]
-    /// (usually before [runApp] for normal Flutter apps, and before
-    /// [enableFlutterDriverExtension] for Flutter driver tests). Paint the scene
-    /// in the custom [ShaderWarmUp] so Flutter can pre-compile and cache the
-    /// shaders during startup. The warm up is only costly (100ms-200ms,
-    /// depending on the shaders to compile) during the first run after the
-    /// installation or a data wipe. The warm up does not block the main thread
-    /// so there should be no "Application Not Responding" warning.
+    /// 如果应用程序有需要编译没有被 [DefaultShaderWarmUp] 所包含的复杂的着色器的场景，它可能会导致在动画或
+    /// 交互时的卡顿。在这种情况下，在调用 [initInstances]之前( 通常在[runApp]之前，在
+    /// [enableFlutterDriverExtension] 之前，为 Flutter 驱动程序测试之前)，将 [ShaderWarmUp] 设置为自定义
+    /// 的 [ShaderWarmUp]。在自定义 [ShaderWarmUp] 中绘制场景，这样 Flutter 可以在启动时预编译和缓存着色
+    /// 器。在此期间，预热的代价是昂贵的(100ms-200ms，取决于要编译的着色器)，所以应该不会出现“应用程序没有响
+    /// 应”的警告。
     ///
-    /// Currently the warm-up happens synchronously on the GPU thread which means
-    /// the rendering of the first frame on the GPU thread will be postponed until
-    /// the warm-up is finished.
-    ///
-    /// See also:
-    ///
-    ///  * [ShaderWarmUp], the interface of how this warm up works.
+    /// 目前，预热过程与 GPU 线程同步进行，也就是意味着，GPU 上第一帧的渲染会被推迟到预热完成之后进行
     static ShaderWarmUp shaderWarmUp = const DefaultShaderWarmUp();
 
-    /// The singleton that implements the Flutter framework's image cache.
+    /// 实现了 Flutetr 框架图片缓存的单例
     ///
-    /// The cache is used internally by [ImageProvider] and should generally not
-    /// be accessed directly.
+    /// 此缓存被 [ImageProvider] 内部使用，且通常情况下，不应被直接访问
     ///
-    /// The image cache is created during startup by the [createImageCache]
-    /// method.
+    /// 此缓存被 [createImageCache] 方法所创建
     ImageCache get imageCache => _imageCache;
     ImageCache _imageCache;
 
-    /// Creates the [ImageCache] singleton (accessible via [imageCache]).
+    /// 创建图片缓存单例 [ImageCache] (可以通过 [imageCache] 来访问).
     ///
-    /// This method can be overridden to provide a custom image cache.
+    /// 此方法能够被重载以提供一个自定义的图片缓存
     @protected
     ImageCache createImageCache() => ImageCache();
 
-    /// Calls through to [dart:ui] with [decodedCacheRatioCap] from [ImageCache].
+    /// 通过 [ImageCache ]中的 [decodedCacheRatioCap] 调用 [dart:ui]。
     ///
-    /// The [cacheWidth] and [cacheHeight] parameters, when specified, indicate the
-    /// size to decode the image to.
+    /// 当指定 [cacheWidth] 和 [cacheHeight] 参数时，表示了要解码图像的大小。
     ///
-    /// Both [cacheWidth] and [cacheHeight] must be positive values greater than or
-    /// equal to 1 or null. It is valid to specify only one of [cacheWidth] and
-    /// [cacheHeight] with the other remaining null, in which case the omitted
-    /// dimension will decode to its original size. When both are null or omitted,
-    /// the image will be decoded at its native resolution.
+    /// [cacheWidth] 和 [cacheHeight] 必须是大于或等于 1 的正值或者 null。只指定 [cacheWidth] 和
+    /// [cacheHeight] 的一者，而另一个值为 null，在这种情况下，省略的维度将解码为其原始大小。
+    /// 当两者都为 null 或省略时，图像将被解码成其原始大小
     Future<ui.Codec> instantiateImageCodec(Uint8List bytes, {
         int cacheWidth,
         int cacheHeight,
@@ -1574,18 +1547,16 @@ mixin PaintingBinding on BindingBase, ServicesBinding {
         imageCache.clear();
     }
 
-    /// Listenable that notifies when the available fonts on the system have
-    /// changed.
+    /// 系统字体改变的可监听（即当系统字体变化时，通知所有的监听者）
     ///
-    /// System fonts can change when the system installs or removes new font. To
-    /// correctly reflect the change, it is important to relayout text related
-    /// widgets when this happens.
+    /// 当系统添加或者移除字体的时候，系统字体可能发生改变。在这种情况下，为了能够正确地反映变化，必须重新布局
+    /// 绘制与文字相关的组件
     ///
-    /// Objects that show text and/or measure text (e.g. via [TextPainter] or
-    /// [Paragraph]) should listen to this and redraw/remeasure.
+    /// 展示文字的对象，例如 [TextPainter] 或者 [Paragraph] 应该监听此字段，并且在必要的时候进行重绘
     Listenable get systemFonts => _systemFonts;
     final _SystemFontsNotifier _systemFonts = _SystemFontsNotifier();
 
+    /// 当系统发送字体变化的消息时，触发监听者回调
     @override
     Future<void> handleSystemMessage(Object systemMessage) async {
         await super.handleSystemMessage(systemMessage);
@@ -1610,92 +1581,52 @@ mixin PaintingBinding on BindingBase, ServicesBinding {
 ## RenderingBinding
 
 ```dart
-/// The glue between the render tree and the Flutter engine.
-mixin RendererBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureBinding, SemanticsBinding, HitTestable {
+/// 渲染 Binding
+/// 
+/// 这个类联合了渲染对象和 Flutter 引擎
+/// 注意以下混入的顺序要求了：使用此混入之前必须先混入（实现、继承）BindingBase,ServicesBinding, 
+/// SchedulerBinding,GestureBinding,SemanticsBinding,HitTestable
+mixin RendererBinding 
+   on BindingBase, 
+      ServicesBinding, 
+      SchedulerBinding, 
+      GestureBinding, 
+      SemanticsBinding, 
+      HitTestable 
+{
     @override
     void initInstances() {
         super.initInstances();
         _instance = this;
+        /// 创建一个渲染流水线持有者单例
         _pipelineOwner = PipelineOwner(
             onNeedVisualUpdate: ensureVisualUpdate,
             onSemanticsOwnerCreated: _handleSemanticsOwnerCreated,
             onSemanticsOwnerDisposed: _handleSemanticsOwnerDisposed,
         );
+        /// 为 window 绑定了处理平台变化的方法
         window
             ..onMetricsChanged = handleMetricsChanged
             ..onTextScaleFactorChanged = handleTextScaleFactorChanged
             ..onPlatformBrightnessChanged = handlePlatformBrightnessChanged
             ..onSemanticsEnabledChanged = _handleSemanticsEnabledChanged
             ..onSemanticsAction = _handleSemanticsAction;
+        /// 初始化了 RenderView，即创建了
         initRenderView();
         _handleSemanticsEnabledChanged();
         assert(renderView != null);
+        /// 在 SchedulerBinding 中的 _persistentFrameCallback 列表中添加了驱动渲染流水线的回调
         addPersistentFrameCallback(_handlePersistentFrameCallback);
+        /// 初始化鼠标追踪器
         initMouseTracker();
     }
 
-    /// The current [RendererBinding], if one has been created.
     static RendererBinding get instance => _instance;
     static RendererBinding _instance;
 
     @override
     void initServiceExtensions() {
         super.initServiceExtensions();
-
-        assert(() {
-            // these service extensions only work in debug mode
-            registerBoolServiceExtension(
-                name: 'debugPaint',
-                getter: () async => debugPaintSizeEnabled,
-                setter: (bool value) {
-                    if (debugPaintSizeEnabled == value)
-                        return Future<void>.value();
-                    debugPaintSizeEnabled = value;
-                    return _forceRepaint();
-                },
-            );
-            registerBoolServiceExtension(
-                name: 'debugPaintBaselinesEnabled',
-                getter: () async => debugPaintBaselinesEnabled,
-                setter: (bool value) {
-                    if (debugPaintBaselinesEnabled == value)
-                        return Future<void>.value();
-                    debugPaintBaselinesEnabled = value;
-                    return _forceRepaint();
-                },
-            );
-            registerBoolServiceExtension(
-                name: 'repaintRainbow',
-                getter: () async => debugRepaintRainbowEnabled,
-                setter: (bool value) {
-                    final bool repaint = debugRepaintRainbowEnabled && !value;
-                    debugRepaintRainbowEnabled = value;
-                    if (repaint)
-                        return _forceRepaint();
-                    return Future<void>.value();
-                },
-            );
-            registerBoolServiceExtension(
-                name: 'debugCheckElevationsEnabled',
-                getter: () async => debugCheckElevationsEnabled,
-                setter: (bool value) {
-                    if (debugCheckElevationsEnabled == value) {
-                        return Future<void>.value();
-                    }
-                    debugCheckElevationsEnabled = value;
-                    return _forceRepaint();
-                },
-            );
-            registerSignalServiceExtension(
-                name: 'debugDumpLayerTree',
-                callback: () {
-                    debugDumpLayerTree();
-                    return debugPrintDone;
-                },
-            );
-            return true;
-        }());
-
         if (!kReleaseMode) {
             // these service extensions work in debug or profile mode
             registerSignalServiceExtension(
@@ -1724,98 +1655,54 @@ mixin RendererBinding on BindingBase, ServicesBinding, SchedulerBinding, Gesture
         }
     }
 
-    /// Creates a [RenderView] object to be the root of the
-    /// [RenderObject] rendering tree, and initializes it so that it
-    /// will be rendered when the next frame is requested.
-    ///
-    /// Called automatically when the binding is created.
+    /// 创建一个 [RenderView] 作为渲染对象树的树根，并且初始化它。因此，在下一帧的时候，它将会被渲染。
     void initRenderView() {
         assert(renderView == null);
+        /// 通过配置的 ViewConfiguration 来创建一个 RenderView
         renderView = RenderView(configuration: createViewConfiguration(), window: window);
+        /// 为第一帧做准备，调用了以下两个回调
+        /// scheduleInitialLayout();
+    	/// scheduleInitialPaint(_updateMatricesAndCreateNewRootLayer());
         renderView.prepareInitialFrame();
     }
 
-    /// The object that manages state about currently connected mice, for hover
-    /// notification.
+    /// 鼠标跟踪器，它维护了当前鼠标的状态（例如，派发鼠标的悬停消息）
     MouseTracker get mouseTracker => _mouseTracker;
     MouseTracker _mouseTracker;
 
-    /// The render tree's owner, which maintains dirty state for layout,
-    /// composite, paint, and accessibility semantics
+    /// 渲染了对象树的持有者，它维护了布局、绘制、语义的状态
     PipelineOwner get pipelineOwner => _pipelineOwner;
     PipelineOwner _pipelineOwner;
 
-    /// The render tree that's attached to the output surface.
+    /// 渲染对象树的根节点
+    /// 注意到，这个 mixin 并不直接持有 renderView，而是直接持有 pipelineOwner 来间接访问 renderView
     RenderView get renderView => _pipelineOwner.rootNode as RenderView;
-    /// Sets the given [RenderView] object (which must not be null), and its tree, to
-    /// be the new render tree to display. The previous tree, if any, is detached.
     set renderView(RenderView value) {
         assert(value != null);
         _pipelineOwner.rootNode = value;
     }
 
-    /// Called when the system metrics change.
-    ///
-    /// See [Window.onMetricsChanged].
+    /// 当屏幕像素大小发生改变（例如，键盘弹出）的时候的回调
     @protected
     void handleMetricsChanged() {
         assert(renderView != null);
         renderView.configuration = createViewConfiguration();
+        /// 强制刷新一帧
         scheduleForcedFrame();
     }
 
-    /// Called when the platform text scale factor changes.
-    ///
-    /// See [Window.onTextScaleFactorChanged].
+    /// 字体大小因子发生改变时的回调
     @protected
     void handleTextScaleFactorChanged() { }
 
-    /// Called when the platform brightness changes.
+    /// 平台亮度发生改变时的回调
     ///
-    /// The current platform brightness can be queried from a Flutter binding or
-    /// from a [MediaQuery] widget. The latter is preferred from widgets because
-    /// it causes the widget to be automatically rebuilt when the brightness
-    /// changes.
-    ///
-    /// {@tool sample}
-    /// Querying [Window.platformBrightness].
-    ///
-    /// ```dart
-    /// final Brightness brightness = WidgetsBinding.instance.window.platformBrightness;
-    /// ```
-    /// {@end-tool}
-    ///
-    /// {@tool sample}
-    /// Querying [MediaQuery] directly. Preferred.
-    ///
-    /// ```dart
-    /// final Brightness brightness = MediaQuery.platformBrightnessOf(context);
-    /// ```
-    /// {@end-tool}
-    ///
-    /// {@tool sample}
-    /// Querying [MediaQueryData].
-    ///
-    /// ```dart
-    /// final MediaQueryData mediaQueryData = MediaQuery.of(context);
-    /// final Brightness brightness = mediaQueryData.platformBrightness;
-    /// ```
-    /// {@end-tool}
-    ///
-    /// See [Window.onPlatformBrightnessChanged].
+    /// 当前的平台亮度可以通过此字段或者 MediaQuery 直接获取。后者会在变化的时候重建与之相关的 widget
     @protected
     void handlePlatformBrightnessChanged() { }
 
-    /// Returns a [ViewConfiguration] configured for the [RenderView] based on the
-    /// current environment.
+    /// 返回一个基于当前环境配置的 [ViewConfiguration]
     ///
-    /// This is called during construction and also in response to changes to the
-    /// system metrics.
-    ///
-    /// Bindings can override this method to change what size or device pixel
-    /// ratio the [RenderView] will use. For example, the testing framework uses
-    /// this to force the display into 800x600 when a test is run on the device
-    /// using `flutter run`.
     ViewConfiguration createViewConfiguration() {
         final double devicePixelRatio = window.devicePixelRatio;
         return ViewConfiguration(
@@ -1826,22 +1713,19 @@ mixin RendererBinding on BindingBase, ServicesBinding, SchedulerBinding, Gesture
 
     SemanticsHandle _semanticsHandle;
 
-    /// Creates a [MouseTracker] which manages state about currently connected
-    /// mice, for hover notification.
-    ///
-    /// Used by testing framework to reinitialize the mouse tracker between tests.
+    /// 创建一个管理当前鼠标状态的 [MouseTracker]
     @visibleForTesting
     void initMouseTracker([MouseTracker tracker]) {
         _mouseTracker?.dispose();
         _mouseTracker = tracker ?? MouseTracker(pointerRouter, renderView.hitTestMouseTrackers);
     }
 
+    /// 语义启用下的回调
     void _handleSemanticsEnabledChanged() {
         setSemanticsEnabled(window.semanticsEnabled);
     }
 
-    /// Whether the render tree associated with this binding should produce a tree
-    /// of [SemanticsNode] objects.
+    /// 语义相关。。。
     void setSemanticsEnabled(bool enabled) {
         if (enabled) {
             _semanticsHandle ??= _pipelineOwner.ensureSemantics();
@@ -1867,135 +1751,74 @@ mixin RendererBinding on BindingBase, ServicesBinding, SchedulerBinding, Gesture
         renderView.clearSemantics();
     }
 
+    /// 处理持久帧回调
+    /// 这个回调在此混入类被初始化的时候加入到了 SchedulerBinding 的持久帧回调当中，也就是说，在每一帧，此方
+    /// 法都会被回调一次
     void _handlePersistentFrameCallback(Duration timeStamp) {
+        /// 绘制一帧，WidgetBinding 重载了这个方法
         drawFrame();
+        /// 在帧尾检测鼠标的状态
         _mouseTracker.schedulePostFrameCheck();
     }
 
     int _firstFrameDeferredCount = 0;
     bool _firstFrameSent = false;
 
-    /// Whether frames produced by [drawFrame] are sent to the engine.
+    /// 被 [drawFrame] 产生的帧是否应该提交给引擎
     ///
-    /// If false the framework will do all the work to produce a frame,
-    /// but the frame is never sent to the engine to actually appear on screen.
-    ///
-    /// See also:
-    ///
-    ///  * [deferFirstFrame], which defers when the first frame is sent to the
-    ///    engine.
+    /// 如果为 false，框架依旧生产一帧，但不会将它提交给引擎去渲染
     bool get sendFramesToEngine => _firstFrameSent || _firstFrameDeferredCount == 0;
 
-    /// Tell the framework to not send the first frames to the engine until there
-    /// is a corresponding call to [allowFirstFrame].
+    /// 告诉引擎不要将第一帧送入引擎去渲染，直到相应的 [allowFirstFrame] 被调用
     ///
-    /// Call this to perform asynchronous initialization work before the first
-    /// frame is rendered (which takes down the splash screen). The framework
-    /// will still do all the work to produce frames, but those frames are never
-    /// sent to the engine and will not appear on screen.
-    ///
-    /// Calling this has no effect after the first frame has been sent to the
-    /// engine.
+    /// 调用此方法来在首帧渲染之前完成异步初始化的工作 (在开屏页之前)。框架依旧会完成所有的工作来产生一帧（也
+    /// 就是说，会完成构建、布局、绘制等流程），当不会将这一帧提交给引擎层去显示
     void deferFirstFrame() {
         assert(_firstFrameDeferredCount >= 0);
         _firstFrameDeferredCount += 1;
     }
 
-    /// Called after [deferFirstFrame] to tell the framework that it is ok to
-    /// send the first frame to the engine now.
+    /// 在 [deferFirstFrame] 调用之后，告诉引擎现在可以将第一帧提交给引擎去渲染
     ///
-    /// For best performance, this method should only be called while the
-    /// [schedulerPhase] is [SchedulerPhase.idle].
+    /// 在 [schedulerPhase] == [SchedulerPhase.idle] 的时候，调用此方法的性能是最佳的 
     ///
-    /// This method may only be called once for each corresponding call
-    /// to [deferFirstFrame].
+    /// 此方法只能调用与对应 [deferFirstFrame] 相应的次数（类似于栈，deferFirstFrame 如同入栈， 
+    /// allowFirstFrame 则是出栈。栈为空时才会开始第一帧的渲染
     void allowFirstFrame() {
         assert(_firstFrameDeferredCount > 0);
         _firstFrameDeferredCount -= 1;
-        // Always schedule a warm up frame even if the deferral count is not down to
-        // zero yet since the removal of a deferral may uncover new deferrals that
-        // are lower in the widget tree.
+        // 即使延迟计数尚未降至零，也要始终安排一个预热帧，因为取消延迟可能会发现组件树中更低的新延迟.
         if (!_firstFrameSent)
             scheduleWarmUpFrame();
     }
 
-    /// Call this to pretend that no frames have been sent to the engine yet.
+    /// 调用此方法来假装还没有向引擎发送一帧。（即把下一帧视为送到引擎的第一帧）
     ///
-    /// This is useful for tests that want to call [deferFirstFrame] and
-    /// [allowFirstFrame] since those methods only have an effect if no frames
-    /// have been sent to the engine yet.
+    /// 此方法可以用于测试 [deferFirstFrame] 和 [allowFirstFrame]，因为它们只在第一帧还没有送到引擎里的时候
+    /// 有效
     void resetFirstFrameSent() {
         _firstFrameSent = false;
     }
-
-    /// Pump the rendering pipeline to generate a frame.
-    ///
-    /// This method is called by [handleDrawFrame], which itself is called
-    /// automatically by the engine when it is time to lay out and paint a frame.
-    ///
-    /// Each frame consists of the following phases:
-    ///
-    /// 1. The animation phase: The [handleBeginFrame] method, which is registered
-    /// with [Window.onBeginFrame], invokes all the transient frame callbacks
-    /// registered with [scheduleFrameCallback], in registration order. This
-    /// includes all the [Ticker] instances that are driving [AnimationController]
-    /// objects, which means all of the active [Animation] objects tick at this
-    /// point.
-    ///
-    /// 2. Microtasks: After [handleBeginFrame] returns, any microtasks that got
-    /// scheduled by transient frame callbacks get to run. This typically includes
-    /// callbacks for futures from [Ticker]s and [AnimationController]s that
-    /// completed this frame.
-    ///
-    /// After [handleBeginFrame], [handleDrawFrame], which is registered with
-    /// [Window.onDrawFrame], is called, which invokes all the persistent frame
-    /// callbacks, of which the most notable is this method, [drawFrame], which
-    /// proceeds as follows:
-    ///
-    /// 3. The layout phase: All the dirty [RenderObject]s in the system are laid
-    /// out (see [RenderObject.performLayout]). See [RenderObject.markNeedsLayout]
-    /// for further details on marking an object dirty for layout.
-    ///
-    /// 4. The compositing bits phase: The compositing bits on any dirty
-    /// [RenderObject] objects are updated. See
-    /// [RenderObject.markNeedsCompositingBitsUpdate].
-    ///
-    /// 5. The paint phase: All the dirty [RenderObject]s in the system are
-    /// repainted (see [RenderObject.paint]). This generates the [Layer] tree. See
-    /// [RenderObject.markNeedsPaint] for further details on marking an object
-    /// dirty for paint.
-    ///
-    /// 6. The compositing phase: The layer tree is turned into a [Scene] and
-    /// sent to the GPU.
-    ///
-    /// 7. The semantics phase: All the dirty [RenderObject]s in the system have
-    /// their semantics updated (see [RenderObject.semanticsAnnotator]). This
-    /// generates the [SemanticsNode] tree. See
-    /// [RenderObject.markNeedsSemanticsUpdate] for further details on marking an
-    /// object dirty for semantics.
-    ///
-    /// For more details on steps 3-7, see [PipelineOwner].
-    ///
-    /// 8. The finalization phase: After [drawFrame] returns, [handleDrawFrame]
-    /// then invokes post-frame callbacks (registered with [addPostFrameCallback]).
-    ///
-    /// Some bindings (for example, the [WidgetsBinding]) add extra steps to this
-    /// list (for example, see [WidgetsBinding.drawFrame]).
-    //
-    // When editing the above, also update widgets/binding.dart's copy.
+          
+    /// 驱动渲染流水线绘制一帧（即完成布局、绘制等操作
+    /// 此方法被 widgetsBinding 所重载，在绘制布局之前完成了 widget 树的构建
     @protected
     void drawFrame() {
         assert(renderView != null);
+        /// 冲刷布局
         pipelineOwner.flushLayout();
         pipelineOwner.flushCompositingBits();
+        /// 冲刷绘制
         pipelineOwner.flushPaint();
         if (sendFramesToEngine) {
-            renderView.compositeFrame(); // this sends the bits to the GPU
+            /// 将合成完的 scence 提交给引擎层，显示一帧
+            renderView.compositeFrame();
             pipelineOwner.flushSemantics(); // this also sends the semantics to the OS.
             _firstFrameSent = true;
         }
     }
 
+    /// 应用的重组，此方法被 hot reload 调用，仅在测试模式下有效
     @override
     Future<void> performReassemble() async {
         await super.performReassemble();
@@ -2009,6 +1832,8 @@ mixin RendererBinding on BindingBase, ServicesBinding, SchedulerBinding, Gesture
         await endOfFrame;
     }
 
+    /// 点击测试
+    /// 对渲染树的根节点进行点击测试，然后调用超类（GesutureBinding.hitTest) 的点击测试
     @override
     void hitTest(HitTestResult result, Offset position) {
         assert(renderView != null);
@@ -2016,6 +1841,7 @@ mixin RendererBinding on BindingBase, ServicesBinding, SchedulerBinding, Gesture
         super.hitTest(result, position);
     }
 
+    /// 强制重绘
     Future<void> _forceRepaint() {
         RenderObjectVisitor visitor;
         visitor = (RenderObject child) {
@@ -2034,28 +1860,36 @@ mixin RendererBinding on BindingBase, ServicesBinding, SchedulerBinding, Gesture
 ## WidgetsBinding
 
 ```dart
-/// The glue between the widgets layer and the Flutter engine.
-mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureBinding, RendererBinding, SemanticsBinding {
+/// 组件 Binding
+///
+/// 此混入类联合了 Flutter 组件层和引擎层
+mixin WidgetsBinding 
+   on BindingBase, 
+      ServicesBinding, 
+      SchedulerBinding, 
+      GestureBinding, 
+      RendererBinding, 
+      SemanticsBinding 
+{
     @override
     void initInstances() {
         super.initInstances();
         _instance = this;
-        // Initialization of [_buildOwner] has to be done after
-        // [super.initInstances] is called, as it requires [ServicesBinding] to
-        // properly setup the [defaultBinaryMessenger] instance.
+        // 初始化 BuildOwner 必须在 [super.initInstances] 被调用之后，因为它要求 [ServicesBinding] 在之前
+        // 已经创建了 [defaultBinaryMessenger] 实例
         _buildOwner = BuildOwner();
+        /// 为 buildOwner 绑定调度方法
         buildOwner.onBuildScheduled = _handleBuildScheduled;
+        /// 本地化改变回调
         window.onLocaleChanged = handleLocaleChanged;
+        /// 可访问性改变回调
         window.onAccessibilityFeaturesChanged = handleAccessibilityFeaturesChanged;
+        /// 系统路由回调（加入、退出路由）
         SystemChannels.navigation.setMethodCallHandler(_handleNavigationInvocation);
         FlutterErrorDetails.propertiesTransformers.add(transformDebugCreator);
     }
-
-    /// The current [WidgetsBinding], if one has been created.
-    ///
-    /// If you need the binding to be constructed before calling [runApp],
-    /// you can ensure a Widget binding has been constructed by calling the
-    /// `WidgetsFlutterBinding.ensureInitialized()` function.
+          
+    /// 如果此 Binding 在 [runApp] 之前就被构建，可以直接调用 [WidgetsFlutterBinding.ensureInitialized]
     static WidgetsBinding get instance => _instance;
     static WidgetsBinding _instance;
 
@@ -2143,38 +1977,9 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
                 },
             );
         }
-
-        assert(() {
-            registerBoolServiceExtension(
-                name: 'debugAllowBanner',
-                getter: () => Future<bool>.value(WidgetsApp.debugAllowBannerOverride),
-                setter: (bool value) {
-                    if (WidgetsApp.debugAllowBannerOverride == value)
-                        return Future<void>.value();
-                    WidgetsApp.debugAllowBannerOverride = value;
-                    return _forceRebuild();
-                },
-            );
-
-            // This service extension is deprecated and will be removed by 12/1/2018.
-            // Use ext.flutter.inspector.show instead.
-            registerBoolServiceExtension(
-                name: 'debugWidgetInspector',
-                getter: () async => WidgetsApp.debugShowWidgetInspectorOverride,
-                setter: (bool value) {
-                    if (WidgetsApp.debugShowWidgetInspectorOverride == value)
-                        return Future<void>.value();
-                    WidgetsApp.debugShowWidgetInspectorOverride = value;
-                    return _forceRebuild();
-                },
-            );
-
-            WidgetInspectorService.instance.initServiceExtensions(registerServiceExtension);
-
-            return true;
-        }());
     }
 
+    /// 强制重建
     Future<void> _forceRebuild() {
         if (renderViewElement != null) {
             buildOwner.reassemble(renderViewElement);
@@ -2183,53 +1988,29 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
         return Future<void>.value();
     }
 
-    /// The [BuildOwner] in charge of executing the build pipeline for the
-    /// widget tree rooted at this binding.
+    /// 掌管了构建流水线的 buildOwner
     BuildOwner get buildOwner => _buildOwner;
-    // Initialization of [_buildOwner] has to be done within the [initInstances]
-    // method, as it requires [ServicesBinding] to properly setup the
-    // [defaultBinaryMessenger] instance.
     BuildOwner _buildOwner;
 
-    /// The object in charge of the focus tree.
+    /// 焦点树管理帧，即管理焦点树的对象
     ///
-    /// Rarely used directly. Instead, consider using [FocusScope.of] to obtain
-    /// the [FocusScopeNode] for a given [BuildContext].
-    ///
-    /// See [FocusManager] for more details.
+    /// 很少被直接使用。通常，给定 context 且调用 [FocusScope.of] 来获取到 [FocusScopeNode]
     FocusManager get focusManager => _buildOwner.focusManager;
 
     final List<WidgetsBindingObserver> _observers = <WidgetsBindingObserver>[];
 
-    /// Registers the given object as a binding observer. Binding
-    /// observers are notified when various application events occur,
-    /// for example when the system locale changes. Generally, one
-    /// widget in the widget tree registers itself as a binding
-    /// observer, and converts the system state into inherited widgets.
+    /// 注册一个给定的 WidgetsBindingObserver 
+    /// 在各种应用事件发生的时候，观测者会被通知（例如，系统本地化改变）通常情况下，组件树只有一个组件将它自身
+    /// 作为 WidgetsBindingObserver，并且将系统的状态转换成一个 inherited widgets.
     ///
-    /// For example, the [WidgetsApp] widget registers as a binding
-    /// observer and passes the screen size to a [MediaQuery] widget
-    /// each time it is built, which enables other widgets to use the
-    /// [MediaQuery.of] static method and (implicitly) the
-    /// [InheritedWidget] mechanism to be notified whenever the screen
-    /// size changes (e.g. whenever the screen rotates).
-    ///
-    /// See also:
-    ///
-    ///  * [removeObserver], to release the resources reserved by this method.
-    ///  * [WidgetsBindingObserver], which has an example of using this method.
+    /// 例如，[WidgetsApp] 注册了一个观测者，并且在每次构建的时候将屏幕大小传递给了 [MediaQuery] 组件，这使
+    /// 得每一个调用了 [MediaQuery.of] 方法的组件能够获取到屏幕大小（例如屏幕旋转）改变的通知 
     void addObserver(WidgetsBindingObserver observer) => _observers.add(observer);
-
-    /// Unregisters the given observer. This should be used sparingly as
-    /// it is relatively expensive (O(N) in the number of registered
-    /// observers).
-    ///
-    /// See also:
-    ///
-    ///  * [addObserver], for the method that adds observers in the first place.
-    ///  * [WidgetsBindingObserver], which has an example of using this method.
+          
+    /// 注销给定的观察者，应当谨慎使用这一办法，因为它的代价相对较高(O(N))。
     bool removeObserver(WidgetsBindingObserver observer) => _observers.remove(observer);
 
+    /// 处理屏幕大小改变，通知观测者
     @override
     void handleMetricsChanged() {
         super.handleMetricsChanged();
@@ -2237,6 +2018,7 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
             observer.didChangeMetrics();
     }
 
+    /// 处理字体因子改变，通知观测者
     @override
     void handleTextScaleFactorChanged() {
         super.handleTextScaleFactorChanged();
@@ -2244,6 +2026,7 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
             observer.didChangeTextScaleFactor();
     }
 
+    /// 处理平台亮度改变，通知观测者
     @override
     void handlePlatformBrightnessChanged() {
         super.handlePlatformBrightnessChanged();
@@ -2251,6 +2034,7 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
             observer.didChangePlatformBrightness();
     }
 
+    /// 处理可访问性改变，通知观测者
     @override
     void handleAccessibilityFeaturesChanged() {
         super.handleAccessibilityFeaturesChanged();
@@ -2258,23 +2042,14 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
             observer.didChangeAccessibilityFeatures();
     }
 
-    /// Called when the system locale changes.
-    ///
-    /// Calls [dispatchLocaleChanged] to notify the binding observers.
-    ///
-    /// See [Window.onLocaleChanged].
+    /// 处理系统本地化改变。通过调用 [dispatchLocalesChanged] 来通知观测者
     @protected
     @mustCallSuper
     void handleLocaleChanged() {
         dispatchLocalesChanged(window.locales);
     }
 
-    /// Notify all the observers that the locale has changed (using
-    /// [WidgetsBindingObserver.didChangeLocales]), giving them the
-    /// `locales` argument.
-    ///
-    /// This is called by [handleLocaleChanged] when the [Window.onLocaleChanged]
-    /// notification is received.
+    /// 用给定的 locales 来通知观测者
     @protected
     @mustCallSuper
     void dispatchLocalesChanged(List<Locale> locales) {
@@ -2282,12 +2057,6 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
             observer.didChangeLocales(locales);
     }
 
-    /// Notify all the observers that the active set of [AccessibilityFeatures]
-    /// has changed (using [WidgetsBindingObserver.didChangeAccessibilityFeatures]),
-    /// giving them the `features` argument.
-    ///
-    /// This is called by [handleAccessibilityFeaturesChanged] when the
-    /// [Window.onAccessibilityFeaturesChanged] notification is received.
     @protected
     @mustCallSuper
     void dispatchAccessibilityFeaturesChanged() {
@@ -2295,20 +2064,11 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
             observer.didChangeAccessibilityFeatures();
     }
 
-    /// Called when the system pops the current route.
+    /// 系统退出当前路由时的回调
     ///
-    /// This first notifies the binding observers (using
-    /// [WidgetsBindingObserver.didPopRoute]), in registration order, until one
-    /// returns true, meaning that it was able to handle the request (e.g. by
-    /// closing a dialog box). If none return true, then the application is shut
-    /// down by calling [SystemNavigator.pop].
-    ///
-    /// [WidgetsApp] uses this in conjunction with a [Navigator] to
-    /// cause the back button to close dialog boxes, return from modal
-    /// pages, and so forth.
-    ///
-    /// This method exposes the `popRoute` notification from
-    /// [SystemChannels.navigation].
+    /// 首先，这个调用会遍历观测者，调用它们的 [WidgetsBindingObserver.didPopRoute] 方法，直到它们中的一个
+    /// 返回了 true（这意味着它有能力处理路由退出事件，例如，弹出一个对话框）。如果没有观测者返回 true，那么将
+    /// 会调用 [SystemNavigator.pop] 关闭应用
     @protected
     Future<void> handlePopRoute() async {
         for (WidgetsBindingObserver observer in List<WidgetsBindingObserver>.from(_observers)) {
@@ -2318,16 +2078,11 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
         SystemNavigator.pop();
     }
 
-    /// Called when the host tells the app to push a new route onto the
-    /// navigator.
+    /// 宿主告诉此应用需要推送一个路由
     ///
-    /// This notifies the binding observers (using
-    /// [WidgetsBindingObserver.didPushRoute]), in registration order, until one
-    /// returns true, meaning that it was able to handle the request (e.g. by
-    /// opening a dialog box). If none return true, then nothing happens.
-    ///
-    /// This method exposes the `pushRoute` notification from
-    /// [SystemChannels.navigation].
+    /// 首先，这个调用会遍历观测者，调用它们的 [WidgetsBindingObserver.didPopRoute] 方法，直到它们中的一个
+    /// 返回了 true（这意味着它有能力处理路由退出事件，例如，弹出一个对话框）。如果没有观测者返回 true，那么什
+    /// 么也不会发生
     @protected
     @mustCallSuper
     Future<void> handlePushRoute(String route) async {
@@ -2337,16 +2092,20 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
         }
     }
 
+    /// 此方法作为系统导航的监听回调
     Future<dynamic> _handleNavigationInvocation(MethodCall methodCall) {
         switch (methodCall.method) {
+            /// 路由退出
             case 'popRoute':
                 return handlePopRoute();
+            /// 插入路由
             case 'pushRoute':
                 return handlePushRoute(methodCall.arguments as String);
         }
         return Future<dynamic>.value();
     }
 
+    /// 通知观测者，应用的什么周期发生了改变
     @override
     void handleAppLifecycleStateChanged(AppLifecycleState state) {
         super.handleAppLifecycleStateChanged(state);
@@ -2354,19 +2113,13 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
             observer.didChangeAppLifecycleState(state);
     }
 
-    /// Called when the operating system notifies the application of a memory
-    /// pressure situation.
-    ///
-    /// Notifies all the observers using
-    /// [WidgetsBindingObserver.didHaveMemoryPressure].
-    ///
-    /// This method exposes the `memoryPressure` notification from
-    /// [SystemChannels.system].
+    /// 内存压力回调，通知观测者
     void handleMemoryPressure() {
         for (WidgetsBindingObserver observer in _observers)
             observer.didHaveMemoryPressure();
     }
 
+    /// 处理平台消息，只处理内存压力
     @override
     Future<void> handleSystemMessage(Object systemMessage) async {
         await super.handleSystemMessage(systemMessage);
@@ -2404,16 +2157,6 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
     ///  * [firstFrameRasterized], whether this future has completed or not.
     Future<void> get waitUntilFirstFrameRasterized => _firstFrameCompleter.future;
 
-    /// Whether the first frame has finished building.
-    ///
-    /// This value can also be obtained over the VM service protocol as
-    /// `ext.flutter.didSendFirstFrameEvent`.
-    ///
-    /// See also:
-    ///
-    ///  * [firstFrameRasterized], whether the first frame has finished rendering.
-    bool get debugDidSendFirstFrameEvent => !_needToReportFirstFrame;
-
     /// Tell the framework not to report the frame it is building as a "useful"
     /// first frame until there is a corresponding call to [allowFirstFrameReport].
     ///
@@ -2429,134 +2172,14 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
         }
     }
 
-    /// When called after [deferFirstFrameReport]: tell the framework to report
-    /// the frame it is building as a "useful" first frame.
-    ///
-    /// Deprecated. Use [deferFirstFrame]/[allowFirstFrame] to delay rendering the
-    /// first frame.
-    @Deprecated(
-        'Use deferFirstFrame/allowFirstFrame to delay rendering the first frame. '
-        'This feature was deprecated after v1.12.4.'
-    )
-    void allowFirstFrameReport() {
-        if (!kReleaseMode) {
-            allowFirstFrame();
-        }
-    }
-
-    void _handleBuildScheduled() {
-        // If we're in the process of building dirty elements, then changes
-        // should not trigger a new frame.
-        assert(() {
-            if (debugBuildingDirtyElements) {
-                throw FlutterError.fromParts(<DiagnosticsNode>[
-                    ErrorSummary('Build scheduled during frame.'),
-                    ErrorDescription(
-                        'While the widget tree was being built, laid out, and painted, '
-                        'a new frame was scheduled to rebuild the widget tree.'
-                    ),
-                    ErrorHint(
-                        'This might be because setState() was called from a layout or '
-                        'paint callback. '
-                        'If a change is needed to the widget tree, it should be applied '
-                        'as the tree is being built. Scheduling a change for the subsequent '
-                        'frame instead results in an interface that lags behind by one frame. '
-                        'If this was done to make your build dependent on a size measured at '
-                        'layout time, consider using a LayoutBuilder, CustomSingleChildLayout, '
-                        'or CustomMultiChildLayout. If, on the other hand, the one frame delay '
-                        'is the desired effect, for example because this is an '
-                        'animation, consider scheduling the frame in a post-frame callback '
-                        'using SchedulerBinding.addPostFrameCallback or '
-                        'using an AnimationController to trigger the animation.',
-                    )
-                ]);
-            }
-            return true;
-        }());
+    /// 调度一次构建（通常是 [State.setState]）之后，会触发视觉更新
+    void _handleBuildScheduled() {        
         ensureVisualUpdate();
     }
 
-    /// Whether we are currently in a frame. This is used to verify
-    /// that frames are not scheduled redundantly.
-    ///
-    /// This is public so that test frameworks can change it.
-    ///
-    /// This flag is not used in release builds.
-    @protected
-    bool debugBuildingDirtyElements = false;
-
-    /// Pump the build and rendering pipeline to generate a frame.
-    ///
-    /// This method is called by [handleDrawFrame], which itself is called
-    /// automatically by the engine when when it is time to lay out and paint a
-    /// frame.
-    ///
-    /// Each frame consists of the following phases:
-    ///
-    /// 1. The animation phase: The [handleBeginFrame] method, which is registered
-    /// with [Window.onBeginFrame], invokes all the transient frame callbacks
-    /// registered with [scheduleFrameCallback], in
-    /// registration order. This includes all the [Ticker] instances that are
-    /// driving [AnimationController] objects, which means all of the active
-    /// [Animation] objects tick at this point.
-    ///
-    /// 2. Microtasks: After [handleBeginFrame] returns, any microtasks that got
-    /// scheduled by transient frame callbacks get to run. This typically includes
-    /// callbacks for futures from [Ticker]s and [AnimationController]s that
-    /// completed this frame.
-    ///
-    /// After [handleBeginFrame], [handleDrawFrame], which is registered with
-    /// [Window.onDrawFrame], is called, which invokes all the persistent frame
-    /// callbacks, of which the most notable is this method, [drawFrame], which
-    /// proceeds as follows:
-    ///
-    /// 3. The build phase: All the dirty [Element]s in the widget tree are
-    /// rebuilt (see [State.build]). See [State.setState] for further details on
-    /// marking a widget dirty for building. See [BuildOwner] for more information
-    /// on this step.
-    ///
-    /// 4. The layout phase: All the dirty [RenderObject]s in the system are laid
-    /// out (see [RenderObject.performLayout]). See [RenderObject.markNeedsLayout]
-    /// for further details on marking an object dirty for layout.
-    ///
-    /// 5. The compositing bits phase: The compositing bits on any dirty
-    /// [RenderObject] objects are updated. See
-    /// [RenderObject.markNeedsCompositingBitsUpdate].
-    ///
-    /// 6. The paint phase: All the dirty [RenderObject]s in the system are
-    /// repainted (see [RenderObject.paint]). This generates the [Layer] tree. See
-    /// [RenderObject.markNeedsPaint] for further details on marking an object
-    /// dirty for paint.
-    ///
-    /// 7. The compositing phase: The layer tree is turned into a [Scene] and
-    /// sent to the GPU.
-    ///
-    /// 8. The semantics phase: All the dirty [RenderObject]s in the system have
-    /// their semantics updated (see [RenderObject.assembleSemanticsNode]). This
-    /// generates the [SemanticsNode] tree. See
-    /// [RenderObject.markNeedsSemanticsUpdate] for further details on marking an
-    /// object dirty for semantics.
-    ///
-    /// For more details on steps 4-8, see [PipelineOwner].
-    ///
-    /// 9. The finalization phase in the widgets layer: The widgets tree is
-    /// finalized. This causes [State.dispose] to be invoked on any objects that
-    /// were removed from the widgets tree this frame. See
-    /// [BuildOwner.finalizeTree] for more details.
-    ///
-    /// 10. The finalization phase in the scheduler layer: After [drawFrame]
-    /// returns, [handleDrawFrame] then invokes post-frame callbacks (registered
-    /// with [addPostFrameCallback]).
-    //
-    // When editing the above, also update rendering/binding.dart's copy.
+    /// 绘制一帧，此方法重载了 RenderingBinding.drawFrame
     @override
     void drawFrame() {
-        assert(!debugBuildingDirtyElements);
-        assert(() {
-            debugBuildingDirtyElements = true;
-            return true;
-        }());
-
         TimingsCallback firstFrameCallback;
         if (_needToReportFirstFrame) {
             assert(!_firstFrameCompleter.isCompleted);
@@ -2579,14 +2202,14 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
 
         try {
             if (renderViewElement != null)
+                /// 对 buildOnwer 中包含的标记 dirty 的节点进行一次构建（renderViewElement 只用作断言）
                 buildOwner.buildScope(renderViewElement);
+            /// 调用 super.drawFrame 完成布局、绘制等流程
             super.drawFrame();
+            /// 构建完成后，将没有被复用的 element 销毁
             buildOwner.finalizeTree();
         } finally {
-            assert(() {
-                debugBuildingDirtyElements = false;
-                return true;
-            }());
+            ...
         }
         if (!kReleaseMode) {
             if (_needToReportFirstFrame && sendFramesToEngine) {
@@ -2599,17 +2222,11 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
         }
     }
 
-    /// The [Element] that is at the root of the hierarchy (and which wraps the
-    /// [RenderView] object at the root of the rendering hierarchy).
-    ///
-    /// This is initialized the first time [runApp] is called.
+    /// Element 树的根节点（即 [RenderObjectToWidgetElement]）
     Element get renderViewElement => _renderViewElement;
     Element _renderViewElement;
 
-    /// Schedules a [Timer] for attaching the root widget.
-    ///
-    /// This is called by [runApp] to configure the widget tree. Consider using
-    /// [attachRootWidget] if you want to build the widget tree synchronously.
+    /// 使用 Timer 异步地完成 树根节点的安装
     @protected
     void scheduleAttachRootWidget(Widget rootWidget) {
         Timer.run(() {
@@ -2617,27 +2234,23 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
         });
     }
 
-    /// Takes a widget and attaches it to the [renderViewElement], creating it if
-    /// necessary.
-    ///
-    /// This is called by [runApp] to configure the widget tree.
-    ///
-    /// See also:
-    ///
-    ///  * [RenderObjectToWidgetAdapter.attachToRenderTree], which inflates a
-    ///    widget and attaches it to the render tree.
+    /// 将给定的 widget 作为根 widget（RenderObjectToWidgetAdapter）的孩子，创建三颗树的树根
     void attachRootWidget(Widget rootWidget) {
+        /// 注意：以下调用顺序按是向调用 RenderObjectToWidgetAdapter 的构造函数
+        /// 随后调用其 [attachToRenderTree] 方法，将返回值提供给 _renderViewElement
         _renderViewElement = RenderObjectToWidgetAdapter<RenderBox>(
+            /// 渲染对象树的根节点
             container: renderView,
             debugShortDescription: '[root]',
+            /// runApp 的参数 widget
             child: rootWidget,
-        ).attachToRenderTree(buildOwner, renderViewElement as RenderObjectToWidgetElement<RenderBox>);
+        ).attachToRenderTree(
+            buildOwner, 
+            renderViewElement as RenderObjectToWidgetElement<RenderBox>
+        );
     }
 
-    /// Whether the [renderViewElement] has been initialized.
-    ///
-    /// This will be false until [runApp] is called (or [WidgetTester.pumpWidget]
-    /// is called in the context of a [TestWidgetsFlutterBinding]).
+    /// 是否 [renderViewElement] 被初始化
     bool get isRootWidgetAttached => _renderViewElement != null;
 
     @override
@@ -2652,5 +2265,37 @@ mixin WidgetsBinding on BindingBase, ServicesBinding, SchedulerBinding, GestureB
         return super.performReassemble();
     }
 }
+```
+
+
+
+## WidgetsFlutterBinding
+
+```dart
+class WidgetsFlutterBinding 
+    extends BindingBase 
+       with GestureBinding, 
+            ServicesBinding, 
+            SchedulerBinding, 
+            PaintingBinding, 
+            SemanticsBinding, 
+            RendererBinding, 
+            WidgetsBinding 
+{
+
+  /// 返回 [WidgetsBinding] 的实例，在必要时创建并初始化它。如果创建了一个，则返回的是一个
+  /// [WidgetsFlutterBinding]。如果之前初始化已经初始化了，那么它至少会实现 [WidgetsBinding]。
+  ///
+  /// 只有在需要在调用 [runApp] 之前初始化绑定时，才需要调用这个方法。
+  ///
+  /// 在“flutter_test”框架中，[testWidgets] 将绑定实例初始化为 [TestWidgetsFlutterBinding]，而不是
+  /// [WidgetsFlutterBinding]。
+  static WidgetsBinding ensureInitialized() {
+    if (WidgetsBinding.instance == null)
+      WidgetsFlutterBinding();
+    return WidgetsBinding.instance;
+  }
+}
+
 ```
 
