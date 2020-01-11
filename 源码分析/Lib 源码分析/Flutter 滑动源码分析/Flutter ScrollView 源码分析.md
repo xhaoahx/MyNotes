@@ -41,16 +41,16 @@ abstract class ScrollView extends StatelessWidget {
   /// 是否与 [PrimaryScrollController] 有关联
   final bool primary;
 
-  /// scrollView 如何响应用户手势输入
-    
+  /// scrollView 如何响应用户手势输入(或者说是物理效果)
   final ScrollPhysics physics;
 
   /// scroll view 的大小是否应该被其展示的内容所决定
   final bool shrinkWrap;
 
-  /// 决定哪一个 child 被展示在起点位置
+  /// 决定哪一个 child 被展示在起点位置（会根据给出的 key 查找）
   /// 默认为第一个 child
   final Key center;
+    
   /// 滚动起点的相对位置
   /// anchor 的值范围为 0.0 ~ 1.0
   final double anchor;
@@ -72,11 +72,12 @@ abstract class ScrollView extends StatelessWidget {
   @protected
   List<Widget> buildSlivers(BuildContext context);
 
+  
+  /// 这个方法被 build 方法作为 viewportBuilder 回调传递给 Scrollable 构造函数
   ///
+  /// context 是 build 方法给定的 context
   /// `offset` 参数是从 [Scrollable.viewportBuilder] 获取到的值
-  ///
   /// `axisDirection` 参数是从 [getDirection] 获取到的值
-  ///
   /// `slivers` 参数是从 [buildSlivers] 获取到的值
   @protected
   Widget buildViewport(
@@ -85,6 +86,7 @@ abstract class ScrollView extends StatelessWidget {
     AxisDirection axisDirection,
     List<Widget> slivers,
   ) {
+    /// 根据 shrinkWrap 选择不同的 viewport 策略
     if (shrinkWrap) {
       return ShrinkWrappingViewport(
         axisDirection: axisDirection,

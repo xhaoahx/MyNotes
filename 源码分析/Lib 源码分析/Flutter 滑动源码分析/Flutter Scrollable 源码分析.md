@@ -3,51 +3,23 @@
 ## Scrollable
 
 ```dart
-/// A widget that scrolls.
+/// 一个可以滚动的组件
 ///
-/// [Scrollable] implements the interaction model for a scrollable widget,
-/// including gesture recognition, but does not have an opinion about how the
-/// viewport, which actually displays the children, is constructed.
+/// [Scrollable] 实现了可滚动组建的交互模型，包括手势识别等，但是，它不了解视窗如何展示它的孩子（简言之，就是
+/// [Scrollable] 只处理了用户手势对 scorllOffset 的影响，并不关心 scorllOffset 如何影响孩子的布局。其相关的
+/// 工作由 [Viewport] 完成）
 ///
-/// It's rare to construct a [Scrollable] directly. Instead, consider [ListView]
-/// or [GridView], which combine scrolling, viewporting, and a layout model. To
-/// combine layout models (or to use a custom layout mode), consider using
-/// [CustomScrollView].
+/// 静态方法 [Scrollable.of] 和 [Scrollable.ensureVisible] 通常被用于与 [ListView] 或者 [GridView].内的
+/// [Scrollable] 组件进行交互 
 ///
-/// The static [Scrollable.of] and [Scrollable.ensureVisible] functions are
-/// often used to interact with the [Scrollable] widget inside a [ListView] or
-/// a [GridView].
+/// 遵循如下规则可以进一步自定义 [Scrollable]:
 ///
-/// To further customize scrolling behavior with a [Scrollable]:
+/// 1. 提供 [viewportBuilder] 来自定义孩子模型。例如，[SingleChildScrollView] 使用了单孩子视窗，而 
+///    [CustomScrollView] 使用 [Viewport] 或者 [ShrinkWrappingViewport] 来展示多个孩子。
 ///
-/// 1. You can provide a [viewportBuilder] to customize the child model. For
-///    example, [SingleChildScrollView] uses a viewport that displays a single
-///    box child whereas [CustomScrollView] uses a [Viewport] or a
-///    [ShrinkWrappingViewport], both of which display a list of slivers.
-///
-/// 2. You can provide a custom [ScrollController] that creates a custom
-///    [ScrollPosition] subclass. For example, [PageView] uses a
-///    [PageController], which creates a page-oriented scroll position subclass
-///    that keeps the same page visible when the [Scrollable] resizes.
-///
-/// See also:
-///
-///  * [ListView], which is a commonly used [ScrollView] that displays a
-///    scrolling, linear list of child widgets.
-///  * [PageView], which is a scrolling list of child widgets that are each the
-///    size of the viewport.
-///  * [GridView], which is a [ScrollView] that displays a scrolling, 2D array
-///    of child widgets.
-///  * [CustomScrollView], which is a [ScrollView] that creates custom scroll
-///    effects using slivers.
-///  * [SingleChildScrollView], which is a scrollable widget that has a single
-///    child.
-///  * [ScrollNotification] and [NotificationListener], which can be used to watch
-///    the scroll position without using a [ScrollController].
+/// 2. 提供 [ScrollController]，它可以给出自定义的 [ScrollPosition] 子类。例如，[PageView] 使用了
+///    [PageController], 它能够固定页面的滚动
 class Scrollable extends StatefulWidget {
-  /// Creates a widget that scrolls.
-  ///
-  /// The [axisDirection] and [viewportBuilder] arguments must not be null.
   const Scrollable({
     Key key,
     this.axisDirection = AxisDirection.down,
@@ -58,160 +30,44 @@ class Scrollable extends StatefulWidget {
     this.excludeFromSemantics = false,
     this.semanticChildCount,
     this.dragStartBehavior = DragStartBehavior.start,
-  }) : assert(axisDirection != null),
-       assert(dragStartBehavior != null),
-       assert(viewportBuilder != null),
-       assert(excludeFromSemantics != null),
-       assert(semanticChildCount == null || semanticChildCount >= 0),
-       super (key: key);
+  }) : super (key: key);
 
-  /// The direction in which this widget scrolls.
-  ///
-  /// For example, if the [axisDirection] is [AxisDirection.down], increasing
-  /// the scroll position will cause content below the bottom of the viewport to
-  /// become visible through the viewport. Similarly, if [axisDirection] is
-  /// [AxisDirection.right], increasing the scroll position will cause content
-  /// beyond the right edge of the viewport to become visible through the
-  /// viewport.
-  ///
-  /// Defaults to [AxisDirection.down].
+
   final AxisDirection axisDirection;
 
-  /// An object that can be used to control the position to which this widget is
-  /// scrolled.
+  /// 可用于控制此组件对应的 scroll position 的对象。
   ///
-  /// A [ScrollController] serves several purposes. It can be used to control
-  /// the initial scroll position (see [ScrollController.initialScrollOffset]).
-  /// It can be used to control whether the scroll view should automatically
-  /// save and restore its scroll position in the [PageStorage] (see
-  /// [ScrollController.keepScrollOffset]). It can be used to read the current
-  /// scroll position (see [ScrollController.offset]), or change it (see
-  /// [ScrollController.animateTo]).
-  ///
-  /// See also:
-  ///
-  ///  * [ensureVisible], which animates the scroll position to reveal a given
-  ///    [BuildContext].
+  /// [ScrollController] 有以下几点目标：
+  /// 1.它能够被用于控制I初始滚动位置
+  /// 2.它能够被用于控制滚动视图时候应该自动保存或者恢复它的 scroll position
+  /// 3.它能够被用于获取当前 scroll position，或者改变它
   final ScrollController controller;
 
-  /// How the widgets should respond to user input.
-  ///
-  /// For example, determines how the widget continues to animate after the
-  /// user stops dragging the scroll view.
-  ///
-  /// Defaults to matching platform conventions via the physics provided from
-  /// the ambient [ScrollConfiguration].
-  ///
-  /// The physics can be changed dynamically, but new physics will only take
-  /// effect if the _class_ of the provided object changes. Merely constructing
-  /// a new instance with a different configuration is insufficient to cause the
-  /// physics to be reapplied. (This is because the final object used is
-  /// generated dynamically, which can be relatively expensive, and it would be
-  /// inefficient to speculatively create this object each frame to see if the
-  /// physics should be updated.)
-  ///
-  /// See also:
-  ///
-  ///  * [AlwaysScrollableScrollPhysics], which can be used to indicate that the
-  ///    scrollable should react to scroll requests (and possible overscroll)
-  ///    even if the scrollable's contents fit without scrolling being necessary.
+  /// 此组件如何相应用户的手势输入
   final ScrollPhysics physics;
 
-  /// Builds the viewport through which the scrollable content is displayed.
-  ///
-  /// A typical viewport uses the given [ViewportOffset] to determine which part
-  /// of its content is actually visible through the viewport.
-  ///
-  /// See also:
-  ///
-  ///  * [Viewport], which is a viewport that displays a list of slivers.
-  ///  * [ShrinkWrappingViewport], which is a viewport that displays a list of
-  ///    slivers and sizes itself based on the size of the slivers.
+  /// 视窗构建器
   final ViewportBuilder viewportBuilder;
 
-  /// An optional function that will be called to calculate the distance to
-  /// scroll when the scrollable is asked to scroll via the keyboard using a
-  /// [ScrollAction].
-  ///
-  /// If not supplied, the [Scrollable] will scroll a default amount when a
-  /// keyboard navigation key is pressed (e.g. pageUp/pageDown, control-upArrow,
-  /// etc.), or otherwise invoked by a [ScrollAction].
-  ///
-  /// If [incrementCalculator] is null, the default for
-  /// [ScrollIncrementType.page] is 80% of the size of the scroll window, and
-  /// for [ScrollIncrementType.line], 50 logical pixels.
+  /// 一个可选的函数，当使用 [ScrollAction] 要求 scrollable 通过键盘滚动时，将调用该函数来计算要滚动的距离。
   final ScrollIncrementCalculator incrementCalculator;
 
-  /// Whether the scroll actions introduced by this [Scrollable] are exposed
-  /// in the semantics tree.
-  ///
-  /// Text fields with an overflow are usually scrollable to make sure that the
-  /// user can get to the beginning/end of the entered text. However, these
-  /// scrolling actions are generally not exposed to the semantics layer.
-  ///
-  /// See also:
-  ///
-  ///  * [GestureDetector.excludeFromSemantics], which is used to accomplish the
-  ///    exclusion.
+  
   final bool excludeFromSemantics;
-
-  /// The number of children that will contribute semantic information.
-  ///
-  /// The value will be null if the number of children is unknown or unbounded.
-  ///
-  /// Some subtypes of [ScrollView] can infer this value automatically. For
-  /// example [ListView] will use the number of widgets in the child list,
-  /// while the [new ListView.separated] constructor will use half that amount.
-  ///
-  /// For [CustomScrollView] and other types which do not receive a builder
-  /// or list of widgets, the child count must be explicitly provided.
-  ///
-  /// See also:
-  ///
-  ///  * [CustomScrollView], for an explanation of scroll semantics.
-  ///  * [SemanticsConfiguration.scrollChildCount], the corresponding semantics property.
   final int semanticChildCount;
 
-  // TODO(jslavitz): Set the DragStartBehavior default to be start across all widgets.
-  /// {@template flutter.widgets.scrollable.dragStartBehavior}
-  /// Determines the way that drag start behavior is handled.
-  ///
-  /// If set to [DragStartBehavior.start], scrolling drag behavior will
-  /// begin upon the detection of a drag gesture. If set to
-  /// [DragStartBehavior.down] it will begin when a down event is first detected.
-  ///
-  /// In general, setting this to [DragStartBehavior.start] will make drag
-  /// animation smoother and setting it to [DragStartBehavior.down] will make
-  /// drag behavior feel slightly more reactive.
-  ///
-  /// By default, the drag start behavior is [DragStartBehavior.start].
-  ///
-  /// See also:
-  ///
-  ///  * [DragGestureRecognizer.dragStartBehavior], which gives an example for
-  ///    the different behaviors.
-  ///
-  /// {@endtemplate}
+  /// 拖拽开始行为
   final DragStartBehavior dragStartBehavior;
 
-  /// The axis along which the scroll view scrolls.
-  ///
-  /// Determined by the [axisDirection].
+  /// 轴方向
   Axis get axis => axisDirectionToAxis(axisDirection);
 
   @override
   ScrollableState createState() => ScrollableState();
 
-  @override
-  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
-    super.debugFillProperties(properties);
-    properties.add(EnumProperty<AxisDirection>('axisDirection', axisDirection));
-    properties.add(DiagnosticsProperty<ScrollPhysics>('physics', physics));
-  }
-
-  /// The state from the closest instance of this class that encloses the given context.
+  /// 获取到最近的 ScrollableState
   ///
-  /// Typical usage is as follows:
+  /// 使用如下：
   ///
   /// ```dart
   /// ScrollableState scrollable = Scrollable.of(context);
@@ -221,8 +77,7 @@ class Scrollable extends StatefulWidget {
     return widget?.scrollable;
   }
 
-  /// Scrolls the scrollables that enclose the given context so as to make the
-  /// given context visible.
+  /// 是给定的 context 对应的 widget 被展示到视窗里
   static Future<void> ensureVisible(
     BuildContext context, {
     double alignment = 0.0,
@@ -233,6 +88,9 @@ class Scrollable extends StatefulWidget {
     final List<Future<void>> futures = <Future<void>>[];
 
     ScrollableState scrollable = Scrollable.of(context);
+    /// 注意，这里会逐级地向上查找 scrollable（其实是 ScrollableState），并在找到的每一个的 
+    /// ScrollableState.position 上调用 [ensureVisible]
+    /// 详见 [ScrollPosition.ensureVisible]
     while (scrollable != null) {
       futures.add(scrollable.position.ensureVisible(
         context.findRenderObject(),
@@ -249,6 +107,7 @@ class Scrollable extends StatefulWidget {
       return Future<void>.value();
     if (futures.length == 1)
       return futures.single;
+    /// 找到了不止一个 ？？
     return Future.wait<void>(futures).then<void>((List<void> _) => null);
   }
 }
@@ -259,9 +118,9 @@ class Scrollable extends StatefulWidget {
 ## ScrollContext
 
 ```dart
+/// [Scrollable] 为了使用 [ScrollPosition] 而需要实现的接口
 abstract class ScrollContext {
-  /// The [BuildContext] that should be used when dispatching
-  /// [ScrollNotification]s.
+  /// 当需要派发 [ScrollNotification]s 时用到的 [BuildContext]
   ///
   /// This context is typically different that the context of the scrollable
   /// widget itself. For example, [Scrollable] uses a context outside the
@@ -269,7 +128,7 @@ abstract class ScrollContext {
   /// [ScrollBehavior.buildViewportChrome].
   BuildContext get notificationContext;
 
-  /// The [BuildContext] that should be used when searching for a [PageStorage].
+  /// 用于搜索 [PageStorage] 的 [BuildContext]
   ///
   /// This context is typically the context of the scrollable widget itself. In
   /// particular, it should involve any [GlobalKey]s that are dynamically
@@ -277,29 +136,21 @@ abstract class ScrollContext {
   /// different each time the widget is created.
   BuildContext get storageContext;
 
-  /// A [TickerProvider] to use when animating the scroll position.
   TickerProvider get vsync;
 
-  /// The direction in which the widget scrolls.
   AxisDirection get axisDirection;
 
-  /// Whether the contents of the widget should ignore [PointerEvent] inputs.
+  /// 此组件的内容是否应该忽略 [PointerEvent]，也就是是否应该相应指针事件
   ///
-  /// Setting this value to true prevents the use from interacting with the
-  /// contents of the widget with pointer events. The widget itself is still
-  /// interactive.
+  /// 将此值设置为 true 将阻止使用指针事件此组件的内容进行交互。但是此组件本身仍然是可交互的。
   ///
-  /// For example, if the scroll position is being driven by an animation, it
-  /// might be appropriate to set this value to ignore pointer events to
-  /// prevent the user from accidentally interacting with the contents of the
-  /// widget as it animates. The user will still be able to touch the widget,
-  /// potentially stopping the animation.
+  /// 例如，如果 scroll position 正在被动画驱动，它可能会将此字段设置为 true 以阻止用户意外地与内容交互（例
+  /// 如，阻止用户点击内容），但同时，它自身是可交互的，用户可以滑动来停止动画驱动 
   void setIgnorePointer(bool value);
 
-  /// Whether the user can drag the widget, for example to initiate a scroll.
+  /// 用户是否可以拖动此组件
   void setCanDrag(bool value);
 
-  /// Set the [SemanticsAction]s that should be expose to the semantics tree.
   void setSemanticsActions(Set<SemanticsAction> actions);
 }
 ```
@@ -309,23 +160,23 @@ abstract class ScrollContext {
 ## ScrollableState
 
 ```dart
-/// State object for a [Scrollable] widget.
+/// 要操作 [Scrollable] 组件的滚动位置，请使用从 [position] 属性获得的对象。
 ///
-/// To manipulate a [Scrollable] widget's scroll position, use the object
-/// obtained from the [position] property.
+/// 为了获取到 [Scrollable] 组件的滚动事件, 使用 [NotificationListener] 来监听 [ScrollNotification] 
 ///
-/// To be informed of when a [Scrollable] widget is scrolling, use a
-/// [NotificationListener] to listen for [ScrollNotification] notifications.
+/// 通常来说，若要自定义滚动，无需继承此类，而是提供自定义 [ScrollPhysics]
 ///
-/// This class is not intended to be subclassed. To specialize the behavior of a
-/// [Scrollable], provide it with a [ScrollPhysics].
-class ScrollableState extends State<Scrollable> with TickerProviderStateMixin
+/// 注意：此类实现了 ScrollContext
+class ScrollableState 
+    extends State<Scrollable> 
+    with TickerProviderStateMixin
     implements ScrollContext {
-  /// The manager for this [Scrollable] widget's viewport position.
+  
+  /// 管理滚动位置
   ///
-  /// To control what kind of [ScrollPosition] is created for a [Scrollable],
-  /// provide it with custom [ScrollController] that creates the appropriate
-  /// [ScrollPosition] in its [ScrollController.createScrollPosition] method.
+  /// 为了控制 [Scrollable] 使用何种类型的 [ScrollPosition]，提供一个自定义的 [ScrollController]。 
+  /// [ScrollController] 可以利用其 [ScrollController.createScrollPosition] 方法提供恰当的 
+  /// [ScrollPosition] 
   ScrollPosition get position => _position;
   ScrollPosition _position;
 
@@ -335,7 +186,7 @@ class ScrollableState extends State<Scrollable> with TickerProviderStateMixin
   ScrollBehavior _configuration;
   ScrollPhysics _physics;
 
-  // Only call this from places that will definitely trigger a rebuild.
+  // 这个方法只应该需要重建的时候调用
   void _updatePosition() {
     _configuration = ScrollConfiguration.of(context);
     _physics = _configuration.getScrollPhysics(context);
@@ -351,9 +202,16 @@ class ScrollableState extends State<Scrollable> with TickerProviderStateMixin
       scheduleMicrotask(oldPosition.dispose);
     }
 
-    _position = controller?.createScrollPosition(_physics, this, oldPosition)
-      ?? ScrollPositionWithSingleContext(physics: _physics, context: this, oldPosition: oldPosition);
-    assert(position != null);
+    _position = controller?.createScrollPosition(
+        _physics, 
+        this, 
+        oldPosition
+    ) ?? ScrollPositionWithSingleContext(
+        physics: _physics, 
+        context: this, 
+        oldPosition: oldPosition
+    );
+
     controller?.attach(position);
   }
 
@@ -636,11 +494,29 @@ class ScrollableState extends State<Scrollable> with TickerProviderStateMixin
 
     return _configuration.buildViewportChrome(context, result, widget.axisDirection);
   }
+}
+```
+
+
+
+##  _ScrollableScope
+
+```dart
+/// 一个用于向子树提供 ScrollableState 和 ScrollPosition 的 InheritedWidget
+class _ScrollableScope extends InheritedWidget {
+  const _ScrollableScope({
+    Key key,
+    @required this.scrollable,
+    @required this.position,
+    @required Widget child,
+  }) : super(key: key, child: child);
+
+  final ScrollableState scrollable;
+  final ScrollPosition position;
 
   @override
-  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
-    super.debugFillProperties(properties);
-    properties.add(DiagnosticsProperty<ScrollPosition>('position', position));
+  bool updateShouldNotify(_ScrollableScope old) {
+    return position != old.position;
   }
 }
 ```

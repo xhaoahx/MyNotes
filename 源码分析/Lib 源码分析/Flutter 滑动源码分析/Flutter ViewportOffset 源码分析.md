@@ -1,4 +1,6 @@
-# Flutter Viewport 源码分析
+# Flutter ViewportOffset 源码分析
+
+
 
 ## ViewportOffset
 
@@ -9,14 +11,14 @@
 abstract class ViewportOffset extends ChangeNotifier {
   ViewportOffset();
 
-  /// [pixels] 值不会被改变，除非视窗发起了一次更正
+  /// 工厂方法，返回 _FixedViewportOffset，其 [pixels] 值不会被改变，除非视窗发起了一次更正
   factory ViewportOffset.fixed(double value) = _FixedViewportOffset;
   factory ViewportOffset.zero() = _FixedViewportOffset.zero;
 
   /// 用于将孩子向 axis direction 反方向偏离的像素值
   ///
   /// 例如，axis direction 是 down, pixels 代表了在屏幕中是向上移动孩子的像素值。类似的，如果 axis 
-  /// direction 是 left， 那么pixels 代表了在屏幕中是向右移动孩子的像素值
+  /// direction 是 left， 那么 pixels 代表了在屏幕中是向右移动孩子的像素值
   /// 当这个值发生变化的时候，通知所有监听者（除非这个变化是由 [correctBy] 调用引起的）
   double get pixels;
 
@@ -131,15 +133,26 @@ abstract class ScrollMetrics {
     );
   }
 
+  /// 关于 minScrollExtent 和 maxScrollExtent
+  /// 
+  /// 考虑 ScrollView 中 center 不为第一个 child 的情况：
+  /// 如果把 anchor 设置为 0.0，且 aixsDirection 设置为 down，那么，center 将会显示到视窗的顶部并且与边缘对
+  /// 其。此时，scrollOffset（也就是此 [pixels]）显然是 0.0，但是视窗“上方”还有一部分内容可以显示。因此，可
+  /// 以向下滑动视窗（泛化地说，向 aixsDirection 的反方向滚动）。这会导致 scrollOffset（也就是此 [pixels]）
+  /// 小于 0.0（向 aixsDirection 的正方向滚动时，scrollOffset 是增加的）。由于 center 之前的内容可能是有限
+  /// 的，因此会对应有 scrollOffset（也就是此 [pixels] 的最小；相反，有最大值。
+  
   /// 最小的被视作在范围内的 [pixels].
   ///
-  /// The actual [pixels] value might be [outOfRange].
+  /// [pixels] 的实际值可能处于 [outOfRange]（也就是过渡滚动的时候）
   double get minScrollExtent;
 
   /// 最大的被视作在范围内 [pixels].
+  ///
+  /// [pixels] 的实际值可能处于 [outOfRange]（也就是过渡滚动的时候）
   double get maxScrollExtent;
 
-  /// 当前的滚动, [axisDirection] 上的逻辑像素值
+  /// 当 [axisDirection] 正方向的滚动, [axisDirection] 上的逻辑像素值
   double get pixels;
 
   /// 沿着 [axisDirection] 上的视窗的大小
@@ -152,13 +165,19 @@ abstract class ScrollMetrics {
   /// 即：如果 axisDirection 是 down 或者 up,那么轴方向是 vertical，否则是 horizental
   Axis get axis => axisDirectionToAxis(axisDirection);
 
-  /// 是否 [pixels] 的值处于 [minScrollExtent] 之间 [maxScrollExtent].
+  /// 是否 [pixels] 的值处于 [minScrollExtent] 之间 [maxScrollExtent]，即是否出界，出界值将被视为过渡滚动
   bool get outOfRange => pixels < minScrollExtent || pixels > maxScrollExtent;
 
   /// 是否 [pixels] 的值等于 [minScrollExtent] 或者 [maxScrollExtent].
   bool get atEdge => pixels == minScrollExtent || pixels == maxScrollExtent;
 
   /// 概念上“高于”可滚动视图的大小。即 [extentInside] 描述的内容上方的内容。
+  /// 
+  /// 参考对 minScrollExtent 的描述，我们假设 center “上方” 的内容的高度是 100.0
+  /// 因此，minScrollExtent 是 -100.0（即最多可以向 axisDirection 的反方向滚动 100.0），并且，此时的 
+  /// scrollOffset 是 50.0（即我们向 axisDirection 的正方向滚动了 50.0）。这种情况下，我们知道，在视窗“上
+  /// 方”的内容高度为 pixels - minScrollExtent = 100 + 50 = 150。（由于可以过渡滚动，即 pixels < 
+  /// minScrollExtent，因此取最小值为 0.0）
   double get extentBefore => math.max(pixels - minScrollExtent, 0.0);
 
   /// 概念上“处于”可滚动视图内的大小。
@@ -169,13 +188,13 @@ abstract class ScrollMetrics {
   /// 这个值总是非负的，并且小于等于 [viewportDimension].
   double get extentInside {
     /// 首先，我们假设视窗的高度是 500
-    /// 然后我们假设有一个垂直的列表，它的长度是 1000，axisDirection 是 down，
-    /// 我们规定其 maxScrollExtent = 1000，minScrollExtent = 0.0
+    /// 然后我们假设有一个垂直的列表，它的长度是 1000，axisDirection 是 down，center 是第一个 child
+    /// 显然，其 maxScrollExtent = 1000，minScrollExtent = 0.0
     /// 假设 pixels 是 1100
     /// 即我们向上滚动了 1100 像素，此时发生了过度滚动。即 outOfRange == true
     /// 此时，下方过渡滚动的值是 100
-    /// 因此，视窗内的实际内容高度只有 400
-    /// 此时 extentAfter = 0.0，extentBefore = 1600
+    /// 因此，视窗内的实际内容高度只有 400，即 extentInside = 400.0
+    /// 此时 extentAfter = 0.0，extentBefore = 1100
     return viewportDimension
       // “上方” 过度滚动的值
       - (minScrollExtent - pixels).clamp(0, viewportDimension)
@@ -183,8 +202,7 @@ abstract class ScrollMetrics {
       - (pixels - maxScrollExtent).clamp(0, viewportDimension);
   }
 
-  /// The quantity of content conceptually "below" the viewport in the scrollable.
-  /// This is the content below the content described by [extentInside].
+  /// 类比于 extentBefore 的概念可知
   double get extentAfter => math.max(maxScrollExtent - pixels, 0.0);
 }
 ```
@@ -373,7 +391,7 @@ abstract class ScrollPosition extends ViewportOffset with ScrollMetrics {
   }
 
   /// 滚动结束的时候，在 PageStorage 中储存 scroll offset
-  /// PageStorage 通常被 route 构建
+  /// PageStorage 通常被 navigator 构建
   @protected
   void saveScrollOffset() {
     PageStorage.of(context.storageContext)?.writeState(context.storageContext, pixels);
@@ -448,9 +466,10 @@ abstract class ScrollPosition extends ViewportOffset with ScrollMetrics {
     /// 如果给定的 minScrollExtent 或 maxScrollExtent 不与之前的值近似相等的话
     /// 或者当视窗的大小发生了改变，或者接收到了以一次更正
     /// 那么会更新  _minScrollExtent 、_maxScrollExtent 的值，并调用 applyNewDimensions
-    if (!nearEqual(_minScrollExtent, minScrollExtent, Tolerance.defaultTolerance.distance) ||
-        !nearEqual(_maxScrollExtent, maxScrollExtent, Tolerance.defaultTolerance.distance) ||
-        _didChangeViewportDimensionOrReceiveCorrection) {
+    if (   !nearEqual(_minScrollExtent, minScrollExtent, Tolerance.defaultTolerance.distance) 
+        || !nearEqual(_maxScrollExtent, maxScrollExtent, Tolerance.defaultTolerance.distance) 
+        || _didChangeViewportDimensionOrReceiveCorrection
+    ) {
       _minScrollExtent = minScrollExtent;
       _maxScrollExtent = maxScrollExtent;
       _haveDimensions = true;
@@ -475,7 +494,8 @@ abstract class ScrollPosition extends ViewportOffset with ScrollMetrics {
     _updateSemanticActions(); 
   }
 
-  /// 使给定的 renderObject 尽可能地被展示
+  /// 使指定的 renderObject 尽可能地被展示
+  /// 其中，duration 是动画间隔，
   /// alignment 和 alignmentPolicy 指定了排列方式
   Future<void> ensureVisible(
     RenderObject object, {
@@ -551,7 +571,7 @@ abstract class ScrollPosition extends ViewportOffset with ScrollMetrics {
   @override
   bool get allowImplicitScrolling => physics.allowImplicitScrolling;
 
-  /// 停止当前的 aviivity 并且开始一个 [HoldScrollActivity].
+  /// 停止当前的 activity 并且开始一个 [HoldScrollActivity].
   ScrollHoldController hold(VoidCallback holdCancelCallback);
 
   /// 开始一个对应于给定 [DragStartDetails] 的 activity
@@ -567,7 +587,7 @@ abstract class ScrollPosition extends ViewportOffset with ScrollMetrics {
   ScrollActivity get activity => _activity;
   ScrollActivity _activity;
 
-  /// 改变当前的 [activity], 销毁之前的 activity 并且在必要的是否发送 scroll notification
+  /// 改变当前的 [activity], 销毁之前的 activity 并且在必要的时候发送 scroll notification
   void beginActivity(ScrollActivity newActivity) {
     if (newActivity == null)
       return;
@@ -645,6 +665,8 @@ abstract class ScrollPosition extends ViewportOffset with ScrollMetrics {
 }
 
 ```
+
+
 
 ## ScrollActivity 及其子类相关
 
@@ -1255,355 +1277,4 @@ class DrivenScrollActivity extends ScrollActivity {
 }
 
 ```
-
-
-
-## Viewport
-
-```dart
-/// 一个视窗组件，与 RenderViewport 渲染对象对应
-///
-/// [Viewport] 是“滚动机器”的视觉加工厂. 它根据给定的 [offset] 和它自身的维度大小来展示其子集.
-/// 当 offset 发生改变的时候，不同的滑块会经过并被展示在视窗以内
-///
-/// [Viewport] 持有两个方向的滑块列表 ,锚定在 [center] 滑块的位置,[center] 被展示在 scroll offset 零点
-class Viewport extends MultiChildRenderObjectWidget {
-  /// Viewport 会自动监听 scrollOffset
-  Viewport({
-    Key key,
-    this.axisDirection = AxisDirection.down,
-    this.crossAxisDirection,
-    this.anchor = 0.0,
-    @required this.offset,
-    this.center,
-    this.cacheExtent,
-    this.cacheExtentStyle = CacheExtentStyle.pixel,
-    List<Widget> slivers = const <Widget>[],
-  }) : super(key: key, children: slivers);
-
-  final AxisDirection axisDirection;
-  final AxisDirection crossAxisDirection;
-
-  /// scroll offset 零点的相对位置
-  final double anchor;
-
-  /// 视窗内的哪一部分应该可见.
-  ///
-  /// 通常来说 offset 是一个 [ScrollPosition].
-  final ViewportOffset offset;
-
-  /// [GrowthDirection.forward] 的第一个孩子
-  final Key center;
-
-  /// 缓存大小
-  final double cacheExtent;
-
-  /// 缓存大小的计算方式，百分比计算或者固定大小
-  final CacheExtentStyle cacheExtentStyle;
-
-  /// 获取默认的纵轴方向
-  static AxisDirection getDefaultCrossAxisDirection(
-      BuildContext context, 
-      AxisDirection axisDirection
-  ) {
-    assert(axisDirection != null);
-    switch (axisDirection) {
-      case AxisDirection.up:
-        return textDirectionToAxisDirection(Directionality.of(context));
-      case AxisDirection.right:
-        return AxisDirection.down;
-      case AxisDirection.down:
-        return textDirectionToAxisDirection(Directionality.of(context));
-      case AxisDirection.left:
-        return AxisDirection.down;
-    }
-    return null;
-  }
-
-  @override
-  RenderViewport createRenderObject(BuildContext context) {
-    return RenderViewport(
-      axisDirection: axisDirection,
-      crossAxisDirection: crossAxisDirection ?? 
-        Viewport.getDefaultCrossAxisDirection(context, axisDirection),
-      anchor: anchor,
-      offset: offset,
-      cacheExtent: cacheExtent,
-      cacheExtentStyle: cacheExtentStyle,
-    );
-  }
-
-  @override
-  void updateRenderObject(BuildContext context, RenderViewport renderObject) {
-    renderObject
-      ..axisDirection = axisDirection
-      ..crossAxisDirection = crossAxisDirection ?? 
-        Viewport.getDefaultCrossAxisDirection(context, axisDirection)
-      ..anchor = anchor
-      ..offset = offset
-      ..cacheExtent = cacheExtent
-      ..cacheExtentStyle = cacheExtentStyle;
-  }
-
-  @override
-  _ViewportElement createElement() => _ViewportElement(this);
-}
-
-```
-
-## ScrollPositionWithSingleContext
-
-```dart
-/// A scroll position that manages scroll activities for a single
-/// [ScrollContext].
-///
-/// This class is a concrete subclass of [ScrollPosition] logic that handles a
-/// single [ScrollContext], such as a [Scrollable]. An instance of this class
-/// manages [ScrollActivity] instances, which change what content is visible in
-/// the [Scrollable]'s [Viewport].
-///
-/// See also:
-///
-///  * [ScrollPosition], which defines the underlying model for a position
-///    within a [Scrollable] but is agnostic as to how that position is
-///    changed.
-///  * [ScrollView] and its subclasses such as [ListView], which use
-///    [ScrollPositionWithSingleContext] to manage their scroll position.
-///  * [ScrollController], which can manipulate one or more [ScrollPosition]s,
-///    and which uses [ScrollPositionWithSingleContext] as its default class for
-///    scroll positions.
-class ScrollPositionWithSingleContext extends ScrollPosition implements ScrollActivityDelegate {
-  /// Create a [ScrollPosition] object that manages its behavior using
-  /// [ScrollActivity] objects.
-  ///
-  /// The `initialPixels` argument can be null, but in that case it is
-  /// imperative that the value be set, using [correctPixels], as soon as
-  /// [applyNewDimensions] is invoked, before calling the inherited
-  /// implementation of that method.
-  ///
-  /// If [keepScrollOffset] is true (the default), the current scroll offset is
-  /// saved with [PageStorage] and restored it if this scroll position's scrollable
-  /// is recreated.
-  ScrollPositionWithSingleContext({
-    @required ScrollPhysics physics,
-    @required ScrollContext context,
-    double initialPixels = 0.0,
-    bool keepScrollOffset = true,
-    ScrollPosition oldPosition,
-    String debugLabel,
-  }) : super(
-         physics: physics,
-         context: context,
-         keepScrollOffset: keepScrollOffset,
-         oldPosition: oldPosition,
-         debugLabel: debugLabel,
-       ) {
-    // If oldPosition is not null, the superclass will first call absorb(),
-    // which may set _pixels and _activity.
-    if (pixels == null && initialPixels != null)
-      correctPixels(initialPixels);
-    if (activity == null)
-      goIdle();
-    assert(activity != null);
-  }
-
-  /// Velocity from a previous activity temporarily held by [hold] to potentially
-  /// transfer to a next activity.
-  double _heldPreviousVelocity = 0.0;
-
-  @override
-  AxisDirection get axisDirection => context.axisDirection;
-
-  @override
-  double setPixels(double newPixels) {
-    assert(activity.isScrolling);
-    return super.setPixels(newPixels);
-  }
-
-  @override
-  void absorb(ScrollPosition other) {
-    super.absorb(other);
-    if (other is! ScrollPositionWithSingleContext) {
-      goIdle();
-      return;
-    }
-    activity.updateDelegate(this);
-    final ScrollPositionWithSingleContext typedOther = other as ScrollPositionWithSingleContext;
-    _userScrollDirection = typedOther._userScrollDirection;
-    assert(_currentDrag == null);
-    if (typedOther._currentDrag != null) {
-      _currentDrag = typedOther._currentDrag;
-      _currentDrag.updateDelegate(this);
-      typedOther._currentDrag = null;
-    }
-  }
-
-  @override
-  void applyNewDimensions() {
-    super.applyNewDimensions();
-    context.setCanDrag(physics.shouldAcceptUserOffset(this));
-  }
-
-  @override
-  void beginActivity(ScrollActivity newActivity) {
-    _heldPreviousVelocity = 0.0;
-    if (newActivity == null)
-      return;
-    assert(newActivity.delegate == this);
-    super.beginActivity(newActivity);
-    _currentDrag?.dispose();
-    _currentDrag = null;
-    if (!activity.isScrolling)
-      updateUserScrollDirection(ScrollDirection.idle);
-  }
-
-  @override
-  void applyUserOffset(double delta) {
-    updateUserScrollDirection(delta > 0.0 ? ScrollDirection.forward : ScrollDirection.reverse);
-    setPixels(pixels - physics.applyPhysicsToUserOffset(this, delta));
-  }
-
-  @override
-  void goIdle() {
-    beginActivity(IdleScrollActivity(this));
-  }
-
-  /// Start a physics-driven simulation that settles the [pixels] position,
-  /// starting at a particular velocity.
-  ///
-  /// This method defers to [ScrollPhysics.createBallisticSimulation], which
-  /// typically provides a bounce simulation when the current position is out of
-  /// bounds and a friction simulation when the position is in bounds but has a
-  /// non-zero velocity.
-  ///
-  /// The velocity should be in logical pixels per second.
-  @override
-  void goBallistic(double velocity) {
-    assert(pixels != null);
-    final Simulation simulation = physics.createBallisticSimulation(this, velocity);
-    if (simulation != null) {
-      beginActivity(BallisticScrollActivity(this, simulation, context.vsync));
-    } else {
-      goIdle();
-    }
-  }
-
-  @override
-  ScrollDirection get userScrollDirection => _userScrollDirection;
-  ScrollDirection _userScrollDirection = ScrollDirection.idle;
-
-  /// Set [userScrollDirection] to the given value.
-  ///
-  /// If this changes the value, then a [UserScrollNotification] is dispatched.
-  @protected
-  @visibleForTesting
-  void updateUserScrollDirection(ScrollDirection value) {
-    assert(value != null);
-    if (userScrollDirection == value)
-      return;
-    _userScrollDirection = value;
-    didUpdateScrollDirection(value);
-  }
-
-  @override
-  Future<void> animateTo(
-    double to, {
-    @required Duration duration,
-    @required Curve curve,
-  }) {
-    if (nearEqual(to, pixels, physics.tolerance.distance)) {
-      // Skip the animation, go straight to the position as we are already close.
-      jumpTo(to);
-      return Future<void>.value();
-    }
-
-    final DrivenScrollActivity activity = DrivenScrollActivity(
-      this,
-      from: pixels,
-      to: to,
-      duration: duration,
-      curve: curve,
-      vsync: context.vsync,
-    );
-    beginActivity(activity);
-    return activity.done;
-  }
-
-  @override
-  void jumpTo(double value) {
-    goIdle();
-    if (pixels != value) {
-      final double oldPixels = pixels;
-      forcePixels(value);
-      notifyListeners();
-      didStartScroll();
-      didUpdateScrollPositionBy(pixels - oldPixels);
-      didEndScroll();
-    }
-    goBallistic(0.0);
-  }
-
-  @Deprecated('This will lead to bugs.') // ignore: flutter_deprecation_syntax, https://github.com/flutter/flutter/issues/44609
-  @override
-  void jumpToWithoutSettling(double value) {
-    goIdle();
-    if (pixels != value) {
-      final double oldPixels = pixels;
-      forcePixels(value);
-      notifyListeners();
-      didStartScroll();
-      didUpdateScrollPositionBy(pixels - oldPixels);
-      didEndScroll();
-    }
-  }
-
-  @override
-  ScrollHoldController hold(VoidCallback holdCancelCallback) {
-    final double previousVelocity = activity.velocity;
-    final HoldScrollActivity holdActivity = HoldScrollActivity(
-      delegate: this,
-      onHoldCanceled: holdCancelCallback,
-    );
-    beginActivity(holdActivity);
-    _heldPreviousVelocity = previousVelocity;
-    return holdActivity;
-  }
-
-  ScrollDragController _currentDrag;
-
-  @override
-  Drag drag(DragStartDetails details, VoidCallback dragCancelCallback) {
-    final ScrollDragController drag = ScrollDragController(
-      delegate: this,
-      details: details,
-      onDragCanceled: dragCancelCallback,
-      carriedVelocity: physics.carriedMomentum(_heldPreviousVelocity),
-      motionStartDistanceThreshold: physics.dragStartDistanceMotionThreshold,
-    );
-    beginActivity(DragScrollActivity(this, drag));
-    assert(_currentDrag == null);
-    _currentDrag = drag;
-    return drag;
-  }
-
-  @override
-  void dispose() {
-    _currentDrag?.dispose();
-    _currentDrag = null;
-    super.dispose();
-  }
-
-  @override
-  void debugFillDescription(List<String> description) {
-    super.debugFillDescription(description);
-    description.add('${context.runtimeType}');
-    description.add('$physics');
-    description.add('$activity');
-    description.add('$userScrollDirection');
-  }
-}
-
-```
-
-
 

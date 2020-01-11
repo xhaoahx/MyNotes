@@ -3,7 +3,7 @@
 ## RevealedOffset
 
 ```dart
-/// 它指出了在一个视口中显示一个元素所需的[Offset]，以及该元素在该视口中的[rect]位置。
+/// 它指出了在一个视口中显示一个元素所需的 [Offset]，以及该元素在该视口中的 [rect] 位置。
 class RevealedOffset {
   const RevealedOffset({
     @required this.offset,
@@ -13,29 +13,24 @@ class RevealedOffset {
   /// 展示给定元素需要的偏移量
   final double offset;
 
-  /// 将一个 RenderObject 'target ' 作为参数传递给 RenderAbstractView.getOffsetToReveal,会得到一个
+  /// 将一个 RenderObject 'target' 作为参数传递给 RenderAbstractView.getOffsetToReveal,会得到一个
   /// RevealedOffset 返回值。
   /// 其中 offset 意味着当 scrollOffset == offset 的时候，target 将会被展示
+  ///
   /// rect 代表了 target 在外部坐标系中的位置
   ///
-  /// 一个视窗通常具有两种坐标系，这个起到一个在两者之间的适配器的作用
+  /// 一个视窗通常具有两种坐标系，这个类起到一个在两者之间的适配器的作用
   ///
-  /// 内部坐标系的原定处于在视窗内部滚动的元素的左上角
-  /// 当视窗的 scroll offset 发生变化时，这个坐标系原点相对于视窗的边缘进行移动
+  /// 内部坐标系的原点处于在视窗内部滚动的元素的左上角
+  /// 当视窗的 scroll offset 发生变化时，内坐标系原点相对于视窗的边缘进行移动
   ///
-  /// 外部坐标系的原地处于视窗的左上角。这个坐标系原点与 scroll offset 无关
+  /// 外部坐标系的原点处于视窗的左上角。这个坐标系原点与 scroll offset 无关
   ///
   /// 换句话说: [rect] 描述了被展示的元素在外部坐标系中的位置
   final Rect rect;
-
-  @override
-  String toString() {
-    return '$runtimeType(offset: $offset, rect: $rect)';
-  }
+  ...
 }
 ```
-
-
 
 
 
@@ -248,7 +243,10 @@ class Viewport extends MultiChildRenderObjectWidget {
   }
 }
 ```
+
+
 ## _ViewportElement
+
 ```dart
 class _ViewportElement extends MultiChildRenderObjectElement {
   /// Creates an element that uses the given widget as its configuration.
