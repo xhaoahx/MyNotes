@@ -1521,7 +1521,7 @@ mixin PaintingBinding on BindingBase, ServicesBinding {
     @protected
     ImageCache createImageCache() => ImageCache();
 
-    /// 通过 [ImageCache ]中的 [decodedCacheRatioCap] 调用 [dart:ui]。
+    /// 通过给定的大小来解码图像，返回一个 ui.codec
     ///
     /// 当指定 [cacheWidth] 和 [cacheHeight] 参数时，表示了要解码图像的大小。
     ///
@@ -1532,8 +1532,6 @@ mixin PaintingBinding on BindingBase, ServicesBinding {
         int cacheWidth,
         int cacheHeight,
     }) {
-        assert(cacheWidth == null || cacheWidth > 0);
-        assert(cacheHeight == null || cacheHeight > 0);
         return ui.instantiateImageCodec(
             bytes,
             targetWidth: cacheWidth,

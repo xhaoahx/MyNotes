@@ -7,18 +7,21 @@
 ## 函数原型：
 
 ```dart
-
-/// [TweenVisitor]的参数之一，被[AnimatedWidgetBaseState.forEachTween]使用
+/// [TweenVisitor] 的参数之一，被 [AnimatedWidgetBaseState.forEachTween] 使用
 /// 返回一个把 targetValue 作为终点值的补间
 typedef TweenConstructor<T> = Tween<T> Function(T targetValue);
 
-/// tween 参数必须包含当前的 tween值，在首次建造state的时候为null。
-typedef TweenVisitor<T> = Tween<T> Function(Tween<T> tween, T targetValue, TweenConstructor<T> constructor);
+/// tween 参数必须包含当前的 tween值，在首次建造 state 的时候为 null。
+typedef TweenVisitor<T> = Tween<T> Function(
+    Tween<T> tween, 
+    T targetValue, 
+    TweenConstructor<T> constructor
+);
 ```
 
 
 
-## 源码
+## ImplicitylyAnimatedWidget
 
 ```dart
 abstract class ImplicitlyAnimatedWidget extends StatefulWidget {
@@ -28,9 +31,7 @@ abstract class ImplicitlyAnimatedWidget extends StatefulWidget {
     this.curve = Curves.linear,
     @required this.duration,
     this.reverseDuration,
-  }) : assert(curve != null),
-       assert(duration != null),
-       super(key: key);
+  }) : super(key: key);
     
   final Curve curve;
   final Duration duration;
@@ -38,19 +39,24 @@ abstract class ImplicitlyAnimatedWidget extends StatefulWidget {
 
   @override
   ImplicitlyAnimatedWidgetState<ImplicitlyAnimatedWidget> createState();
-
-  ...
 }	
+```
 
 
 
-abstract class ImplicitlyAnimatedWidgetState<T extends ImplicitlyAnimatedWidget> extends State<T> with SingleTickerProviderStateMixin<T> {
+## ImplicitlyAnimatedWidgetState
+
+```dart
+abstract class ImplicitlyAnimatedWidgetState<
+		T extends ImplicitlyAnimatedWidget> 
+	extends State<T> 
+	with SingleTickerProviderStateMixin<T> {
 
   @protected
   AnimationController get controller => _controller;
   AnimationController _controller;
 
-  /// The animation driving this widget's implicit animations.
+  /// 间接动画
   Animation<double> get animation => _animation;
   Animation<double> _animation;
 
@@ -65,29 +71,36 @@ abstract class ImplicitlyAnimatedWidgetState<T extends ImplicitlyAnimatedWidget>
     );
     /// 首次更新曲线，把控制器作为动画
     _updateCurve();
-    /// 首次构建tween会调用到子类的forEachTween方法
+    /// 首次构建 tween 会调用到子类的 forEachTween 方法
     _constructTweens();
-    /// 调用子类的didUpdateTweens()方法
+    /// 更新 tween 完成回调
     didUpdateTweens();
   }
 
   @override
   void didUpdateWidget(T oldWidget) {
     super.didUpdateWidget(oldWidget);
-    /// 曲线不同则更新曲线
+    /// 更新曲线
     if (widget.curve != oldWidget.curve)
       _updateCurve();
+    /// 更新周期 和 逆转周期
     _controller.duration = widget.duration;
     _controller.reverseDuration = widget.reverseDuration;
-    /// _constructTweens()方法返回真，则需要开始动画
+    /// _constructTweens() 方法返回真，则需要开始动画
     if (_constructTweens()) {
-      /// 这里在_updateTween里调用了constructor，更改了tween并返回
-      forEachTween((Tween<dynamic> tween, dynamic targetValue, TweenConstructor<dynamic> constructor) {
-        /// 把 tween更新，将新值作为end
+      TweenVisitor visitor = (
+          Tween<dynamic> tween, 
+          dynamic targetValue, 
+          TweenConstructor<dynamic> constructor
+      ) {
+        /// 把 tween 更新，将新值作为 end
         _updateTween(tween, targetValue);
         return tween;
-      });
-      /// 把控制器置0，开始动画  
+      };
+        
+      forEachTween(visitor);
+      /// 由于已经更新了 tween，这时候 controller 的 0.0 值映射到 旧 tween 的当前值。
+      /// 把 controller 置 0.0 并且开始动画  
       _controller
         ..value = 0.0
         ..forward();
@@ -109,41 +122,52 @@ abstract class ImplicitlyAnimatedWidgetState<T extends ImplicitlyAnimatedWidget>
     super.dispose();
   }
 
+  /// 如果目标值不是补间的结尾或者起点的话，则需要开始动画
   bool _shouldAnimateTween(Tween<dynamic> tween, dynamic targetValue) {
     return targetValue != (tween.end ?? tween.begin);
   }
 
+  /// 更新给定的 tween
   void _updateTween(Tween<dynamic> tween, dynamic targetValue) {
     if (tween == null)
       return;
+    /// 将 _animation 的当前值作为 tween.begin
+    /// 将 targetValue 作为 tween.end
     tween
+      /// tween.evaluate 方法返回 在给定 animation 的补间值
+      /// T evaluate(Animation<double> animation) => transform(animation.value); 
       ..begin = tween.evaluate(_animation)
       ..end = targetValue;
-    /// 其中 T evaluate(Animation<double> animation) => transform(animation.value); 
-    /// 即transform动画的当前值  
-    /// 把targetValue作为end
   }
 
   bool _constructTweens() {
     bool shouldStartAnimation = false;
-    forEachTween((Tween<dynamic> tween, dynamic targetValue, TweenConstructor<dynamic> constructor) {
+    TweenVisitor visitor = (
+        Tween<dynamic> tween, 
+        dynamic targetValue, 
+        TweenConstructor<dynamic> constructor
+    ) {
       if (targetValue != null) {
+        /// 起始状态时，tween 为 null，这时候会构造调用 constructor 构造一个初始 tween
         tween ??= constructor(targetValue);
-        /// 如果tween的值不为开始或结束值（为null则是开始值）的话，开始动画
+        /// 如果 tween 的值不为开始或结束值（为 null 则是开始值）的话，则应该开始动画，设置标记为 true
         if (_shouldAnimateTween(tween, targetValue))
           shouldStartAnimation = true;
       } else {
         tween = null;
       }
       return tween;
-    });
+    };
+      
+    forEachTween(visitor);
     return shouldStartAnimation;
   }
 
-  /
+  /// 要求子类实现，给定 visitor，子类调用 visitor 来更新其保存 tween
   @protected
   void forEachTween(TweenVisitor<dynamic> visitor);
 
+  /// 更新 tween 完成后的回调，不一定要实现
   @protected
   void didUpdateTweens() { }
 }
@@ -151,10 +175,12 @@ abstract class ImplicitlyAnimatedWidgetState<T extends ImplicitlyAnimatedWidget>
 
 
 
-## 以Animated Align为例
+## 以 Animated Align 为例
+
+### AnimatedAlign
 
 ```dart
-/// 当每次alignment改变时，会触发动画
+/// 当每次 alignment 改变时，会触发动画（从旧 alignment 过渡到新 alignment）
 class AnimatedAlign extends ImplicitlyAnimatedWidget {
   const AnimatedAlign({
     Key key,
@@ -163,8 +189,12 @@ class AnimatedAlign extends ImplicitlyAnimatedWidget {
     Curve curve = Curves.linear,
     @required Duration duration,
     Duration reverseDuration,
-  }) : assert(alignment != null),
-       super(key: key, curve: curve, duration: duration, reverseDuration: reverseDuration);
+  }) : super(
+      key: key, 
+      curve: curve, 
+      duration: duration,
+      reverseDuration: reverseDuration
+  );
 
   final AlignmentGeometry alignment;
   final Widget child;
@@ -174,8 +204,10 @@ class AnimatedAlign extends ImplicitlyAnimatedWidget {
     
   ...
 }
+```
 
-///  AlignmentGeometryTween
+### AlignmentGeometryTween
+```dart
 class AlignmentGeometryTween extends Tween<AlignmentGeometry> {
   AlignmentGeometryTween({
     AlignmentGeometry begin,
@@ -184,6 +216,7 @@ class AlignmentGeometryTween extends Tween<AlignmentGeometry> {
   @override
   AlignmentGeometry lerp(double t) => AlignmentGeometry.lerp(begin, end, t);
     
+ /// dynamic lerp(dynamic a,dynamic b,dynamic t){
  ///  assert(t != null);
  ///   if (a == null && b == null)
  ///     return null;
@@ -200,19 +233,31 @@ class AlignmentGeometryTween extends Tween<AlignmentGeometry> {
  ///     ui.lerpDouble(a._start, b._start, t),
  ///     ui.lerpDouble(a._y, b._y, t),
  ///   );  
+ /// }
 }
+```
 
+### _AnimatedAlignState
+```dart
 
 class _AnimatedAlignState extends AnimatedWidgetBaseState<AnimatedAlign> {
   AlignmentGeometryTween _alignment;
 
-  /// 调用 visitor 返回一个将widget.aligment作begin的AlignmentGeometryTween
+  /// forEachTween 方法的实现实际是要求利用给定的 visitor 来更新所有的 tween
   @override
   void forEachTween(TweenVisitor<dynamic> visitor) {
-    _alignment = visitor(_alignment, widget.alignment, (dynamic value) => AlignmentGeometryTween(begin: value));
-    /// 第三个参数实则是Tween<T> Function(T targetValue);  
+    /// 将现有的 tween 更新到从 当前补间值开始到目标值结束 的新 tween
+    _alignment = visitor(
+        /// 现有的 tween
+        _alignment, 
+        /// 目标值
+        widget.alignment, 
+        /// 如果 现有 tween 为 null，则会 调用此构造器新建一个 tween
+        (dynamic value) => AlignmentGeometryTween(begin: value)
+    );
   }
 
+  /// 子类只需调用 tween.evaluate（animation）即可实现动画（animation 字段源自超类）
   @override
   Widget build(BuildContext context) {
     return Align(
