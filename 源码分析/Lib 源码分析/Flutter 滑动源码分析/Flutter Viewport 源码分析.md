@@ -713,7 +713,8 @@ abstract class RenderViewportBase<
     	extends ContainerParentDataMixin<RenderSliver>>
     extends RenderBox 
     with ContainerRenderObjectMixin<RenderSliver, ParentDataClass>
-    implements RenderAbstractViewport {
+    implements RenderAbstractViewport
+{
   /// Initializes fields for subclasses.
   RenderViewportBase({
     AxisDirection axisDirection = AxisDirection.down,
@@ -722,6 +723,8 @@ abstract class RenderViewportBase<
     double cacheExtent,
   }) : _axisDirection = axisDirection,
        _crossAxisDirection = crossAxisDirection,
+       /// 在构造函数里对 offset 进行修改，触发 offset 的 setter，将 markNeedsbuild 方法加入 offset 监听者
+       /// 中
        _offset = offset,
        _cacheExtent = cacheExtent ?? RenderAbstractViewport.defaultCacheExtent;
 
@@ -774,9 +777,11 @@ abstract class RenderViewportBase<
       return;
     /// 当设定 ViewportOffset 时候，向其中加入了 markNeedsLayout，
     /// 即每当其值变化的时候，renderViewport 都会重新布局
+    /// 若已有一个 offset，需要注销监听
     if (attached)
       _offset.removeListener(markNeedsLayout);
     _offset = value;
+    /// 监听新的 offset
     if (attached)
       _offset.addListener(markNeedsLayout);
     markNeedsLayout();

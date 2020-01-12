@@ -1,50 +1,28 @@
-# Flutter ScrollController 源码分析
+
 
 ## ScrollController
 
 ```dart
-/// Controls a scrollable widget.
+/// 控制 scrollable widget.
 ///
-/// Scroll controllers are typically stored as member variables in [State]
-/// objects and are reused in each [State.build]. A single scroll controller can
-/// be used to control multiple scrollable widgets, but some operations, such
-/// as reading the scroll [offset], require the controller to be used with a
-/// single scrollable widget.
+/// Scroll Controlller 通常在 [State] 储存为成员变量，并在每一次 State.build 方法间被重复使用。一个 scroll 
+/// controller 可以被用于控制多个 scrollable widget，但是默写操作，例如获取 [offset]，要求此 controller 只
+/// 被用于单个 scrollable widget
 ///
-/// A scroll controller creates a [ScrollPosition] to manage the state specific
-/// to an individual [Scrollable] widget. To use a custom [ScrollPosition],
-/// subclass [ScrollController] and override [createScrollPosition].
+/// scrollController 对象可以创建 [ScrollPosition] 来管理独立 [Scrollable] widget 的特定状态。为了自定义. [ScrollPosition] ，可以继承 [ScrollController] 并且重载其 [createScrollPosition] 方法。 
 ///
-/// A [ScrollController] is a [Listenable]. It notifies its listeners whenever
-/// any of the attached [ScrollPosition]s notify _their_ listeners (i.e.
-/// whenever any of them scroll). It does not notify its listeners when the list
-/// of attached [ScrollPosition]s changes.
+/// [ScrollController] 实际是 [Listenable]。无论何时， [ScrollController] 在 [ScrollPosition] 通知它们的
+/// 监听者的时候，通知它自身的监听者（例如，[ScrollPosition] 中的任一者发生了滚动。通常情况下，我们可以通过 
+/// ScrollController.addListener(VoidCallBack) 方法来添加滚动监听）。但是，在 ScrollPosition 发生改变的时
+/// 候，它不会通知监听者
 ///
-/// Typically used with [ListView], [GridView], [CustomScrollView].
-///
-/// See also:
-///
-///  * [ListView], [GridView], [CustomScrollView], which can be controlled by a
-///    [ScrollController].
-///  * [Scrollable], which is the lower-level widget that creates and associates
-///    [ScrollPosition] objects with [ScrollController] objects.
-///  * [PageController], which is an analogous object for controlling a
-///    [PageView].
-///  * [ScrollPosition], which manages the scroll offset for an individual
-///    scrolling widget.
-///  * [ScrollNotification] and [NotificationListener], which can be used to watch
-///    the scroll position without using a [ScrollController].
+/// 通常被 [ListView], [GridView], [CustomScrollView] 使用
 class ScrollController extends ChangeNotifier {
-  /// Creates a controller for a scrollable widget.
-  ///
-  /// The values of `initialScrollOffset` and `keepScrollOffset` must not be null.
   ScrollController({
     double initialScrollOffset = 0.0,
     this.keepScrollOffset = true,
     this.debugLabel,
-  }) : assert(initialScrollOffset != null),
-       assert(keepScrollOffset != null),
-       _initialScrollOffset = initialScrollOffset;
+  }) : _initialScrollOffset = initialScrollOffset;
 
   /// The initial value to use for [offset].
   ///
@@ -56,83 +34,34 @@ class ScrollController extends ChangeNotifier {
   double get initialScrollOffset => _initialScrollOffset;
   final double _initialScrollOffset;
 
-  /// Each time a scroll completes, save the current scroll [offset] with
-  /// [PageStorage] and restore it if this controller's scrollable is recreated.
-  ///
-  /// If this property is set to false, the scroll offset is never saved
-  /// and [initialScrollOffset] is always used to initialize the scroll
-  /// offset. If true (the default), the initial scroll offset is used the
-  /// first time the controller's scrollable is created, since there's no
-  /// scroll offset to restore yet. Subsequently the saved offset is
-  /// restored and [initialScrollOffset] is ignored.
-  ///
-  /// See also:
-  ///
-  ///  * [PageStorageKey], which should be used when more than one
-  ///    scrollable appears in the same route, to distinguish the [PageStorage]
-  ///    locations used to save scroll offsets.
+  /// 是否要保存 scroll Offset
   final bool keepScrollOffset;
 
-  /// A label that is used in the [toString] output. Intended to aid with
-  /// identifying scroll controller instances in debug output.
   final String debugLabel;
 
-  /// The currently attached positions.
-  ///
-  /// This should not be mutated directly. [ScrollPosition] objects can be added
-  /// and removed using [attach] and [detach].
+  /// 当前 attach 的 position
   @protected
   Iterable<ScrollPosition> get positions => _positions;
   final List<ScrollPosition> _positions = <ScrollPosition>[];
 
-  /// Whether any [ScrollPosition] objects have attached themselves to the
-  /// [ScrollController] using the [attach] method.
-  ///
-  /// If this is false, then members that interact with the [ScrollPosition],
-  /// such as [position], [offset], [animateTo], and [jumpTo], must not be
-  /// called.
+  /// 是否监听了任何的 position
   bool get hasClients => _positions.isNotEmpty;
 
-  /// Returns the attached [ScrollPosition], from which the actual scroll offset
-  /// of the [ScrollView] can be obtained.
+  /// 返回附加的[ScrollPosition]，可以从中获得[ScrollView]的实际滚动偏移量。
   ///
-  /// Calling this is only valid when only a single position is attached.
+  /// 只在 position 列表只有一个（也就是此 scrollController 只对应了一个 position 的时候）有效
   ScrollPosition get position {
     assert(_positions.isNotEmpty, 'ScrollController not attached to any scroll views.');
     assert(_positions.length == 1, 'ScrollController attached to multiple scroll views.');
     return _positions.single;
   }
 
-  /// The current scroll offset of the scrollable widget.
-  ///
-  /// Requires the controller to be controlling exactly one scrollable widget.
+  /// 当前（唯一） position 的 offset
   double get offset => position.pixels;
 
-  /// Animates the position from its current value to the given value.
-  ///
-  /// Any active animation is canceled. If the user is currently scrolling, that
-  /// action is canceled.
-  ///
-  /// The returned [Future] will complete when the animation ends, whether it
-  /// completed successfully or whether it was interrupted prematurely.
-  ///
-  /// An animation will be interrupted whenever the user attempts to scroll
-  /// manually, or whenever another activity is started, or whenever the
-  /// animation reaches the edge of the viewport and attempts to overscroll. (If
-  /// the [ScrollPosition] does not overscroll but instead allows scrolling
-  /// beyond the extents, then going beyond the extents will not interrupt the
-  /// animation.)
-  ///
-  /// The animation is indifferent to changes to the viewport or content
-  /// dimensions.
-  ///
-  /// Once the animation has completed, the scroll position will attempt to
-  /// begin a ballistic activity in case its value is not stable (for example,
-  /// if it is scrolled beyond the extents and in that situation the scroll
-  /// position would normally bounce back).
-  ///
-  /// The duration must not be zero. To jump to a particular value without an
-  /// animation, use [jumpTo].
+  /// 将 scorll offset 过渡到为给定的值
+  /// 注意： 
+  /// 这个方法并不要求只注册了一个 position
   Future<void> animateTo(
     double offset, {
     @required Duration duration,
@@ -145,38 +74,23 @@ class ScrollController extends ChangeNotifier {
     return Future.wait<void>(animations).then<void>((List<void> _) => null);
   }
 
-  /// Jumps the scroll position from its current value to the given value,
-  /// without animation, and without checking if the new value is in range.
-  ///
-  /// Any active animation is canceled. If the user is currently scrolling, that
-  /// action is canceled.
-  ///
-  /// If this method changes the scroll position, a sequence of start/update/end
-  /// scroll notifications will be dispatched. No overscroll notifications can
-  /// be generated by this method.
-  ///
-  /// Immediately after the jump, a ballistic activity is started, in case the
-  /// value was out of range.
+  /// 将 scorll offset 设置为给定的值
+  /// 注意： 
+  /// 这个方法并不要求只注册了一个 position
   void jumpTo(double value) {
     assert(_positions.isNotEmpty, 'ScrollController not attached to any scroll views.');
     for (ScrollPosition position in List<ScrollPosition>.from(_positions))
       position.jumpTo(value);
   }
 
-  /// Register the given position with this controller.
-  ///
-  /// After this function returns, the [animateTo] and [jumpTo] methods on this
-  /// controller will manipulate the given position.
+  /// 注册一个 position
   void attach(ScrollPosition position) {
     assert(!_positions.contains(position));
     _positions.add(position);
     position.addListener(notifyListeners);
   }
 
-  /// Unregister the given position with this controller.
-  ///
-  /// After this function returns, the [animateTo] and [jumpTo] methods on this
-  /// controller will not manipulate the given position.
+  /// 注销一个已注册的 position
   void detach(ScrollPosition position) {
     assert(_positions.contains(position));
     position.removeListener(notifyListeners);
@@ -190,32 +104,7 @@ class ScrollController extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Creates a [ScrollPosition] for use by a [Scrollable] widget.
-  ///
-  /// Subclasses can override this function to customize the [ScrollPosition]
-  /// used by the scrollable widgets they control. For example, [PageController]
-  /// overrides this function to return a page-oriented scroll position
-  /// subclass that keeps the same page visible when the scrollable widget
-  /// resizes.
-  ///
-  /// By default, returns a [ScrollPositionWithSingleContext].
-  ///
-  /// The arguments are generally passed to the [ScrollPosition] being created:
-  ///
-  ///  * `physics`: An instance of [ScrollPhysics] that determines how the
-  ///    [ScrollPosition] should react to user interactions, how it should
-  ///    simulate scrolling when released or flung, etc. The value will not be
-  ///    null. It typically comes from the [ScrollView] or other widget that
-  ///    creates the [Scrollable], or, if none was provided, from the ambient
-  ///    [ScrollConfiguration].
-  ///  * `context`: A [ScrollContext] used for communicating with the object
-  ///    that is to own the [ScrollPosition] (typically, this is the
-  ///    [Scrollable] itself).
-  ///  * `oldPosition`: If this is not the first time a [ScrollPosition] has
-  ///    been created for this [Scrollable], this will be the previous instance.
-  ///    This is used when the environment has changed and the [Scrollable]
-  ///    needs to recreate the [ScrollPosition] object. It is null the first
-  ///    time the [ScrollPosition] is created.
+  /// 默认返回一个 [ScrollPositionWithSingleContext].
   ScrollPosition createScrollPosition(
     ScrollPhysics physics,
     ScrollContext context,
@@ -230,39 +119,7 @@ class ScrollController extends ChangeNotifier {
       debugLabel: debugLabel,
     );
   }
-
-  @override
-  String toString() {
-    final List<String> description = <String>[];
-    debugFillDescription(description);
-    return '${describeIdentity(this)}(${description.join(", ")})';
-  }
-
-  /// Add additional information to the given description for use by [toString].
-  ///
-  /// This method makes it easier for subclasses to coordinate to provide a
-  /// high-quality [toString] implementation. The [toString] implementation on
-  /// the [ScrollController] base class calls [debugFillDescription] to collect
-  /// useful information from subclasses to incorporate into its return value.
-  ///
-  /// If you override this, make sure to start your method with a call to
-  /// `super.debugFillDescription(description)`.
-  @mustCallSuper
-  void debugFillDescription(List<String> description) {
-    if (debugLabel != null)
-      description.add(debugLabel);
-    if (initialScrollOffset != 0.0)
-      description.add('initialScrollOffset: ${initialScrollOffset.toStringAsFixed(1)}, ');
-    if (_positions.isEmpty) {
-      description.add('no clients');
-    } else if (_positions.length == 1) {
-      // Don't actually list the client itself, since its toString may refer to us.
-      description.add('one client, offset ${offset?.toStringAsFixed(1)}');
-    } else {
-      description.add('${_positions.length} clients');
-    }
-  }
+    
 }
-
 ```
 

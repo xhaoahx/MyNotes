@@ -571,10 +571,10 @@ abstract class ScrollPosition extends ViewportOffset with ScrollMetrics {
   @override
   bool get allowImplicitScrolling => physics.allowImplicitScrolling;
 
-  /// 停止当前的 activity 并且开始一个 [HoldScrollActivity].
+  /// 停止当前的 activity 并且开始一个 [HoldScrollActivity]，返回一个 ScrollHoldController
   ScrollHoldController hold(VoidCallback holdCancelCallback);
 
-  /// 开始一个对应于给定 [DragStartDetails] 的 activity
+  /// 开始一个对应于给定 [DragStartDetails] 的 activity，子类实现通常返回一个 ScrollDragController 
   Drag drag(DragStartDetails details, VoidCallback dragCancelCallback);
 
   /// 当前运行的 [ScrollActivity].
@@ -647,7 +647,11 @@ abstract class ScrollPosition extends ViewportOffset with ScrollMetrics {
   ///
   /// 子类应当在 [userScrollDirection] 发生改变的时候调用此方法
   void didUpdateScrollDirection(ScrollDirection direction) {
-    UserScrollNotification(metrics: copyWith(), context: context.notificationContext, direction: direction).dispatch(context.notificationContext);
+    UserScrollNotification(
+        metrics: copyWith(), 
+        context: context.notificationContext, 
+        direction: direction
+    ).dispatch(context.notificationContext);
   }
 
   @override
@@ -668,613 +672,231 @@ abstract class ScrollPosition extends ViewportOffset with ScrollMetrics {
 
 
 
-## ScrollActivity 及其子类相关
-
-### ScrollActivityDelegate 
+## ScrollPositionWithSingleContext
 
 ```dart
-/// 子类是 ScrollPositionWithSingleContext
-abstract class ScrollActivityDelegate {
-  AxisDirection get axisDirection;
-  double setPixels(double pixels);
-
-  /// 更新 sroll positon
-  /// 通常应用 [ScrollPhysics.applyPhysicsToUserOffset] 或者其他时候适合用户发起的滚动
-  void applyUserOffset(double delta);
-
-  /// Terminate the current activity and start an idle activity.
-  void goIdle();
-
-  /// Terminate the current activity and start a ballistic activity with the
-  /// given velocity.
-  void goBallistic(double velocity);
-}
-```
-
-
-
-### ScrollActivity
-
-```dart
-/// scrolling activities，例如拖动或者抛投，的基类
-abstract class ScrollActivity {
-  ScrollActivity(this._delegate);
-
-  ScrollActivityDelegate get delegate => _delegate;
-  ScrollActivityDelegate _delegate;
-
-  void updateDelegate(ScrollActivityDelegate value) {
-    _delegate = value;
-  }
-
-  void resetActivity() { }
-
-  /// 用给定的 ScrollMetrics ,派发 [ScrollStartNotification]
-  void dispatchScrollStartNotification(ScrollMetrics metrics, BuildContext context) {
-    ScrollStartNotification(metrics: metrics, context: context)
-        .dispatch(context);
-  }
-
-  /// 用给定的 ScrollMetrics 和 delta,派发 [ScrollUpdateNotification]
-  void dispatchScrollUpdateNotification(
-      ScrollMetrics metrics, 
-      BuildContext context, 
-      double scrollDelta
-  ) {
-    ScrollUpdateNotification(metrics: metrics, context: context, scrollDelta: scrollDelta)
-        .dispatch(context);
-  }
-
-  /// 用给定的 ScrollMetrics 和 overscroll,派发 [OverscrollNotification]
-  void dispatchOverscrollNotification(
-      ScrollMetrics metrics, 
-      BuildContext context, 
-      double overscroll
-  ) {
-    OverscrollNotification(metrics: metrics, context: context, overscroll: overscroll)
-        .dispatch(context);
-  }
-
-   /// 用给定的 ScrollMetrics ,派发 [crollEndNotification]
-  void dispatchScrollEndNotification(ScrollMetrics metrics, BuildContext context) {
-    ScrollEndNotification(metrics: metrics, context: context)
-        .dispatch(context);
-  }
-
-  /// Called when the scroll view that is performing this activity changes its metrics.
-  void applyNewDimensions() { }
-
-  /// 当这个 activity 进行的时候，时候应该忽略指针
-  bool get shouldIgnorePointer;
-
-  /// 这个 activity 是否是持续滚动
-  bool get isScrolling;
-
-  /// 如果适用，这个值代表当前滚动偏移的速度，以逻辑像素/秒为单位独立变化(即没有外部刺激，如拖动手势)。
-  double get velocity;
-
-  @mustCallSuper
-  void dispose() {
-    _delegate = null;
-  }
-}
-```
-### IdleScrollActivity
-```dart
-/// 什么也不做的活动
-class IdleScrollActivity extends ScrollActivity {
-  /// Creates a scroll activity that does nothing.
-  IdleScrollActivity(ScrollActivityDelegate delegate) : super(delegate);
-
-  @override
-  void applyNewDimensions() {
-    delegate.goBallistic(0.0);
-  }
-
-  @override
-  bool get shouldIgnorePointer => false;
-
-  @override
-  bool get isScrolling => false;
-
-  @override
-  double get velocity => 0.0;
-}
-```
-### ScrollHoldController
-```dart
-/// 保持 [Scrollable] 静止不动
+/// scroll position 管理单个 [ScrollContext] 的活动
 ///
-/// [ScrollPosition.hold] 返回了一个实现此接口的对象. I它保持了这个 [Scrollable] 静止不动，直到一个新的 
-/// acitivity 被发起，或者 [cancel] 方法被调用
-abstract class ScrollHoldController {
-  void cancel();
-}
-```
-### HoldScrollActivity
-```dart
-/// 用户接触 scrollView 但是保持它静止不动（即还没有开始滑动的时候）
-class HoldScrollActivity extends ScrollActivity implements ScrollHoldController {
-  HoldScrollActivity({
-    @required ScrollActivityDelegate delegate,
-    this.onHoldCanceled,
-  }) : super(delegate);
-
-  /// 当 [dispose] 调用的时候的回调
-  final VoidCallback onHoldCanceled;
-
-  @override
-  bool get shouldIgnorePointer => false;
-
-  @override
-  bool get isScrolling => false;
-
-  @override
-  double get velocity => 0.0;
-
-  @override
-  void cancel() {
-    delegate.goBallistic(0.0);
-  }
-
-  @override
-  void dispose() {
-    if (onHoldCanceled != null)
-      onHoldCanceled();
-    super.dispose();
-  }
-}
-```
-
-### Drag
-```dart
-abstract class Drag {
-  /// 指针开始移动
-  void update(DragUpdateDetails details) { }
-
-  /// 指针不再与屏幕解除
-  void end(DragEndDetails details) { }
-
-  /// 取消拖动
-  void cancel() { }
-}
-
-```
-
-### ScrollDragController
-
-```dart
-/// 当用户划过屏幕的时候滚动 scroll view
-class ScrollDragController implements Drag {
-  ScrollDragController({
-    @required ScrollActivityDelegate delegate,
-    @required DragStartDetails details,
-    this.onDragCanceled,
-    this.carriedVelocity,
-    this.motionStartDistanceThreshold,
-  }) : delegate = delegate,
-       _lastDetails = details,
-       _retainMomentum = carriedVelocity != null && carriedVelocity != 0.0,
-       _lastNonStationaryTimestamp = details.sourceTimeStamp,
-       _offsetSinceLastStop = motionStartDistanceThreshold == null ? null : 0.0;
-
-  /// The object that will actuate the scroll view as the user drags.
-  ScrollActivityDelegate get delegate => _delegate;
-  ScrollActivityDelegate _delegate;
-
-  /// Called when [dispose] is called.
-  final VoidCallback onDragCanceled;
-
-  /// Velocity that was present from a previous [ScrollActivity] when this drag
-  /// began.
-  final double carriedVelocity;
-
-  /// Amount of pixels in either direction the drag has to move by to start
-  /// scroll movement again after each time scrolling came to a stop.
-  final double motionStartDistanceThreshold;
-
-  Duration _lastNonStationaryTimestamp;
-  bool _retainMomentum;
-  /// Null if already in motion or has no [motionStartDistanceThreshold].
-  double _offsetSinceLastStop;
-
-  /// Maximum amount of time interval the drag can have consecutive stationary
-  /// pointer update events before losing the momentum carried from a previous
-  /// scroll activity.
-  static const Duration momentumRetainStationaryDurationThreshold =
-      Duration(milliseconds: 20);
-
-  /// Maximum amount of time interval the drag can have consecutive stationary
-  /// pointer update events before needing to break the
-  /// [motionStartDistanceThreshold] to start motion again.
-  static const Duration motionStoppedDurationThreshold =
-      Duration(milliseconds: 50);
-
-  /// The drag distance past which, a [motionStartDistanceThreshold] breaking
-  /// drag is considered a deliberate fling.
-  static const double _bigThresholdBreakDistance = 24.0;
-
-  bool get _reversed => axisDirectionIsReversed(delegate.axisDirection);
-
-  /// Updates the controller's link to the [ScrollActivityDelegate].
+/// 此类是 [ScrollPosition] 的具体处理单个 [ScrollContext] 逻辑的子类，例如 [Scrollable]
+/// 此类的实例管理了 [ScrollActivity] 实例，[ScrollActivity] 能够改变视窗中的那一部分可见
+class ScrollPositionWithSingleContext 
+    extends ScrollPosition 
+    implements ScrollActivityDelegate 
+{
+  /// Create a [ScrollPosition] object that manages its behavior using
+  /// [ScrollActivity] objects.
   ///
-  /// This should only be called when a controller is being moved from a defunct
-  /// (or about-to-be defunct) [ScrollActivityDelegate] object to a new one.
-  void updateDelegate(ScrollActivityDelegate value) {
-    assert(_delegate != value);
-    _delegate = value;
-  }
-
-  /// Determines whether to lose the existing incoming velocity when starting
-  /// the drag.
-  void _maybeLoseMomentum(double offset, Duration timestamp) {
-    if (_retainMomentum &&
-        offset == 0.0 &&
-        (timestamp == null || // If drag event has no timestamp, we lose momentum.
-         timestamp - _lastNonStationaryTimestamp > momentumRetainStationaryDurationThreshold)) {
-      // If pointer is stationary for too long, we lose momentum.
-      _retainMomentum = false;
-    }
-  }
-
-  /// If a motion start threshold exists, determine whether the threshold needs
-  /// to be broken to scroll. Also possibly apply an offset adjustment when
-  /// threshold is first broken.
+  /// The `initialPixels` argument can be null, but in that case it is
+  /// imperative that the value be set, using [correctPixels], as soon as
+  /// [applyNewDimensions] is invoked, before calling the inherited
+  /// implementation of that method.
   ///
-  /// Returns `0.0` when stationary or within threshold. Returns `offset`
-  /// transparently when already in motion.
-  double _adjustForScrollStartThreshold(double offset, Duration timestamp) {
-    if (timestamp == null) {
-      // If we can't track time, we can't apply thresholds.
-      // May be null for proxied drags like via accessibility.
-      return offset;
-    }
-    if (offset == 0.0) {
-      if (motionStartDistanceThreshold != null &&
-          _offsetSinceLastStop == null &&
-          timestamp - _lastNonStationaryTimestamp > motionStoppedDurationThreshold) {
-        // Enforce a new threshold.
-        _offsetSinceLastStop = 0.0;
-      }
-      // Not moving can't break threshold.
-      return 0.0;
-    } else {
-      if (_offsetSinceLastStop == null) {
-        // Already in motion or no threshold behavior configured such as for
-        // Android. Allow transparent offset transmission.
-        return offset;
-      } else {
-        _offsetSinceLastStop += offset;
-        if (_offsetSinceLastStop.abs() > motionStartDistanceThreshold) {
-          // Threshold broken.
-          _offsetSinceLastStop = null;
-          if (offset.abs() > _bigThresholdBreakDistance) {
-            // This is heuristically a very deliberate fling. Leave the motion
-            // unaffected.
-            return offset;
-          } else {
-            // This is a normal speed threshold break.
-            return math.min(
-              // Ease into the motion when the threshold is initially broken
-              // to avoid a visible jump.
-              motionStartDistanceThreshold / 3.0,
-              offset.abs(),
-            ) * offset.sign;
-          }
-        } else {
-          return 0.0;
-        }
-      }
-    }
+  /// 如果 [keepScrollOffset] 为 true (the default), 那么当前的 scroll offset 将会被存储到
+  /// [PageStorage] 中，并且在 scrollable 被重建的时候恢复 scoroll offset
+  ScrollPositionWithSingleContext({
+    @required ScrollPhysics physics,
+    @required ScrollContext context,
+    double initialPixels = 0.0,
+    bool keepScrollOffset = true,
+    ScrollPosition oldPosition,
+    String debugLabel,
+  }) : super(
+         physics: physics,
+         context: context,
+         keepScrollOffset: keepScrollOffset,
+         oldPosition: oldPosition,
+         debugLabel: debugLabel,
+  ) {
+    // If oldPosition is not null, the superclass will first call absorb(),
+    // which may set _pixels and _activity.
+    if (pixels == null && initialPixels != null)
+      correctPixels(initialPixels);
+    if (activity == null)
+      goIdle();
+    assert(activity != null);
+  }
+
+  /// Velocity from a previous activity temporarily held by [hold] to potentially
+  /// transfer to a next activity.
+  double _heldPreviousVelocity = 0.0;
+
+  @override
+  AxisDirection get axisDirection => context.axisDirection;
+
+  @override
+  double setPixels(double newPixels) {
+    assert(activity.isScrolling);
+    return super.setPixels(newPixels);
   }
 
   @override
-  void update(DragUpdateDetails details) {
-    assert(details.primaryDelta != null);
-    _lastDetails = details;
-    double offset = details.primaryDelta;
-    if (offset != 0.0) {
-      _lastNonStationaryTimestamp = details.sourceTimeStamp;
-    }
-    // By default, iOS platforms carries momentum and has a start threshold
-    // (configured in [BouncingScrollPhysics]). The 2 operations below are
-    // no-ops on Android.
-    _maybeLoseMomentum(offset, details.sourceTimeStamp);
-    offset = _adjustForScrollStartThreshold(offset, details.sourceTimeStamp);
-    if (offset == 0.0) {
+  void absorb(ScrollPosition other) {
+    super.absorb(other);
+    if (other is! ScrollPositionWithSingleContext) {
+      goIdle();
       return;
     }
-    if (_reversed) // e.g. an AxisDirection.up scrollable
-      offset = -offset;
-    delegate.applyUserOffset(offset);
-  }
-
-  @override
-  void end(DragEndDetails details) {
-    assert(details.primaryVelocity != null);
-    // We negate the velocity here because if the touch is moving downwards,
-    // the scroll has to move upwards. It's the same reason that update()
-    // above negates the delta before applying it to the scroll offset.
-    double velocity = -details.primaryVelocity;
-    if (_reversed) // e.g. an AxisDirection.up scrollable
-      velocity = -velocity;
-    _lastDetails = details;
-
-    // Build momentum only if dragging in the same direction.
-    if (_retainMomentum && velocity.sign == carriedVelocity.sign)
-      velocity += carriedVelocity;
-    delegate.goBallistic(velocity);
-  }
-
-  @override
-  void cancel() {
-    delegate.goBallistic(0.0);
-  }
-
-  /// Called by the delegate when it is no longer sending events to this object.
-  @mustCallSuper
-  void dispose() {
-    _lastDetails = null;
-    if (onDragCanceled != null)
-      onDragCanceled();
-  }
-
-  /// The most recently observed [DragStartDetails], [DragUpdateDetails], or
-  /// [DragEndDetails] object.
-  dynamic get lastDetails => _lastDetails;
-  dynamic _lastDetails;
-
-  @override
-  String toString() => describeIdentity(this);
-}
-```
-### DragScrollActivity
-```dart
-/// The activity a scroll view performs when a the user drags their finger
-/// across the screen.
-///
-/// See also:
-///
-///  * [ScrollDragController], which listens to the [Drag] and actually scrolls
-///    the scroll view.
-class DragScrollActivity extends ScrollActivity {
-  /// Creates an activity for when the user drags their finger across the
-  /// screen.
-  DragScrollActivity(
-    ScrollActivityDelegate delegate,
-    ScrollDragController controller,
-  ) : _controller = controller,
-      super(delegate);
-
-  ScrollDragController _controller;
-
-  @override
-  void dispatchScrollStartNotification(ScrollMetrics metrics, BuildContext context) {
-    final dynamic lastDetails = _controller.lastDetails;
-    assert(lastDetails is DragStartDetails);
-    ScrollStartNotification(metrics: metrics, context: context, dragDetails: lastDetails as DragStartDetails).dispatch(context);
-  }
-
-  @override
-  void dispatchScrollUpdateNotification(ScrollMetrics metrics, BuildContext context, double scrollDelta) {
-    final dynamic lastDetails = _controller.lastDetails;
-    assert(lastDetails is DragUpdateDetails);
-    ScrollUpdateNotification(metrics: metrics, context: context, scrollDelta: scrollDelta, dragDetails: lastDetails as DragUpdateDetails).dispatch(context);
-  }
-
-  @override
-  void dispatchOverscrollNotification(ScrollMetrics metrics, BuildContext context, double overscroll) {
-    final dynamic lastDetails = _controller.lastDetails;
-    assert(lastDetails is DragUpdateDetails);
-    OverscrollNotification(metrics: metrics, context: context, overscroll: overscroll, dragDetails: lastDetails as DragUpdateDetails).dispatch(context);
-  }
-
-  @override
-  void dispatchScrollEndNotification(ScrollMetrics metrics, BuildContext context) {
-    // We might not have DragEndDetails yet if we're being called from beginActivity.
-    final dynamic lastDetails = _controller.lastDetails;
-    ScrollEndNotification(
-      metrics: metrics,
-      context: context,
-      dragDetails: lastDetails is DragEndDetails ? lastDetails : null,
-    ).dispatch(context);
-  }
-
-  @override
-  bool get shouldIgnorePointer => true;
-
-  @override
-  bool get isScrolling => true;
-
-  // DragScrollActivity is not independently changing velocity yet
-  // until the drag is ended.
-  @override
-  double get velocity => 0.0;
-
-  @override
-  void dispose() {
-    _controller = null;
-    super.dispose();
-  }
-
-  @override
-  String toString() {
-    return '${describeIdentity(this)}($_controller)';
-  }
-}
-```
-### BallisticScrollActivity
-```dart
-/// An activity that animates a scroll view based on a physics [Simulation].
-///
-/// A [BallisticScrollActivity] is typically used when the user lifts their
-/// finger off the screen to continue the scrolling gesture with the current velocity.
-///
-/// [BallisticScrollActivity] is also used to restore a scroll view to a valid
-/// scroll offset when the geometry of the scroll view changes. In these
-/// situations, the [Simulation] typically starts with a zero velocity.
-///
-/// See also:
-///
-///  * [DrivenScrollActivity], which animates a scroll view based on a set of
-///    animation parameters.
-class BallisticScrollActivity extends ScrollActivity {
-  /// Creates an activity that animates a scroll view based on a [simulation].
-  ///
-  /// The [delegate], [simulation], and [vsync] arguments must not be null.
-  BallisticScrollActivity(
-    ScrollActivityDelegate delegate,
-    Simulation simulation,
-    TickerProvider vsync,
-  ) : super(delegate) {
-    _controller = AnimationController.unbounded(
-      debugLabel: kDebugMode ? '$runtimeType' : null,
-      vsync: vsync,
-    )
-      ..addListener(_tick)
-      ..animateWith(simulation)
-       .whenComplete(_end); // won't trigger if we dispose _controller first
-  }
-
-  @override
-  double get velocity => _controller.velocity;
-
-  AnimationController _controller;
-
-  @override
-  void resetActivity() {
-    delegate.goBallistic(velocity);
+    activity.updateDelegate(this);
+    final ScrollPositionWithSingleContext typedOther = other as ScrollPositionWithSingleContext;
+    _userScrollDirection = typedOther._userScrollDirection;
+    if (typedOther._currentDrag != null) {
+      _currentDrag = typedOther._currentDrag;
+      _currentDrag.updateDelegate(this);
+      typedOther._currentDrag = null;
+    }
   }
 
   @override
   void applyNewDimensions() {
-    delegate.goBallistic(velocity);
+    super.applyNewDimensions();
+    context.setCanDrag(physics.shouldAcceptUserOffset(this));
   }
 
-  void _tick() {
-    if (!applyMoveTo(_controller.value))
-      delegate.goIdle();
+    
+  /// 开始给定 activity
+  @override
+  void beginActivity(ScrollActivity newActivity) {
+    _heldPreviousVelocity = 0.0;
+    if (newActivity == null)
+      return;
+    super.beginActivity(newActivity);
+    _currentDrag?.dispose();
+    _currentDrag = null;
+    if (!activity.isScrolling)
+      updateUserScrollDirection(ScrollDirection.idle);
   }
 
-  /// Move the position to the given location.
+  /// 当用户手指滑动时回调，将 delta（用户滑动举例）作用在 scroll offset 上
+  /// 具体实现更新了用户滚动方向且更新了 Pixels
+  @override
+  void applyUserOffset(double delta) {
+    updateUserScrollDirection(delta > 0.0 ? ScrollDirection.forward : ScrollDirection.reverse);
+    setPixels(pixels - physics.applyPhysicsToUserOffset(this, delta));
+  }
+
+  /// 开始 IdleScrollAcitivity
+  @override
+  void goIdle() {
+    beginActivity(IdleScrollActivity(this));
+  }
+
+  /// 启动一个物理驱动的模拟，确定 [pixels] 位置，以特定的速度开始。
   ///
-  /// If the new position was fully applied, returns true. If there was any
-  /// overflow, returns false.
+  /// 这个方法延的实现延迟给 [ScrollPhysics.createBallisticSimulation], 它通常在 position 超出边界的时候
+  /// 提供了弹性模拟 和 在 position 在边界以内且滑动速度不为 0.0 时的摩擦力模拟
+  /// 
+  /// 单位为 逻辑像素/秒
+  @override
+  void goBallistic(double velocity) {
+    final Simulation simulation = physics.createBallisticSimulation(this, velocity);
+    if (simulation != null) {
+      /// 如果有 simulation 的话，开始弹性滚动活动
+      beginActivity(BallisticScrollActivity(this, simulation, context.vsync));
+    } else {
+      /// 否则开始 IdelActivity 
+      goIdle();
+    }
+  }
+
+  @override
+  ScrollDirection get userScrollDirection => _userScrollDirection;
+  ScrollDirection _userScrollDirection = ScrollDirection.idle;
+
+  /// Set [userScrollDirection] to the given value.
   ///
-  /// The default implementation calls [ScrollActivityDelegate.setPixels]
-  /// and returns true if the overflow was zero.
+  /// If this changes the value, then a [UserScrollNotification] is dispatched.
   @protected
-  bool applyMoveTo(double value) {
-    return delegate.setPixels(value) == 0.0;
+  @visibleForTesting
+  void updateUserScrollDirection(ScrollDirection value) {
+    assert(value != null);
+    if (userScrollDirection == value)
+      return;
+    _userScrollDirection = value;
+    didUpdateScrollDirection(value);
   }
 
-  void _end() {
-    delegate?.goBallistic(0.0);
-  }
-
+    
+  /// 以下两个方法用于间接修改 scrollOffset
   @override
-  void dispatchOverscrollNotification(ScrollMetrics metrics, BuildContext context, double overscroll) {
-    OverscrollNotification(metrics: metrics, context: context, overscroll: overscroll, velocity: velocity).dispatch(context);
-  }
-
-  @override
-  bool get shouldIgnorePointer => true;
-
-  @override
-  bool get isScrolling => true;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  String toString() {
-    return '${describeIdentity(this)}($_controller)';
-  }
-}
-```
-### DrivenScrollActivity
-```dart
-/// An activity that animates a scroll view based on animation parameters.
-///
-/// For example, a [DrivenScrollActivity] is used to implement
-/// [ScrollController.animateTo].
-///
-/// See also:
-///
-///  * [BallisticScrollActivity], which animates a scroll view based on a
-///    physics [Simulation].
-class DrivenScrollActivity extends ScrollActivity {
-  /// Creates an activity that animates a scroll view based on animation
-  /// parameters.
-  ///
-  /// All of the parameters must be non-null.
-  DrivenScrollActivity(
-    ScrollActivityDelegate delegate, {
-    @required double from,
-    @required double to,
+  Future<void> animateTo(
+    double to, {
     @required Duration duration,
     @required Curve curve,
-    @required TickerProvider vsync,
-  }) : super(delegate) {
-    _completer = Completer<void>();
-    _controller = AnimationController.unbounded(
-      value: from,
-      debugLabel: '$runtimeType',
-      vsync: vsync,
-    )
-      ..addListener(_tick)
-      ..animateTo(to, duration: duration, curve: curve)
-       .whenComplete(_end); // won't trigger if we dispose _controller first
-  }
+  }) {
+    if (nearEqual(to, pixels, physics.tolerance.distance)) {
+      // Skip the animation, go straight to the position as we are already close.
+      jumpTo(to);
+      return Future<void>.value();
+    }
 
-  Completer<void> _completer;
-  AnimationController _controller;
-
-  /// A [Future] that completes when the activity stops.
-  ///
-  /// For example, this [Future] will complete if the animation reaches the end
-  /// or if the user interacts with the scroll view in way that causes the
-  /// animation to stop before it reaches the end.
-  Future<void> get done => _completer.future;
-
-  @override
-  double get velocity => _controller.velocity;
-
-  void _tick() {
-    if (delegate.setPixels(_controller.value) != 0.0)
-      delegate.goIdle();
-  }
-
-  void _end() {
-    delegate?.goBallistic(velocity);
+    final DrivenScrollActivity activity = DrivenScrollActivity(
+      this,
+      from: pixels,
+      to: to,
+      duration: duration,
+      curve: curve,
+      vsync: context.vsync,
+    );
+    beginActivity(activity);
+    return activity.done;
   }
 
   @override
-  void dispatchOverscrollNotification(ScrollMetrics metrics, BuildContext context, double overscroll) {
-    OverscrollNotification(metrics: metrics, context: context, overscroll: overscroll, velocity: velocity).dispatch(context);
+  void jumpTo(double value) {
+    goIdle();
+    if (pixels != value) {
+      final double oldPixels = pixels;
+      forcePixels(value);
+      notifyListeners();
+      didStartScroll();
+      didUpdateScrollPositionBy(pixels - oldPixels);
+      didEndScroll();
+    }
+    goBallistic(0.0);
   }
 
+  /// 对应于 handleDragDown 和 handleDragStart 回调
   @override
-  bool get shouldIgnorePointer => true;
+  ScrollHoldController hold(VoidCallback holdCancelCallback) {
+    /// 当前滚动事件的速度
+    final double previousVelocity = activity.velocity;
+    /// 对应于 hold 状态的 Activity
+    final HoldScrollActivity holdActivity = HoldScrollActivity(
+      delegate: this,
+      onHoldCanceled: holdCancelCallback,
+    );
+    /// 开始 holdAcitity
+    beginActivity(holdActivity);
+    _heldPreviousVelocity = previousVelocity;
+    /// 由于 holdActivity 实现了 ScrollHoldController，直接返回
+    return holdActivity;
+  }
+
+  ScrollDragController _currentDrag;
 
   @override
-  bool get isScrolling => true;
+  Drag drag(DragStartDetails details, VoidCallback dragCancelCallback) {
+    final ScrollDragController drag = ScrollDragController(
+      delegate: this,
+      details: details,
+      onDragCanceled: dragCancelCallback,
+      carriedVelocity: physics.carriedMomentum(_heldPreviousVelocity),
+      motionStartDistanceThreshold: physics.dragStartDistanceMotionThreshold,
+    );
+    beginActivity(DragScrollActivity(this, drag));
+    _currentDrag = drag;
+    return drag;
+  }
 
   @override
   void dispose() {
-    _completer.complete();
-    _controller.dispose();
+    _currentDrag?.dispose();
+    _currentDrag = null;
     super.dispose();
-  }
-
-  @override
-  String toString() {
-    return '${describeIdentity(this)}($_controller)';
   }
 }
 
 ```
+
+
 
