@@ -7,15 +7,27 @@
 ```dart
 /// 一个能表示 Future<T>` 或 `T` 的对象
 ///
-/// 这个类声明是内部future-or-value泛型类型的公共替代。对该类的引用被解析为内部类型。
+/// 这个类声明是内部 future-or-value 泛型类型的公共替代。对该类的引用被解析为内部类型。
 ///
-/// It is a compile-time error for any class to extend, mix in or implement
-/// `FutureOr`.
+/// 继承，拓展，或者实现 `FutureOr` 会造成运行时的编译错误
+/// 
+/// 用例如下 
+/// ``` dart
+/// // `Future<T>.then` 方法要求一个可以返回 S 或者 Future<S> 的回调 [callback] 
+/// Future<S> then<S>(FutureOr<S> callback(T x), ...);
+/// 也就是可接受 S (T value){...} 或者 Future<S>(T value) ...
 ///
-/// 注意: 'FutureOr<T>'类型在非强类型模式下被解释为'dynamic'。
+/// // `Completer<T>.complete` 要求类似于 `Future<T>.then`
+/// void complete(FutureOr<T> value);
+/// ```
 ///
-/// 作为一个推论, 
-/// `FutureOr<Object>` 等价于 `FutureOr<FutureOr<Object>>`， 
+/// 高级：
+/// `FutureOr<int>` 实际上是 int 和 Future<int> 的 "type union" （类型联合）。这样的类型集合意味着 
+/// FutureOr<T> 既是 T 的超类又是 T 的子类，换言之，FutureOr<T> 于 T 等价。
+/// 注意: 'FutureOr<T>' 类型在非强类型模式下被解释为 'dynamic'。
+///
+/// 可以得到以下推论： 
+/// `FutureOr<Object>` 等价于 `FutureOr<FutureOr<Object>>` 等价于 Object， 
 /// `FutureOr<Future<Object>>` 等价于 `Future<Object>`.
 abstract class FutureOr<T> {
   // 私有构造函数，因此它是不可子类化、可混合或可实例化的  
@@ -27,9 +39,87 @@ abstract class FutureOr<T> {
 
 
 
-## Futrue
+## Future
 
 ```dart
+/**
+ * 代表了延迟计算的对象
+ *
+ * [Future] 用于表示一个在潜在的，在未来可能出现的值或者错误。
+ * 
+ * 可以在 Future 上注册回调，一旦值（或者错误）可用，那么将会回调给定的函数。
+ *
+ * A [Future] 能够以两种方式完成: 以值完成或者以错误完成
+ *
+ * In some cases we say that a future is completed with another future.
+ * This is a short way of stating that the future is completed in the same way,
+ * with the same value or error,
+ * as the other future once that completes.
+ * Whenever a function in the core library may complete a future
+ * (for example [Completer.complete] or [new Future.value]),
+ * then it also accepts another future and does this work for the developer.
+ *
+ * The result of registering a pair of callbacks is a new Future (the
+ * "successor") which in turn is completed with the result of invoking the
+ * corresponding callback.
+ * The successor is completed with an error if the invoked callback throws.
+ *
+ * If a future does not have a successor when it completes with an error,
+ * it forwards the error message to the global error-handler.
+ * This behavior makes sure that no error is silently dropped.
+ * However, it also means that error handlers should be installed early,
+ * so that they are present as soon as a future is completed with an error.
+ * The following example demonstrates this potential bug:
+ * ```
+ * var future = getFuture();
+ * new Timer(new Duration(milliseconds: 5), () {
+ *   // The error-handler is not attached until 5 ms after the future has
+ *   // been received. If the future fails before that, the error is
+ *   // forwarded to the global error-handler, even though there is code
+ *   // (just below) to eventually handle the error.
+ *   future.then((value) { useValue(value); },
+ *               onError: (e) { handleError(e); });
+ * });
+ * ```
+ *
+ * When registering callbacks, it's often more readable to register the two
+ * callbacks separately, by first using [then] with one argument
+ * (the value handler) and using a second [catchError] for handling errors.
+ * Each of these will forward the result that they don't handle
+ * to their successors, and together they handle both value and error result.
+ * It also has the additional benefit of the [catchError] handling errors in the
+ * [then] value callback too.
+ * Using sequential handlers instead of parallel ones often leads to code that
+ * is easier to reason about.
+ * It also makes asynchronous code very similar to synchronous code:
+ * ```
+ * // Synchronous code.
+ * try {
+ *   int value = foo();
+ *   return bar(value);
+ * } catch (e) {
+ *   return 499;
+ * }
+ * ```
+ *
+ * Equivalent asynchronous code, based on futures:
+ * ```
+ * Future<int> future = new Future(foo);  // Result of foo() as a future.
+ * future.then((int value) => bar(value))
+ *       .catchError((e) => 499);
+ * ```
+ *
+ * Similar to the synchronous code, the error handler (registered with
+ * [catchError]) is handling any errors thrown by either `foo` or `bar`.
+ * If the error-handler had been registered as the `onError` parameter of
+ * the `then` call, it would not catch errors from the `bar` call.
+ *
+ * Futures can have more than one callback-pair registered. Each successor is
+ * treated independently and is handled as if it was the only successor.
+ *
+ * A future may also fail to ever complete. In that case, no callbacks are
+ * called.
+ */
 abstract class Future<T> {
   /// 一个以 `null` 完成的 `Future<Null>`
   static final _Future<Null> _nullFuture =
@@ -40,14 +130,14 @@ abstract class Future<T> {
       new _Future<bool>.zoneValue(false, Zone.root);
 
   /**
-   * 创建一个包含用[Timer.run]异步调用[[computation]结果的future
+   * 创建一个包含用 [Timer.run] 异步调用 [computation] 结果的 future
    *
-   * 如果执行的[computation]抛出了异常, 返回以 `error` 完成的 futrue
+   * 如果执行的 函数抛出了异常, 返回以 `error` 完成的 futrue
    *
-   * 如果返回的值本身是一个[Future]，则创建的Future的完成将一直等到返回的Future完成，然后将以相同
-   * 的结果完成。
+   * 如果 [computation] 返回的值本身是一个 [Future]，则该 Future 的完成将一直等到返回的 Future 完成之后，
+   * 以相同的结果完成。
    *
-   * 如果返回一个非Futrue值，则返回的Futrue将使用该值完成。
+   * 如果返回一个非 Future 值，则该 Futrue 将使用返回值完成。
    */
   factory Future(FutureOr<T> computation()) {
     _Future<T> result = new _Future<T>();
@@ -62,14 +152,7 @@ abstract class Future<T> {
   }
 
    /**
-   * 创建一个包含与[scheduleMicrotask]异步调用[computation]的结果的future
-   *
-   * 如果执行的[computation]抛出了异常, 返回以 `error` 完成的 futrue
-   *
-   * 如果返回的值本身是一个[Future]，则创建的Future的完成将一直等到返回的Future完成，然后将以相同
-   * 的结果完成。
-   *
-   * 如果返回一个非Futrue值，则返回的Futrue将使用该值完成。
+   * 创建一个包含与 [scheduleMicrotask] 异步调用 [computation] 的结果的 future
    */
   factory Future.microtask(FutureOr<T> computation()) {
     _Future<T> result = new _Future<T>();
@@ -84,14 +167,7 @@ abstract class Future<T> {
   }
 
   /**
-   * 创建一个包含立即调用[computation]的结果的future
-   *
-   * 如果执行的[computation]抛出了异常, 返回以 `error` 完成的 futrue
-   *
-   * 如果返回的值本身是一个[Future]，则创建的Future的完成将一直等到返回的Future完成，然后将以相同
-   * 的结果完成。
-   *
-   * 如果返回一个非Futrue值，则返回的Futrue将使用该值完成。
+   * 创建一个包含立即调用 [computation] 的结果的future
    */
   factory Future.sync(FutureOr<T> computation()) {
     try {
@@ -115,32 +191,24 @@ abstract class Future<T> {
   }
 
   /**
-   * Creates a future completed with [value].
+   * 创建一个以给定 [value] 完成的 Future
    *
-   * If [value] is a future, the created future waits for the
-   * [value] future to complete, and then completes with the same result.
-   * Since a [value] future can complete with an error, so can the future
-   * created by [Future.value], even if the name suggests otherwise.
+   * 如果给定的 Value 不是 Future<T>，则等价于如下形式：
+   * 等价于 `new Future<T>.sync(() => value)`.
    *
-   * If [value] is not a [Future], the created future is completed
-   * with the [value] value,
-   * equivalently to `new Future<T>.sync(() => value)`.
-   *
-   * Use [Completer] to create a future and complete it later.
+   * 使用 [Completer] 来创建一个 Future，并在之后手动完成
    */
   factory Future.value([FutureOr<T> value]) {
     return new _Future<T>.immediate(value);
   }
 
   /**
-   * Creates a future that completes with an error.
+   * 创建一个以给定 Error 完成的 Future
    *
-   * The created future will be completed with an error in a future microtask.
-   * This allows enough time for someone to add an error handler on the future.
-   * If an error handler isn't added before the future completes, the error
-   * will be considered unhandled.
+   * 创建的 future 将在微任务队列中完成，并带有一个错误。这为在其完成之前添加 error handler 提供了足够的时
+   * 间。如果在 future 完成之前没有添加 error handler ，则将认为该错误没有得到处理。
    *
-   * If [error] is `null`, it is replaced by a [NullThrownError].
+   * 如果 [error] is `null`, 它将会被 [NullThrownError] 取代
    *
    * Use [Completer] to create a future and complete it later.
    */
@@ -197,45 +265,35 @@ abstract class Future<T> {
   }
 
   /**
-   * Waits for multiple futures to complete and collects their results.
+   * 等待多个 Future 完成并且收集其结果
    *
-   * Returns a future which will complete once all the provided futures
-   * have completed, either with their results, or with an error if any
-   * of the provided futures fail.
+   * 返回值是所有 Future 的返回值
    *
-   * The value of the returned future will be a list of all the values that
-   * were produced in the order that the futures are provided by iterating
-   * [futures].
+   * 如果存在一个 Future 以 error 完成，那么返回的结果也会以 error 完成；如果已经有一个 future 以 error 完
+   * 成了，并且在其后还有其他的 future 以 error 完成，那么之后的 error 都会被抛弃
    *
-   * If any future completes with an error,
-   * then the returned future completes with that error.
-   * If further futures also complete with errors, those errors are discarded.
+   * 如果 `eagerError` is true，那么一旦有一个 future 以 error 完成，则此 future 立刻以 error 完成。否则
+   * 会等待所有的 future 完成之后才会以 error 完成
    *
-   * If `eagerError` is true, the returned future completes with an error
-   * immediately on the first error from one of the futures. Otherwise all
-   * futures must complete before the returned future is completed (still with
-   * the first error; the remaining errors are silently dropped).
+   * 在存在 error 的情况下，[cleanUp] (如果有)，将会被作用在每一个非 null 且正常完成的 Future 上。
    *
-   * In the case of an error, [cleanUp] (if provided), is invoked on any
-   * non-null result of successful futures.
-   * This makes it possible to `cleanUp` resources that would otherwise be
-   * lost (since the returned future does not provide access to these values).
-   * The [cleanUp] function is unused if there is no error.
-   *
-   * The call to [cleanUp] should not throw. If it does, the error will be an
-   * uncaught asynchronous error.
    */
-  static Future<List<T>> wait<T>(Iterable<Future<T>> futures,
-      {bool eagerError: false, void cleanUp(T successValue)}) {
+  static Future<List<T>> wait<T>(
+      Iterable<Future<T>> futures,{
+      bool eagerError: false, 
+      void cleanUp(T successValue)
+  }) {
     final _Future<List<T>> result = new _Future<List<T>>();
-    List<T> values; // Collects the values. Set to null on error.
-    int remaining = 0; // How many futures are we waiting for.
-    var error; // The first error from a future.
-    StackTrace stackTrace; // The stackTrace that came with the error.
+    /// 收集 future 的完成值，如果是 error 完成则视作 null
+    List<T> values;
+    /// future 的剩余数量
+    int remaining = 0;
+    /// 第一个 error
+    var error;
+    /// 栈堆
+    StackTrace stackTrace;
 
-    // Handle an error from any of the futures.
-    // TODO(jmesserly): use `void` return type once it can be inferred for the
-    // `then` call below.
+    // 处理任何返回的异常
     handleError(theError, StackTrace theStackTrace) {
       remaining--;
       if (values != null) {
@@ -612,8 +670,8 @@ class _Future<T> implements Future<T> {
   int _state = _stateIncomplete;
 
   /**
-   * Zone that the future was completed from.
-   * This is the zone that an error result belongs to.
+   * future 完成时所处的 zone 
+   * 同时，也是 future 以 error 完成时的归属
    *
    * Until the future is completed, the field may hold the zone that
    * listener callbacks used to create this future should be run in.
@@ -637,7 +695,9 @@ class _Future<T> implements Future<T> {
    */
   var _resultOrListeners;
 
+  ///
   // This constructor is used by async/await.
+  /// 被 async 和 await 使用的构造函数
   _Future() : _zone = Zone.current;
 
   _Future.immediate(FutureOr<T> result) : _zone = Zone.current {

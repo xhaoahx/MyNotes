@@ -915,6 +915,7 @@ abstract class RenderViewportBase<
       );
       
       /// 把约束传给当前孩子，命令其布局
+      /// 这里用例参见 [SliverList.performLayout]
       child.layout(constraints, parentUsesSize: true);
 	  /// 布局之后孩子会提供一个 geometry（类似于 RenderBox，其布局之后会提供一个 Size）
       final SliverGeometry childLayoutGeometry = child.geometry;

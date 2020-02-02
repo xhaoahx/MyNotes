@@ -148,13 +148,11 @@ class SliverConstraints extends Constraints {
   ///
   /// [cacheOrigin] 描述了 [remainingCacheExtent] 相对于 [scrollOffset] 的开始位置
   /// 缓存起点为 0.0 意味着滑块不必体统提供任何的在 [scrollOffset] 之前的内容
-  /// [cacheOrigin] == -250.0 意味着 means that even though the first visible part of
-  /// the sliver will be at the provided [scrollOffset], the sliver should
-  /// render content starting 250.0 before the [scrollOffset] to fill the
-  /// cache area of the viewport.
+  /// [cacheOrigin] == -250.0 意味着尽管滑块的第一处可见部分位于给定的 [scrollOffset] 处，但是滑块人需要渲
+  /// 染在 250 像素之前的部分  means that even though the first visible part of
   ///
   /// [cacheOrigin] 总是非正值，并且不会超过 -[scrollOffset]
-  /// 换句话说,滑块不会在 [scrollOffset] == 0 之前提供提供内容
+  /// 换句话说,滑块不会在 [scrollOffset] == 0 之前提供内容
   final double cacheOrigin;
 
 
@@ -524,24 +522,24 @@ abstract class RenderSliver extends RenderObject {
       @required double crossAxisPosition 
   }) => false;
 
-  /// Computes the portion of the region from `from` to `to` that is visible,
-  /// assuming that only the region from the [SliverConstraints.scrollOffset]
-  /// that is [SliverConstraints.remainingPaintExtent] high is visible, and that
-  /// the relationship between scroll offsets and paint offsets is linear.
+  /// 计算从 from 到 to 可见区域的比例，假设只有 [SliverConstraints.scrollOffset] （也就是 
+  /// [SliverConstraints.remainingPaintExtent] 的高度）是可见的。并且，假设滚动偏移和绘制偏移的关系也是现行
+  /// 的 
   ///
+  /// 例如，假设 constraints 的滚动偏移是 100.0 并且剩余绘制距离也是 100.0，并且传入此方法的参数表述的区域是 
+  /// 50 ~ 150，那么，返回值将会是 50（也就是从滚动偏移 100 到滚动偏移 150）
+  ///
+  /// 这个方法
   /// For example, if the constraints have a scroll offset of 100 and a
   /// remaining paint extent of 100, and the arguments to this method describe
   /// the region 50..150, then the returned value would be 50 (from scroll
   /// offset 100 to scroll offset 150).
   ///
-  /// This method is not useful if there is not a 1:1 relationship between
-  /// consumed scroll offset and consumed paint extent. For example, if the
-  /// sliver always paints the same amount but consumes a scroll offset extent
-  /// that is proportional to the [SliverConstraints.scrollOffset], then this
-  /// function's results will not be consistent.
-  // This could be a static method but isn't, because it would be less convenient
-  // to call it from subclasses if it was.
-  double calculatePaintOffset(SliverConstraints constraints, {
+  /// 如果消耗的滚动偏移量与消耗的绘制范围之间没有 1:1 的线性关系，则此方法无效。
+  /// 例如，如果滑块总是绘制相同的数量，但是消耗了与 [SliverConstraints] 成比例的滚动偏移量。，则此函数的结果
+  /// 将不一致。
+  double calculatePaintOffset(
+      SliverConstraints constraints, {
       @required double from, 
       @required double to 
   }) {
@@ -696,4 +694,114 @@ abstract class RenderSliver extends RenderObject {
 ```
 
 
+
+## RenderSliverHelpers
+
+```dart
+/// Mixin for [RenderSliver] subclasses that provides some utility functions.
+abstract class RenderSliverHelpers implements RenderSliver {
+
+  bool _getRightWayUp(SliverConstraints constraints) {
+    assert(constraints != null);
+    assert(constraints.axisDirection != null);
+    bool rightWayUp;
+    switch (constraints.axisDirection) {
+      case AxisDirection.up:
+      case AxisDirection.left:
+        rightWayUp = false;
+        break;
+      case AxisDirection.down:
+      case AxisDirection.right:
+        rightWayUp = true;
+        break;
+    }
+    assert(constraints.growthDirection != null);
+    switch (constraints.growthDirection) {
+      case GrowthDirection.forward:
+        break;
+      case GrowthDirection.reverse:
+        rightWayUp = !rightWayUp;
+        break;
+    }
+    assert(rightWayUp != null);
+    return rightWayUp;
+  }
+
+  /// Utility function for [hitTestChildren] for use when the children are
+  /// [RenderBox] widgets.
+  ///
+  /// This function takes care of converting the position from the sliver
+  /// coordinate system to the Cartesian coordinate system used by [RenderBox].
+  ///
+  /// This function relies on [childMainAxisPosition] to determine the position of
+  /// child in question.
+  ///
+  /// Calling this for a child that is not visible is not valid.
+  @protected
+  bool hitTestBoxChild(BoxHitTestResult result, RenderBox child, { @required double mainAxisPosition, @required double crossAxisPosition }) {
+    final bool rightWayUp = _getRightWayUp(constraints);
+    double delta = childMainAxisPosition(child);
+    final double crossAxisDelta = childCrossAxisPosition(child);
+    double absolutePosition = mainAxisPosition - delta;
+    final double absoluteCrossAxisPosition = crossAxisPosition - crossAxisDelta;
+    Offset paintOffset, transformedPosition;
+    assert(constraints.axis != null);
+    switch (constraints.axis) {
+      case Axis.horizontal:
+        if (!rightWayUp) {
+          absolutePosition = child.size.width - absolutePosition;
+          delta = geometry.paintExtent - child.size.width - delta;
+        }
+        paintOffset = Offset(delta, crossAxisDelta);
+        transformedPosition = Offset(absolutePosition, absoluteCrossAxisPosition);
+        break;
+      case Axis.vertical:
+        if (!rightWayUp) {
+          absolutePosition = child.size.height - absolutePosition;
+          delta = geometry.paintExtent - child.size.height - delta;
+        }
+        paintOffset = Offset(crossAxisDelta, delta);
+        transformedPosition = Offset(absoluteCrossAxisPosition, absolutePosition);
+        break;
+    }
+    assert(paintOffset != null);
+    assert(transformedPosition != null);
+    return result.addWithPaintOffset(
+      offset: paintOffset,
+      position: null, // Manually adapting from sliver to box position above.
+      hitTest: (BoxHitTestResult result, Offset _) {
+        return child.hitTest(result, position: transformedPosition);
+      },
+    );
+  }
+
+  /// Utility function for [applyPaintTransform] for use when the children are
+  /// [RenderBox] widgets.
+  ///
+  /// This function turns the value returned by [childMainAxisPosition] and
+  /// [childCrossAxisPosition]for the child in question into a translation that
+  /// it then applies to the given matrix.
+  ///
+  /// Calling this for a child that is not visible is not valid.
+  @protected
+  void applyPaintTransformForBoxChild(RenderBox child, Matrix4 transform) {
+    final bool rightWayUp = _getRightWayUp(constraints);
+    double delta = childMainAxisPosition(child);
+    final double crossAxisDelta = childCrossAxisPosition(child);
+    assert(constraints.axis != null);
+    switch (constraints.axis) {
+      case Axis.horizontal:
+        if (!rightWayUp)
+          delta = geometry.paintExtent - child.size.width - delta;
+        transform.translate(delta, crossAxisDelta);
+        break;
+      case Axis.vertical:
+        if (!rightWayUp)
+          delta = geometry.paintExtent - child.size.height - delta;
+        transform.translate(crossAxisDelta, delta);
+        break;
+    }
+  }
+}
+```
 

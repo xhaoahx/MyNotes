@@ -10,7 +10,7 @@
 /// *框架通过调用 [Widget.createElement] 创建一个使用该 widget 作为初始配置的 element
 ///
 /// *框架调用 [mount] 将新创建的 element 添加到树上一个指定的父节点上的一个指定位置(slot)。
-///  [mount]方法负责扩展任何子 element（即递归地构建子树）并调用其[attachRenderObject]，将任何关联/
+///  [mount] 方法负责扩展任何子 element（即递归地构建子树）并调用其 [attachRenderObject]，将任何关联
 ///  的 RenderObject 附加到渲染对象树上。
 ///
 /// *此时，element被认为是“Active”，并且可能会出现在屏幕上
@@ -18,29 +18,27 @@
 /// *在某个时候，父节点可能会决定更改配置此 element 的 widget，例如因为父节点重新构建状态。当这种情况发
 ///  生的时侯，框架将调用新 widget 的 [update]。新 widget 将始终具有与旧 wiedget 相同的 
 ///  [runtimeType] 和 [key]。 如果父节点希望更改 [runtimeType] 或 [key] 或这个 widget 在树中的位
-///  置，它可以通过卸载这个elemtent 来实现，并在此位置将一个新的 widget 扩展成 element
+///  置，它可以通过卸载这个 elemtent 来实现，并在此位置将一个新的 widget 扩展成 element
 ///
-/// *在某个时候，祖先可能会决定删除某个 elemen t(或者中间祖先)，该祖先通过在自身调用[deactiveChild]来
+/// *在某个时候，祖先可能会决定删除某个 element (或者中间祖先)，该祖先通过在自身调用 [deactiveChild] 来
 ///  完成卸载。将中间祖先 deactive 会从渲染对象树中删除该 element 的 RenderObject 并添加这个 
 ///  element 到[BuildOwner]的非活动元素列表，从而导致框架对该 element 调用 [deactive]
 ///
-/// *此时，element 被认为是“非活动的”，且不会出现屏幕上。一个 element 能保持在非活动状态，直到当前动画
+/// *此时，element 被认为是“inActive”，且不会出现屏幕上。一个 element 能保持在非活动状态，直到当前动画
 ///  帧的结束(这里结束是指 drawFrame 回调完成之后，finalizeTree 会调用所有非活动的 element.unmount 
-///  方法)。在动画的最后帧，任何仍然不活动的 element 将被 unmount
+///  方法)。在动画帧的最后，任何仍然不活动的 element 将被 unmount
 ///
 /// *如果 element 被重新合并到树中(例如，因为它或他的祖先 element 有可重用的 [GlobalKey] )，框架将会
-///  从[BuildOwner]的非活动 elemtent 列表中删除元素并调用它的 [activate]，并将 element 的 
+///  从 [BuildOwner] 的非活动 elemtent 列表中删除此 element 并调用它的 [activate]，并将 element 的 
 ///  RenderObject 重新添加到渲染对象树中。此时，element 再次被认为是 “active”，并可能会出现在屏幕上
 ///
-/// *如果 element 在当前动画结束帧时没有重新合并到树中，框架将调用该 element 的[unmount]
+/// *如果 element 在当前动画结束帧时没有重新合并到树中，框架将调用该 element 的 [unmount]
 ///
 /// *此时，元素被认为是“defunct”，之后不再会合并到树中
 abstract class Element extends DiagnosticableTree implements BuildContext {
-  /// widget 通常重载 createElement 来创建 element、
+  /// widget 通常重载 createElement 来创建 element（即 "creatElement() => XXXElement(this);" ）、
   /// 使 element 持有 widget  
-  Element(Widget widget)
-    : assert(widget != null),
-      _widget = widget;
+  Element(Widget widget) : _widget = widget;
 
   /// 父 element  
   Element _parent;
@@ -63,7 +61,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
   ///
   /// 每个子 [element] 对应一个 [RenderObject]，它应该作为这个 element 的 renderObject 的子 
   /// renderObjet。但是，element 的当前的 child 列表可能不会最终对应 RenderObject 的 element 
-  /// 例如，[StatelessElement] ([StatelessWidget]的 element)，简单地对应于它 build 方法返回的
+  /// 例如，[StatelessElement] ([StatelessWidget] 的 element)，简单地对应于它 build 方法返回的
   /// Element 子树的最上层的 [RenderObject]
   ///
   /// 因此，每个子节点都被分配了一个 _slot_token。这是一个标识符，对这个 [RenderObjectElement] 节点
@@ -91,6 +89,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     return 0;
   }
 
+  /// 这个 element 对应  widget
   @override
   Widget get widget => _widget;
   Widget _widget;
@@ -114,7 +113,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     });
   }
 
-  /// 向下查找第一个渲染对象
+  /// 向下查找第一个渲染对象，作为自身对应的 RenderObject
   RenderObject get renderObject {
     RenderObject result;
     void visit(Element element) {
@@ -183,7 +182,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     _slot = newSlot;
     /// 深度 + 1
     _depth = _parent != null ? _parent.depth + 1 : 1;
-    /// 标记active为true  
+    /// 标记 active 为 true  
     _active = true;
     /// 分配 owner  
     if (parent != null)
@@ -197,7 +196,11 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
     _updateInheritance();
   }
 
-  /// 更新 widget，子类经常重载这个方法
+  /// 更新 widget，子类经常重载这个方法。
+  ///
+  /// 在 StatefulWidget 对应的 State 调用自身的 setState 后，框架会对标记为 dirty 的所有的节点进行 rebuild
+  /// 此时，如果某个 widget 可以更新（而不是 rebuild，也就是说其对应的  key 和 runtimeType 对应不变的话），
+  /// 则会调用此方法进行更新
   @mustCallSuper
   void update(covariant Widget newWidget) {
     _widget = newWidget;
@@ -259,6 +262,7 @@ abstract class Element extends DiagnosticableTree implements BuildContext {
       parent.forgetChild(element);
       parent.deactivateChild(element);
     }
+    /// 将找到的 element 从 buildOwner 的非活动 element 列表中移除
     owner._inactiveElements.remove(element);
     return element;
   }
@@ -572,7 +576,7 @@ abstract class ComponentElement extends Element {
     }
   }
 
-  /// 子类必须重载这个方法来返回子 widget 
+  /// 子类必须重载这个方法来返回子 widget（或者 widget 子树） 
   @protected
   Widget build();
 
@@ -613,7 +617,7 @@ abstract class ProxyElement extends ComponentElement {
     rebuild();
   }
 
-  /// widget 发生改变时调用
+  /// widget 发生改变时调用，使用旧的  widget 通知所有的监听者
   @protected
   void updated(covariant ProxyWidget oldWidget) {
     notifyClients(oldWidget);
@@ -654,10 +658,11 @@ class StatelessElement extends ComponentElement {
 ```dart
 class StatefulElement extends ComponentElement {
   StatefulElement(StatefulWidget widget)
+      /// 注意，state 在 StatefulElement 被创建的同时被创建
       : _state = widget.createState(),
         super(widget) 
   {
-    /// 为State提供自身和widget的引用        
+    /// 为 State 提供自身和 widget 的引用        
     _state._element = this;
     _state._widget = widget;
   }
