@@ -1,0 +1,692 @@
+#include <unistd.h>
+#include <stdio.h>
+asjdlajsdjalsda
+int main(){
+    __pid_t pid1,pid2;
+    
+    while((pid1 = fork()) < 0);
+
+    // child thread 1
+    if(pid1 == 0){
+        // puts("b");
+        puts("child thread 1");
+    }else{
+        while((pid2 = fork()) < 0);
+        
+        /// child thread 2
+        if(pid2 == 0){
+            // puts("c");
+            puts("child thread 2");
+        }
+        /// parent thread
+        else{
+            // puts("a");
+            puts("parent thread");
+        }
+    }
+    return 0;
+}
+
+
+
+#include <unistd.h>
+#include <stdio.h>
+asdasdasdasda
+int main(){
+    __pid_t p1,p2,i;
+
+    while((p1 = fork()) < 0);
+
+    if(p1 == 0){
+        //lockf(1,1,0);
+        printf("child thread1");
+        for(i = 0;i < 5;i++){
+            printf("child thread 1: %d\n",i);
+        }
+        //lockf(1,0,0);
+    }else{
+        while((p2 = fork()) < 0);
+
+        if(p2 == 0){
+            // lockf(1,1,0);
+            printf("child thread2");
+            //lockf(1,1,0);
+            for(i = 0;i < 5;i++){
+                printf("child thread 2: %d\n",i);
+            }
+            //lockf(1,0,0);
+        }else{
+            // lockf(1,1,0);
+            printf("parent thread\n");
+            //lockf(1,1,0);
+            for(i = 0;i < 5;i++){
+                printf("parent thread: %d\n",i);
+            }
+            //lockf(1,0,0);
+        }
+    }
+}
+
+
+#include <stdio.h>
+#include <unistd.h>
+#include <signal.h>
+#include <string.h>
+#include <wait.h>
+#include <stdlib.h>
+
+dalskdjalj
+const int len = 30;
+
+int main(){
+    int fd[2];
+    __pid_t p1,p2;
+    char *s1 = "Child 1 is sending a message!\n";
+    char *s2 = "Child 2 is sending a message!\n";
+
+    pipe(fd);
+
+    while((p1 = fork()) < 0);
+    if(p1 == 0){
+        close(fd[0]);
+
+        //lockf(w,1,0);
+        write(fd[1],s1,len);
+        //lockf(w,0,0);
+        //puts("11111");
+        exit(0);
+    }else{
+        waitpid(p1,NULL,0);
+
+        while((p2 = fork()) < 0);
+        
+        if(p2 == 0){
+            close(fd[0]);
+
+            //lockf(w,1,0);
+            write(fd[1],s2,len);
+            //lockf(w,0,0);
+            //puts("2222");
+
+             exit(0);
+        }else{
+            //printf("%d %d\n",p1,p2);
+
+            close(fd[1]);
+            char buf[len];
+
+            if(read(fd[0],buf,len) > 0){
+                 printf("%s",buf);
+            }
+
+            if(read(fd[0],buf,len) > 0){
+                printf("%s",buf);
+            }
+
+        }
+    }
+
+    return 0;
+}
+
+
+#include <stdio.h>
+#define max 100
+
+int resource[max];
+int available[max];
+
+int request[max][max];
+int allocation[max][max];
+int need[max][max];
+
+int res[max];
+int flag[max] = {0};
+
+int m;
+int n;
+
+int dfs(int cur,int copy[10]){
+	if(cur == n){
+		return 1;
+	}
+	
+	int i,j;
+//	int copy[max];
+	
+//	puts("=====copy=====");
+//	for(i = 0;i < m;i++){
+//		 //copy[i] = avai[i];
+//		 printf("%d\t",copy[i]);
+//	}
+//	puts("");
+	
+	for(i = 0;i < n;i++){
+		if(flag[i]) continue;
+		
+		for(j = 0;j < m;j++){
+			if(need[i][j] > copy[j]) break;
+		}
+		
+		/// can allocate
+		if(j == m){
+			flag[i] = 1;
+			for(j = 0;j < m;j++){
+				copy[j] += allocation[i][j];
+			}
+			res[cur] = i;
+			if(dfs(cur + 1,copy)){
+				return 1;
+			}
+			
+			for(j = 0;j < m;j++){
+				copy[j] -= allocation[i][j];
+			}
+			flag[i] = 0;
+		}
+	}
+	
+	return 0;
+}
+
+void debugPrint(){
+	int i,j;
+	puts("available resource");
+	for(i = 0;i < m;i++){
+		printf("%d\t",available[i]);
+	}
+	
+	puts("\nthread request resouce");
+	for(i = 0;i < n;i++){
+		for(j = 0;j < m;j++){
+			printf("%d\t",request[i][j]);
+		}
+		puts("");
+	}
+	
+	puts("\nthread allocated resouce");
+	for(i = 0;i < n;i++){
+		for(j = 0;j < m;j++){
+			printf("%d\t",allocation[i][j]);
+		}
+		puts("");
+	}
+	
+	puts("\nthread request resouce");
+	for(i = 0;i < n;i++){
+		for(j = 0;j < m;j++){
+			printf("%d\t",need[i][j]);
+		}
+		puts("");
+	}
+}
+
+int main(){
+	int i,j;
+	puts("input resource count:");
+	scanf("%d",&m);
+	
+	puts("input each resource:");
+	for(i = 0;i < m;i++){
+		scanf("%d",&resource[i]);
+		available[i] = resource[i];
+	}
+	
+	puts("input thread count:");
+	scanf("%d",&n);
+	
+	puts("input thread max needed resource");
+	for(i = 0;i < n;i++){
+		for(j = 0;j < m;j++){
+			scanf("%d",&request[i][j]);
+		}
+	}
+	puts("input thread allocated resouce");
+	for(i = 0;i < n;i++){
+		for(j = 0;j < m;j++){
+			scanf("%d",&allocation[i][j]);
+			need[i][j] = request[i][j] - allocation[i][j];
+			available[j] -= allocation[i][j];
+		}
+	}
+	
+	debugPrint();
+	
+	int r = dfs(0,available);
+	
+	if(r){
+		puts("system is in safty,the progress is:");
+		for(i = 0;i < n-1;i++){
+			printf("%d->",res[i]);
+		}
+		printf("%d\n",res[n-1]);
+	}else{
+		puts("system is not in safty");
+	}
+}
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <windows.h>
+asdlajsdlajld
+
+#define null ((void*)0)
+const int minMem = 8;
+
+typedef struct Membloc${
+	int offset;
+	int size;
+    int used;
+	
+    struct Membloc$ *parent;
+    struct Membloc$ *last;
+	struct Membloc$ *next;
+} Membloc;
+
+typedef struct Work${
+	int id;
+	int size;
+	int time;
+
+    int finished;
+    Membloc* mem;
+} Work;
+
+Membloc* head;
+
+Work *allocWork(int id,int size,int time){
+    Work* w = (Work*)malloc(sizeof(Work));
+    w->id = id;
+    w->size = size;
+    w->time = time;
+    w->finished = 0;
+    w->mem = null;
+    return w;
+}
+
+Membloc* allocMembloc(int offset,int size){
+	Membloc *mb = (Membloc*)malloc(sizeof(Membloc));
+    mb->offset = offset;
+    mb->size = size;
+    mb->next = null;
+    mb->last = null;
+    mb->parent = null;
+    mb->used = 0;
+    return mb;
+}
+
+void initMem(){
+	head = allocMembloc(-1,-1);
+    Membloc* next = allocMembloc(0,1024);
+    head->next = next;
+    next->last = head;
+}
+
+void print(){
+	Membloc* c = head->next;
+	puts("-----------------------");
+	while(c != null){
+		printf("%d %d %d - c%x l%x n%x p%x\n",c->offset,c->size,c->used,c,c->last,c->next,c->parent);
+		c = c->next;
+	}
+	puts("-----------------------");
+}
+
+Membloc* allocateFor(Work *w){
+    Membloc *c = head->next;
+    while(c != null){
+    	//print();
+    	//printf("mensize: %d wsize:%d\n",c->size,w->size);
+    	
+        if(c->used == 1){
+            c = c->next;
+            continue;
+        }
+
+        if(c->size == w->size){
+            w->mem = c;
+            c->used = 1;
+            return c; 
+        }else if(c->size > w->size){
+        	//printf("mensize: %d wsize:%d\n",c->size,w->size);
+        	int half = c->size >> 1;
+            if(half < w->size || half <= minMem){
+                w->mem = c;
+                c->used = 1;
+                return c;
+            }else{
+                
+                Membloc *m1 = allocMembloc(c->offset,half);
+                Membloc *m2 = allocMembloc(c->offset + half,half);
+                Membloc *n = c->next;
+                Membloc *l = c->last;
+
+                l->next = m1;
+
+                m1->last = l;
+                m1->next = m2;
+
+                m2->last = m1;
+                m2->next = n;
+
+                if(n != null){
+                	n->last = m2;
+				}
+
+                m1->parent = c;
+                m2->parent = c;
+                
+                c = m1;
+            }
+        }else{
+            c = c->next;
+        }
+    }
+    return null;
+}
+
+void deallocFor(Work *w){
+    Membloc *c = w->mem;
+    c->used = 0;
+
+    while(1){
+        Membloc *l = c->last;
+        Membloc *n = c->next;
+        
+        if(l == head && n == null){
+        	return;
+		}
+		
+
+        if(l!= null && c->parent == l->parent){
+        	if(c->parent == null || l->parent == null){
+        		return;
+			}
+            // merge
+            if(l->used == 0){
+                Membloc *m1 = l->last;
+                Membloc *m2 = c->next;
+                Membloc *p = c->parent;
+                free(l);
+                free(c);
+                m1->next = p;
+
+                p->last = m1;
+                p->next = m2;
+
+                if(m2 != null){
+                	m2->last = p;
+				}
+				
+				c = p;
+            }else{
+                return;
+            }
+        }else if(n != null && n->parent == c->parent){
+        	if(c->parent == null || n->parent == null){
+        		return;
+			}
+            // merge
+            if(n->used == 0){
+                Membloc *m1 = c->last;
+                Membloc *m2 = n->next;
+                Membloc *p = c->parent;
+                free(c);
+                free(n);
+                m1->next = p;
+
+                p->last = m1;
+                p->next = m2;
+
+                if(m2 != null){
+                	m2->last = p;
+				}
+				
+				c = p;
+            }else{
+                return;
+            }
+        }else{
+            c->used = 0;
+            return;
+        }
+    }
+}
+
+void maybeAllocateFor(Work *w){
+    Membloc *res = allocateFor(w);
+    if(res == null){
+        //printf("allocation failed for work %d\n",w->id);
+    }else{
+        w->mem = res;
+        printf("allocation for work %d\t",w->id);
+        printf("offset: \t%d\tsize: \t%d\t\n",w->mem->offset,w->mem->size);
+    }
+}
+
+int finishWork(Work *w){
+	w->finished = 1;
+    deallocFor(w);
+    printf("work %d has finished,dealloc memory\n",w->id);
+}
+
+int main(){
+	
+	initMem();
+    int n,i,j;
+    printf("input work count:\n");
+    scanf("%d",&n);
+
+    Work *works[100];
+
+    printf("id-size-time\n");
+    for(i = 0;i < n;i++){
+        int id,size,time;
+        scanf("%d %d %d",&id,&size,&time);
+
+        works[i] = allocWork(id,size,time);
+    }
+
+    int finished = 0;
+    while(finished < n){
+    	
+        for(i = 0;i < n;i++){
+            Work *w = works[i];
+            if(w->mem == null && w->finished == 0){
+                maybeAllocateFor(w);
+            }
+        }
+
+        for(i = 0;i < n;i++){
+            Work *w = works[i];
+            if(w->finished == 0){
+                if(w->mem != null && w->time > 0){
+                    w->time -= 10;
+                }else if(w->mem != null && w->time <= 0){
+                    finishWork(w);
+                    finished ++;
+                }
+            }
+        }
+        Sleep(10);
+    }
+    printf("all work done!\n");
+}
+
+
+#include <stdio.h>
+#define N 100
+
+int r1[N][N];
+int r2[N][N];
+int r3[N][N];
+/// page series
+int pages[N]; 
+
+/// count of phsical block
+int m;
+/// count of page series
+int n;
+
+/// type
+/// 0: opt
+/// 1: fifo
+/// 2: lru
+void resolve(){
+	int i,j,k,l,type;
+	
+	r1[0][0] = r2[0][0] = r3[0][0] = pages[0];
+	
+	for(i = 1;i < 3;i++){
+		for(j = 0;j < m;j++){
+			r1[i][j] = r1[i-1][j];
+			r2[i][j] = r2[i-1][j];
+			r3[i][j] = r3[i-1][j];
+		}
+		r1[i][i] = pages[i];
+		r2[i][i] = pages[i];
+		r3[i][i] = pages[i];
+	}
+	
+	for(i = 3;i < n;i++){
+		
+		/// pointer of FIFO 
+		int p2 = 0;
+		int p3[N] = {2,1,0};
+		
+		for(j = 0;j < m;j++){
+			r1[i][j] = r1[i-1][j];
+			r2[i][j] = r2[i-1][j];
+			r3[i][j] = r3[i-1][j];
+		}
+		
+		int page = pages[i];
+		int rep1 = 1,rep2 = 1,rep3 = 1;
+		
+		for(j = 0;j < m;j++){
+			if(r1[i][j] == page) rep1 = 0;
+			if(r2[i][j] == page) rep2 = 0;
+			if(r3[i][j] == page) rep3 = 0;
+		}
+		
+		for(type = 1;type <= 3;type ++){
+			if(type == 1){
+				if(!rep1) continue;
+				
+				int peek[N] = {0};
+				for(j = 0;j < m;j++){
+					for(k = i+1;k < n;k++){
+						if(r1[i][j] == pages[k]){
+							peek[j] = k;
+							break;
+						}
+					}
+				}
+				
+//				for(l = 0;l < m;l++){
+//					printf("%d ",peek[l]);
+//				}
+//				puts("");
+				
+				int max = -1,min = 0x7fffffff,index = -1;
+				for(j = 0;j < m;j++){
+					if(peek[j] > max){
+						max = peek[j];
+						index = j; 
+					}
+					if(peek[j] < min){
+						min = peek[j];
+					}
+				}
+				
+				/// same
+				if(max == min){
+					r1[i][0] = page;
+				}else{
+					r1[i][index] = page;
+				}
+			}else if(type == 2){
+				if(!rep2) continue;
+				
+				r2[i][p2] = page; 
+				
+				printf("%d\n",p2);
+				p2 = (p2 + 1) % m;
+				
+				printf("%d\n",p2);
+			}else{
+				if(!rep3){
+					for(j = 0;j < m;j++){
+						if(page != r3[i][j]){
+							p3[j] += 1;
+						}
+					}
+				}
+				
+				int max = -1,index = 0;
+				for(j = 0;j < m;j++){
+					if(p3[j] > max){
+						max = p3[j];
+						index = j;
+					}
+				} 
+				
+				r3[i][index] = page;
+				
+				for(j = 0;j < m;j++){
+					if(page != r3[i][j]){
+						p3[j] += 1;
+					}else{
+						p3[j] = 0;
+					}
+				}
+			}
+		}
+		
+	}
+}
+
+
+int main(){
+	puts("input block count");
+	scanf("%d",&m);
+	
+	puts("input series length");
+	scanf("%d",&n);
+	
+	int i,j;
+	for(i = 0;i < n;i++){
+		scanf("%d",&pages[i]);
+	}
+	
+	resolve();
+	
+	for(i = 0;i < n;i++) printf("%d\t",pages[i]);
+	
+	puts("");
+	
+	puts("OPT");
+	for(i = 0;i < m;i++){
+		for(j = 0;j < n;j++){
+			printf("%d\t",r1[j][i]);			
+		}
+		puts("");
+	}
+	
+	puts("FIFO");
+	for(i = 0;i < m;i++){
+		for(j = 0;j < n;j++){
+			printf("%d\t",r2[j][i]);			
+		}
+		puts("");
+	}
+	
+	puts("LRU");
+	for(i = 0;i < m;i++){
+		for(j = 0;j < n;j++){
+			printf("%d\t",r3[j][i]);			
+		}
+		puts("");
+	}
+}
